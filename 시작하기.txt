@@ -3,7 +3,7 @@ AI Usage 위젯
 Windows에서 Codex·Cursor 잔여 사용량을 보는 작은 위젯입니다.
 
 실행 (원클릭)
-1) zip을 폴더로 압축 해제합니다. zip 안에서 바로 실행하면 안 됩니다. 이 프로그램은 .exe가 아닙니다.
+1) zip을 폴더로 압축 해제합니다. zip 안에서 바로 실행하면 안 됩니다. 폴더 이름에 (1) 같은 괄호가 있으면 지워 주세요.
 2) start_usage_widget.vbs 를 더블클릭합니다. 안 되면 같은 폴더의 문제확인.bat 또는 diagnose.bat 을 실행하고 나오는 글을 보내세요.
 3) 이미 있는 Python 3.9 이상(명령 프롬프트에서 python --version)을 먼저 씁니다. Microsoft Store로 깐 것도 포함합니다.
 4) 없거나, 3.9 미만이거나, 위젯 화면(Tk)을 쓸 수 없을 때만 위젯용 Python을 추가로 설치합니다. 이미 있는 Python을 업그레이드하지는 않습니다.

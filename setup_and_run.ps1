@@ -285,22 +285,14 @@ function Start-Widget([string]$PythonExe) {
 }
 
 try {
-    Write-LaunchLog 'setup start'
+    Write-LaunchLog "setup start $Here"
     Unblock-Here
     $python = Get-ReadyPython
     if ($python) {
         Start-Widget $python
         exit 0
     }
-
-    if (-not $InstallUi) {
-        Show-Popup 'Python이 없어 설치합니다. 1~2분 걸릴 수 있습니다. 설치가 끝날 때까지 기다리세요.'
-        $ui = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
-            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $PSCommandPath, '-InstallUi'
-        ) -WindowStyle Hidden -Wait -PassThru
-        if ($ui -and $ui.ExitCode -ne 0) { exit $ui.ExitCode }
-        exit 0
-    }
+    Show-Popup 'Python이 없어 설치합니다. 1~2분 걸릴 수 있습니다. 설치가 끝날 때까지 기다리세요.'
 } catch {
     Show-LaunchError "실행에 실패했습니다.`n$_"
     exit 1

@@ -1,1 +1,1 @@
-{"version":"3.2.5","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"diagnose.bat이 UTF-8이라 명령이 깨지던 문제. 영문 ASCII로 저장"}
+{"version":"3.2.6","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"폴더 이름에 괄호가 있으면 Python 설치 단계가 바로 실패하던 문제"}

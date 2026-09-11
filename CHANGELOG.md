@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [3.2.6] - 2026-09-11
+
+### Fixed
+- 폴더 이름에 괄호가 있으면 Python 설치 단계가 바로 실패하던 문제
+
+### Notes
+- `AIUsageWidget (1)`처럼 받은 폴더는 이름을 `AIUsageWidget`으로 바꾸는 것이 안전합니다.
+
 ## [3.2.5] - 2026-09-11
 
 ### Fixed
@@ -81,7 +89,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.5...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.6...HEAD
+[3.2.6]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.6
 [3.2.5]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.5
 [3.2.4]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.4
 [3.2.3]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.3
