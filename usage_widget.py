@@ -142,6 +142,92 @@ FONT_META = ('Malgun Gothic', -11)
 FONT_CHIP = ('Segoe UI Semibold', -12)
 FONT_FOOT = ('Malgun Gothic', -11)
 FONT_BADGE = ('Malgun Gothic', -11)
+SCALE_MIN, SCALE_MAX, SCALE_STEP, DEFAULT_SCALE = 0.75, 1.5, 0.15, 1.0
+
+
+def clamp_scale(value, default=DEFAULT_SCALE):
+    try:
+        scale = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(scale):
+        return default
+    return max(SCALE_MIN, min(SCALE_MAX, round(scale, 2)))
+
+
+def px(value, scale, minimum=0):
+    return max(minimum, int(round(float(value) * float(scale))))
+
+
+def scaled_font(font, scale):
+    family, size = font[0], font[1]
+    sign = -1 if size < 0 else 1
+    return (family, sign * max(1, int(round(abs(size) * float(scale)))))
+
+
+def step_scale(scale, steps=1):
+    return clamp_scale(clamp_scale(scale) + SCALE_STEP * int(steps))
+
+
+class Metrics:
+    """Variant A token sizes multiplied by the user scale."""
+
+    def __init__(self, scale=DEFAULT_SCALE):
+        self.scale = clamp_scale(scale)
+
+    def p(self, value, minimum=0):
+        return px(value, self.scale, minimum)
+
+    def font(self, spec):
+        return scaled_font(spec, self.scale)
+
+    @property
+    def window_w(self):
+        return self.p(WINDOW_W, 1)
+
+    @property
+    def header_h(self):
+        return self.p(HEADER_H, 1)
+
+    @property
+    def compact_h(self):
+        return self.p(COMPACT_H, 1)
+
+    @property
+    def footer_h(self):
+        return self.p(FOOTER_H, 1)
+
+    @property
+    def bar_h(self):
+        return self.p(BAR_H, 1)
+
+    @property
+    def strip_w(self):
+        return self.p(STRIP_W, 1)
+
+    @property
+    def chip_h(self):
+        return self.p(CHIP_H, 1)
+
+    @property
+    def chip_w(self):
+        return self.p(82, 1)
+
+    @property
+    def card_w(self):
+        return self.p(CARD_W, 1)
+
+    @property
+    def card_radius(self):
+        return self.p(CARD_RADIUS, 1)
+
+    @property
+    def card_gap(self):
+        return self.p(CARD_GAP, 1)
+
+    @property
+    def icon(self):
+        return self.p(24, 1)
 
 
 def read_json(path):
@@ -555,10 +641,10 @@ class Instance:
 
 
 class IconButton(tk.Canvas):
-    def __init__(self, parent, image, command, hover_bg=HOVER):
-        super().__init__(parent,width=24,height=24,bg=BG,bd=0,highlightthickness=0,
+    def __init__(self, parent, image, command, hover_bg=HOVER, size=24):
+        super().__init__(parent,width=size,height=size,bg=BG,bd=0,highlightthickness=0,
                          cursor='hand2',takefocus=True)
-        self.image, self.command, self.hover = image, command, hover_bg
+        self.image, self.command, self.hover, self.size = image, command, hover_bg, size
         self.bind('<Button-1>',lambda e:command())
         self.bind('<Return>',lambda e:command())
         self.bind('<space>',lambda e:command())
@@ -566,19 +652,31 @@ class IconButton(tk.Canvas):
         self.bind('<Leave>',lambda e:self.paint(False))
         self.paint(False)
 
+    def set_size(self, size):
+        self.size = max(1, int(size))
+        self.configure(width=self.size, height=self.size)
+        self.paint(False)
+
     def paint(self, hover):
         self.delete('all')
+        size = self.size
         if hover:
-            round_rect(self,0,0,24,24,6,self.hover)
-        self.create_image(12,12,image=self.image)
+            round_rect(self,0,0,size,size,max(2, int(round(size * 0.25))),self.hover)
+        self.create_image(size/2,size/2,image=self.image)
 
 
 class Chip(tk.Canvas):
     """One progress pill: proportional fill and an independent text overlay."""
-    def __init__(self, parent):
-        super().__init__(parent,width=82,height=CHIP_H,highlightthickness=0,bd=0,bg=BG)
+    def __init__(self, parent, metrics=None):
+        self.metrics = metrics or Metrics()
+        super().__init__(parent,width=self.metrics.chip_w,height=self.metrics.chip_h,highlightthickness=0,bd=0,bg=BG)
         self.text, self.fill, self.fg, self.percent = '—', CHIP_STALE, CHIP_FG, 0.0
         self._photo = None
+        self._redraw()
+
+    def set_metrics(self, metrics):
+        self.metrics = metrics
+        self.configure(width=metrics.chip_w, height=metrics.chip_h)
         self._redraw()
 
     def cget(self,key):
@@ -607,23 +705,30 @@ class Chip(tk.Canvas):
 
     def _redraw(self):
         self.delete('all')
-        width = 82
+        width, height = self.metrics.chip_w, self.metrics.chip_h
         self.fill_width = chip_fill_width(width,self.percent)
         # Fill is clipped to the track so the leading cap cannot bulge outside.
-        self._photo = progress_photo(width, CHIP_H, CHIP_H / 2, self.fill_width, CHIP_TRACK, self.fill, BG)
+        self._photo = progress_photo(width, height, height / 2, self.fill_width, CHIP_TRACK, self.fill, BG)
         self.create_image(0, 0, image=self._photo, anchor='nw', tags='track')
-        self.create_text(width/2,CHIP_H/2,text=self.text,fill=CHIP_FG,font=FONT_CHIP,tags='label')
+        self.create_text(width/2,height/2,text=self.text,fill=CHIP_FG,font=self.metrics.font(FONT_CHIP),tags='label')
 
 
 class Card(tk.Frame):
     """Explicit pixel layout matching the supplied 334px-wide card references."""
-    def __init__(self,parent,key):
-        super().__init__(parent,width=CARD_W,height=120,bg=BG)
-        self.key, self.height, self.last_signature = key,120,None
+    def __init__(self,parent,key,metrics=None):
+        self.metrics = metrics or Metrics()
+        m = self.metrics
+        super().__init__(parent,width=m.card_w,height=m.p(120),bg=BG)
+        self.key, self.height, self.last_signature = key,m.p(120),None
         self._bar_photos = []
-        self.rows = tk.Canvas(self,width=CARD_W,height=self.height,bg=BG,bd=0,highlightthickness=0,cursor='hand2')
+        self.rows = tk.Canvas(self,width=m.card_w,height=self.height,bg=BG,bd=0,highlightthickness=0,cursor='hand2')
         self.rows.pack()
         self.rows.bind('<Button-1>',lambda e:webbrowser.open(URLS[key]))
+
+    def set_metrics(self, metrics):
+        if self.metrics.scale != metrics.scale:
+            self.last_signature = None
+        self.metrics = metrics
 
     def render(self,snap):
         visual = snapshot_to_dict(snap)
@@ -632,72 +737,75 @@ class Card(tk.Frame):
         if signature == self.last_signature:
             return
         self.last_signature = signature
+        m = self.metrics
         positions = []
-        label_y = 108
+        label_y = m.p(108)
         for bar in snap.bars if snap.ok else []:
             reset = reset_stamp(bar.reset_text) if self.key == 'chatgpt' and bar.label == '5시간' else ''
             positions.append((bar,label_y,reset))
-            label_y += 42 + (20 if reset else 0)
-        last_bottom = positions[-1][1]+18 if positions else 92
+            label_y += m.p(42) + (m.p(20) if reset else 0)
+        last_bottom = positions[-1][1]+m.p(18) if positions else m.p(92)
         amount = included_amount(snap) if self.key == 'cursor' and snap.ok else ''
         extra = bonus_line(snap) if self.key == 'cursor' and snap.ok else ''
-        bill_y = last_bottom+27
-        bonus_y = bill_y+30 if amount else last_bottom+27
-        self.height = (bonus_y+19 if extra else bill_y+19 if amount else last_bottom+16) if snap.ok else 138
+        bill_y = last_bottom+m.p(27)
+        bonus_y = bill_y+m.p(30) if amount else last_bottom+m.p(27)
+        self.height = (bonus_y+m.p(19) if extra else bill_y+m.p(19) if amount else last_bottom+m.p(16)) if snap.ok else m.p(138)
         state = strip_color(self.key,snap)
-        strip_h = max(1, self.height - 24)
-        photos = [round_photo(STRIP_W, strip_h, STRIP_W / 2, state, CARD)]
-        track_w = CARD_W - 36
+        strip_h = max(1, self.height - m.p(24))
+        photos = [round_photo(m.strip_w, strip_h, m.strip_w / 2, state, CARD)]
+        track_w = m.card_w - m.p(36)
         for bar,_,_ in positions:
             fill_w = chip_fill_width(track_w, bar.remaining_percent)
-            photos.append(progress_photo(track_w, BAR_H, 4, fill_w, TRACK,
+            photos.append(progress_photo(track_w, m.bar_h, 4 * m.scale, fill_w, TRACK,
                                          bar_color(self.key, bar.remaining_percent, snap.stale), CARD))
         c = self.rows
-        c.configure(width=CARD_W,height=self.height)
-        self.configure(width=CARD_W,height=self.height)
+        c.configure(width=m.card_w,height=self.height)
+        self.configure(width=m.card_w,height=self.height)
         c.delete('all')
         strip, strip_pad = photos[0]
-        round_rect(c,0,0,CARD_W,self.height,CARD_RADIUS,HAIR)
-        round_rect(c,1,1,CARD_W-1,self.height-1,CARD_RADIUS-1,CARD)
-        c.create_image(1 - strip_pad, 12 - strip_pad, image=strip, anchor='nw', tags='strip')
-        c.create_oval(21,21,29,29,fill=state,outline='')
-        baseline_text(c,36,30,TITLES[self.key],FONT_SERVICE,TEXT)
+        round_rect(c,0,0,m.card_w,self.height,m.card_radius,HAIR)
+        round_rect(c,1,1,m.card_w-1,self.height-1,max(1, m.card_radius-1),CARD)
+        c.create_image(1 - strip_pad, m.p(12) - strip_pad, image=strip, anchor='nw', tags='strip')
+        c.create_oval(m.p(21),m.p(21),m.p(29),m.p(29),fill=state,outline='')
+        baseline_text(c,m.p(36),m.p(30),TITLES[self.key],m.font(FONT_SERVICE),TEXT)
         credit = reset_credit(snap) if self.key == 'chatgpt' and snap.ok else ''
-        plan_right = CARD_W-16
+        plan_right = m.card_w-m.p(16)
         if credit:
-            font = tkfont.Font(root=c,font=FONT_BADGE)
-            pill_w = font.measure(credit)+16
-            round_rect(c,plan_right-pill_w,16,plan_right,34,9,'#295346')
-            round_rect(c,plan_right-pill_w+1,17,plan_right-1,33,8,'#20302F')
-            c.create_text(plan_right-pill_w/2,25,text=credit,font=FONT_BADGE,fill=CODEX)
-            plan_right -= pill_w+8
-        baseline_text(c,plan_right,30,'' if snap.plan == '-' else snap.plan,FONT_PLAN,MUTED,right=True)
+            font = tkfont.Font(root=c,font=m.font(FONT_BADGE))
+            pill_w = font.measure(credit)+m.p(16)
+            round_rect(c,plan_right-pill_w,m.p(16),plan_right,m.p(34),m.p(9),'#295346')
+            round_rect(c,plan_right-pill_w+1,m.p(17),plan_right-1,m.p(33),m.p(8),'#20302F')
+            c.create_text(plan_right-pill_w/2,m.p(25),text=credit,font=m.font(FONT_BADGE),fill=CODEX)
+            plan_right -= pill_w+m.p(8)
+        baseline_text(c,plan_right,m.p(30),'' if snap.plan == '-' else snap.plan,m.font(FONT_PLAN),MUTED,right=True)
         value = '—' if snap.hero_percent is None else f'{snap.hero_percent:.0f}%'
-        hero_id = baseline_text(c,20,81,value,FONT_HERO,color_for(snap),tags='hero')
+        hero_id = baseline_text(c,m.p(20),m.p(81),value,m.font(FONT_HERO),color_for(snap),tags='hero')
         hero_box = c.bbox(hero_id)
         subtitle = HERO_SUB[self.key] if snap.ok else '조회 실패'
-        baseline_text(c,hero_box[2]+8,80,subtitle,FONT_SUB,MUTED)
+        baseline_text(c,hero_box[2]+m.p(8),m.p(80),subtitle,m.font(FONT_SUB),MUTED)
         for index,(bar,y,reset) in enumerate(positions):
-            baseline_text(c,20,y,bar.label,FONT_ROW,MUTED)
+            baseline_text(c,m.p(20),y,bar.label,m.font(FONT_ROW),MUTED)
             value = '—' if bar.remaining_percent is None else f'{bar.remaining_percent:.0f}%'
-            baseline_text(c,CARD_W-16,y,value,FONT_VALUE,TEXT,right=True)
-            c.create_image(20, y+10, image=photos[index+1], anchor='nw')
+            baseline_text(c,m.card_w-m.p(16),y,value,m.font(FONT_VALUE),TEXT,right=True)
+            c.create_image(m.p(20), y+m.p(10), image=photos[index+1], anchor='nw')
             if reset:
-                baseline_text(c,20,y+35,reset,FONT_META,DIM)
+                baseline_text(c,m.p(20),y+m.p(35),reset,m.font(FONT_META),DIM)
         self._bar_photos = [photos[0][0], *photos[1:]]
         if amount:
-            baseline_text(c,20,bill_y,'기본 포함량',FONT_ROW,MUTED)
-            baseline_text(c,CARD_W-16,bill_y,amount,FONT_VALUE,TEXT,right=True)
+            baseline_text(c,m.p(20),bill_y,'기본 포함량',m.font(FONT_ROW),MUTED)
+            baseline_text(c,m.card_w-m.p(16),bill_y,amount,m.font(FONT_VALUE),TEXT,right=True)
         if extra:
-            baseline_text(c,20,bonus_y,extra,FONT_META,DIM)
+            baseline_text(c,m.p(20),bonus_y,extra,m.font(FONT_META),DIM)
         if not snap.ok:
-            c.create_text(20,99,text=snap.error or '조회 실패',font=FONT_META,fill=DANGER,anchor='nw',width=CARD_W-36)
+            c.create_text(m.p(20),m.p(99),text=snap.error or '조회 실패',font=m.font(FONT_META),fill=DANGER,anchor='nw',width=m.card_w-m.p(36))
 
 
 class UsageWidget:
     def __init__(self, preview=False):
         self.preview = preview
         self.settings = read_json(SETTINGS_PATH)
+        self.scale = clamp_scale(self.settings.get('scale', DEFAULT_SCALE))
+        self.metrics = Metrics(self.scale)
         self.root = tk.Tk()
         self.root.title('AI Usage' if not preview else 'AI Usage — Preview')
         self.root.configure(bg=BG)
@@ -749,6 +857,13 @@ class UsageWidget:
         self.root.protocol('WM_DELETE_WINDOW', self.close)
         self.root.bind_all('<F5>', lambda e: self.refresh())
         self.root.bind_all('<Control-m>', lambda e: self.toggle())
+        self.root.bind_all('<Control-equal>', self._scale_up)
+        self.root.bind_all('<Control-plus>', self._scale_up)
+        self.root.bind_all('<Control-KP_Add>', self._scale_up)
+        self.root.bind_all('<Control-minus>', self._scale_down)
+        self.root.bind_all('<Control-KP_Subtract>', self._scale_down)
+        self.root.bind_all('<Control-0>', self._scale_reset)
+        self.root.bind_all('<Control-KP_0>', self._scale_reset)
         self.root.bind_all('<Button-3>', self.popup)
         self.tick()
 
@@ -767,50 +882,53 @@ class UsageWidget:
         if image is None:
             fallback = {'refresh': '↻', 'minus': '−', 'close': '×', 'expand': '＋', 'plus': '＋'}
             button = tk.Label(parent, text=fallback.get(name, '·'), bg=parent.cget('bg'), fg=MUTED,
-                              font=('Segoe UI', 11), cursor='hand2')
+                              font=('Segoe UI', max(8, int(round(11 * self.metrics.scale)))), cursor='hand2')
             button.bind('<Button-1>', lambda e: command())
             return button
-        return IconButton(parent, image, command, hover_bg=hover_bg)
+        return IconButton(parent, image, command, hover_bg=hover_bg, size=self.metrics.icon)
 
     def build(self):
-        self.shell = tk.Frame(self.root,bg=BG,width=WINDOW_W,highlightbackground=HAIR,highlightthickness=1)
+        m = self.metrics
+        self.shell = tk.Frame(self.root,bg=BG,width=m.window_w,highlightbackground=HAIR,highlightthickness=1)
         self.shell.pack()
         self.shell.pack_propagate(False)
-        self.header = tk.Frame(self.shell,bg=BG,height=HEADER_H)
-        title = tk.Label(self.header,text='AI Usage',bg=BG,fg=TEXT,font=FONT_TITLE,bd=0,padx=0,pady=0)
-        title.place(x=12,y=0,height=HEADER_H)
-        self.update_btn = tk.Label(self.header,text='업데이트',bg=BG,fg=DIM,font=FONT_META,bd=0,padx=0,pady=0)
-        self.update_btn.place(x=96,y=0,height=HEADER_H)
-        for index,(name,callback) in enumerate((('refresh',self.refresh),('minus',self.toggle),('close',self.close))):
-            self.icon_button(self.header,name,callback,CLOSE_HOVER if name == 'close' else HOVER).place(x=270+26*index,y=8,width=24,height=24)
-        self.body = tk.Frame(self.shell,bg=BG,padx=12)
-        self.cards = {k:Card(self.body,k) for k in FETCHERS}
-        self.footer = tk.Frame(self.shell,bg=BG,height=FOOTER_H)
+        self.header = tk.Frame(self.shell,bg=BG,height=m.header_h)
+        self.title = tk.Label(self.header,text='AI Usage',bg=BG,fg=TEXT,font=m.font(FONT_TITLE),bd=0,padx=0,pady=0)
+        self.update_btn = tk.Label(self.header,text='업데이트',bg=BG,fg=DIM,font=m.font(FONT_META),bd=0,padx=0,pady=0)
+        self.header_buttons = []
+        for name,callback in (('refresh',self.refresh),('minus',self.toggle),('close',self.close)):
+            self.header_buttons.append(self.icon_button(self.header,name,callback,CLOSE_HOVER if name == 'close' else HOVER))
+        self.body = tk.Frame(self.shell,bg=BG,padx=m.p(12))
+        self.cards = {k:Card(self.body,k,m) for k in FETCHERS}
+        self.footer = tk.Frame(self.shell,bg=BG,height=m.footer_h)
         tk.Frame(self.footer,bg=HAIR,height=1).place(x=0,y=0,relwidth=1,height=1)
-        self.footer_dot = tk.Canvas(self.footer,width=6,height=6,bg=BG,highlightthickness=0,bd=0)
-        self.footer_dot.place(x=14,y=12)
-        self.footer_text = tk.Label(self.footer,bg=BG,fg=MUTED,font=FONT_FOOT,bd=0,padx=0,pady=0)
-        self.footer_text.place(x=30,y=1,height=27)
-        self.footer_sep = tk.Label(self.footer,text='·',bg=BG,fg=DIM,font=FONT_FOOT,bd=0,padx=0,pady=0)
-        tk.Label(self.footer,text='F5 새로고침',bg=BG,fg=DIM,font=FONT_FOOT,bd=0,padx=0,pady=0).place(x=WINDOW_W-16,y=1,height=27,anchor='ne')
+        self.footer_dot = tk.Canvas(self.footer,width=m.p(6),height=m.p(6),bg=BG,highlightthickness=0,bd=0)
+        self.footer_text = tk.Label(self.footer,bg=BG,fg=MUTED,font=m.font(FONT_FOOT),bd=0,padx=0,pady=0)
+        self.footer_sep = tk.Label(self.footer,text='·',bg=BG,fg=DIM,font=m.font(FONT_FOOT),bd=0,padx=0,pady=0)
+        self.footer_hint = tk.Label(self.footer,text='F5 새로고침',bg=BG,fg=DIM,font=m.font(FONT_FOOT),bd=0,padx=0,pady=0)
         self.status = self.footer_text
-        self.mini = tk.Frame(self.shell,bg=BG,height=COMPACT_H-2)
-        mini_title = tk.Label(self.mini,text='AI Usage',bg=BG,fg=TEXT,font=FONT_TITLE,bd=0,padx=0,pady=0)
-        mini_title.place(x=12,y=0,height=COMPACT_H-2)
-        self.mini_update = tk.Label(self.mini,text='업데이트',bg=BG,fg=DIM,font=FONT_META,bd=0,padx=0,pady=0)
+        self.mini = tk.Frame(self.shell,bg=BG,height=max(1, m.compact_h-2))
+        self.mini_title = tk.Label(self.mini,text='AI Usage',bg=BG,fg=TEXT,font=m.font(FONT_TITLE),bd=0,padx=0,pady=0)
+        self.mini_update = tk.Label(self.mini,text='업데이트',bg=BG,fg=DIM,font=m.font(FONT_META),bd=0,padx=0,pady=0)
         self.mini_values = {}
-        for index,key in enumerate(FETCHERS):
-            chip = Chip(self.mini)
-            chip.place(x=76+88*index,y=9,width=82,height=24)
+        for key in FETCHERS:
+            chip = Chip(self.mini, m)
             self.mini_values[key] = chip
             self.bind_drag(chip)
-        for index,(name,callback) in enumerate((('refresh',self.refresh),('expand',self.toggle),('close',self.close))):
-            self.icon_button(self.mini,name,callback,CLOSE_HOVER if name == 'close' else HOVER).place(x=270+26*index,y=9,width=24,height=24)
-        for widget in (title,self.header,mini_title,self.mini):
+        self.mini_buttons = []
+        for name,callback in (('refresh',self.refresh),('expand',self.toggle),('close',self.close)):
+            self.mini_buttons.append(self.icon_button(self.mini,name,callback,CLOSE_HOVER if name == 'close' else HOVER))
+        self.apply_metrics()
+        for widget in (self.title,self.header,self.mini_title,self.mini):
             self.bind_drag(widget)
         self.menu = tk.Menu(self.root, tearoff=False, bg=CARD, fg=TEXT, activebackground=HAIR, activeforeground=TEXT)
         self.menu.add_command(label='새로고침    F5', command=self.refresh)
         self.menu.add_command(label='한 줄 / 상세    Ctrl+M', command=self.toggle)
+        self.menu.add_separator()
+        self.menu.add_command(label='더 크게    Ctrl++', command=lambda: self.nudge_scale(1))
+        self.menu.add_command(label='더 작게    Ctrl+-', command=lambda: self.nudge_scale(-1))
+        self.menu.add_command(label='기본 크기    Ctrl+0', command=lambda: self.set_scale(DEFAULT_SCALE))
+        self.menu.add_separator()
         self.menu.add_checkbutton(label='항상 위', variable=self.topmost, command=self.set_topmost)
         self.startup = tk.BooleanVar(value=startup_path().exists())
         self.menu.add_checkbutton(label='Windows 시작 시 실행', variable=self.startup, command=self.toggle_startup)
@@ -842,6 +960,7 @@ class UsageWidget:
             '계정 로그인은 각 서비스에서 하세요. 위젯은 읽기만 합니다.\n'
             'Codex는 ChatGPT 데스크톱 앱이 아니라 Codex CLI 로그인이 필요합니다.\n\n'
             'F5 새로고침 · Ctrl+M 한 줄 모드\n'
+            'Ctrl++ / Ctrl+- 크기 조절 · Ctrl+0 기본 크기\n'
             '제목 드래그로 이동 · 우클릭으로 설정\n\n'
             '10% 이하·소진 시 한 번 알림 (12% 초과 회복 시 재설정)\n'
             '로그인 파일 변경 자동 감지 · 조회 제한 15초\n'
@@ -955,14 +1074,91 @@ class UsageWidget:
         dialog.grab_set()
         dialog.wait_window()
 
+    def apply_metrics(self):
+        m = self.metrics
+        self.title.configure(font=m.font(FONT_TITLE))
+        self.update_btn.configure(font=m.font(FONT_META))
+        self.mini_title.configure(font=m.font(FONT_TITLE))
+        self.mini_update.configure(font=m.font(FONT_META))
+        self.footer_text.configure(font=m.font(FONT_FOOT))
+        self.footer_sep.configure(font=m.font(FONT_FOOT))
+        self.footer_hint.configure(font=m.font(FONT_FOOT))
+        self.header.configure(height=m.header_h)
+        self.footer.configure(height=m.footer_h)
+        self.mini.configure(height=max(1, m.compact_h - 2))
+        self.body.configure(padx=m.p(12))
+        self.title.place(x=m.p(12), y=0, height=m.header_h)
+        self.update_btn.place(x=m.p(96), y=0, height=m.header_h)
+        fallback_font = ('Segoe UI', max(8, int(round(11 * m.scale))))
+        for index, btn in enumerate(self.header_buttons):
+            if isinstance(btn, IconButton):
+                btn.set_size(m.icon)
+            else:
+                btn.configure(font=fallback_font)
+            btn.place(x=m.p(270) + m.p(26) * index, y=m.p(8), width=m.icon, height=m.icon)
+        self.mini_title.place(x=m.p(12), y=0, height=max(1, m.compact_h - 2))
+        for index, btn in enumerate(self.mini_buttons):
+            if isinstance(btn, IconButton):
+                btn.set_size(m.icon)
+            else:
+                btn.configure(font=fallback_font)
+            btn.place(x=m.p(270) + m.p(26) * index, y=m.p(9), width=m.icon, height=m.icon)
+        self.footer_dot.configure(width=m.p(6), height=m.p(6))
+        self.footer_dot.place(x=m.p(14), y=m.p(12))
+        self.footer_text.place(x=m.p(30), y=m.p(1), height=m.p(27))
+        self.footer_hint.place(x=m.window_w - m.p(16), y=m.p(1), height=m.p(27), anchor='ne')
+        for chip in self.mini_values.values():
+            chip.set_metrics(m)
+        for card in self.cards.values():
+            card.set_metrics(m)
+            if card.last_signature is None:
+                card.height = m.p(120)
+                card.configure(width=m.card_w, height=card.height)
+                card.rows.configure(width=m.card_w, height=card.height)
+
+    def set_scale(self, scale):
+        scale = clamp_scale(scale)
+        if scale == self.scale:
+            return
+        self.scale = scale
+        self.metrics = Metrics(scale)
+        self.apply_metrics()
+        self._layout = None
+        self._region_h = None
+        self._footer_state = None
+        for key in FETCHERS:
+            if key in self.snapshots:
+                self.cards[key].last_signature = None
+                self.render(key)
+        self.apply_mode()
+        self.set_footer('', MUTED, CODEX)
+        self.place(self.root.winfo_x(), self.root.winfo_y())
+        self.persist()
+
+    def nudge_scale(self, steps):
+        self.set_scale(step_scale(self.scale, steps))
+
+    def _scale_up(self, event=None):
+        self.nudge_scale(1)
+        return 'break'
+
+    def _scale_down(self, event=None):
+        self.nudge_scale(-1)
+        return 'break'
+
+    def _scale_reset(self, event=None):
+        self.set_scale(DEFAULT_SCALE)
+        return 'break'
+
     def apply_mode(self):
+        m = self.metrics
         visible = [k for k in FETCHERS if self.enabled[k].get()]
         for key,card in self.cards.items():
             if key not in visible:
                 self.mini_values[key].configure(text=TITLES[key]+' 꺼짐',fg=CHIP_FG,bg=CHIP_STALE,percent=0)
-        body_h = 6+sum(self.cards[k].height for k in visible)+CARD_GAP*max(0,len(visible)-1)+10
-        height = COMPACT_H if self.compact else 2+HEADER_H+body_h+FOOTER_H
-        layout = (self.compact, tuple(visible), height, tuple(self.cards[k].height for k in visible))
+        body_h = m.p(6)+sum(self.cards[k].height for k in visible)+m.card_gap*max(0,len(visible)-1)+m.p(10)
+        height = m.compact_h if self.compact else 2+m.header_h+body_h+m.footer_h
+        layout = (self.compact, tuple(visible), height, tuple(self.cards[k].height for k in visible), m.scale)
         if layout == self._layout:
             return
         self._layout = layout
@@ -972,23 +1168,23 @@ class UsageWidget:
             card.pack_forget()
             if key in visible:
                 index = visible.index(key)
-                card.pack(fill='x',pady=(6 if index == 0 else CARD_GAP,0))
+                card.pack(fill='x',pady=(m.p(6) if index == 0 else m.card_gap,0))
         shown = 0
         for key in FETCHERS:
             chip = self.mini_values[key]
             if key in visible:
-                chip.place(x=76+88*shown,y=9,width=82,height=24)
+                chip.place(x=m.p(76)+m.p(88)*shown,y=m.p(9),width=m.chip_w,height=m.chip_h)
                 shown += 1
             else:
                 chip.place_forget()
-        self.shell.configure(width=WINDOW_W,height=height)
+        self.shell.configure(width=m.window_w,height=height)
         if self.compact:
-            self.mini.place(x=1,y=1,width=WINDOW_W-2,height=COMPACT_H-2,bordermode='outside')
+            self.mini.place(x=1,y=1,width=m.window_w-2,height=max(1, m.compact_h-2),bordermode='outside')
         else:
-            self.header.place(x=1,y=1,width=WINDOW_W-2,height=HEADER_H,bordermode='outside')
-            self.body.place(x=1,y=1+HEADER_H,width=WINDOW_W-2,height=body_h,bordermode='outside')
-            self.footer.place(x=1,y=height-FOOTER_H-1,width=WINDOW_W-2,height=FOOTER_H,bordermode='outside')
-        self.root.geometry(f'{WINDOW_W}x{height}')
+            self.header.place(x=1,y=1,width=m.window_w-2,height=m.header_h,bordermode='outside')
+            self.body.place(x=1,y=1+m.header_h,width=m.window_w-2,height=body_h,bordermode='outside')
+            self.footer.place(x=1,y=height-m.footer_h-1,width=m.window_w-2,height=m.footer_h,bordermode='outside')
+        self.root.geometry(f'{m.window_w}x{height}')
         self.root.update_idletasks()
         if not self.preview and height != self._region_h:
             # Region coordinates include the whole frameless window.
@@ -996,7 +1192,7 @@ class UsageWidget:
                 gdi = ctypes.windll.gdi32
                 gdi.CreateRoundRectRgn.restype = ctypes.c_void_p
                 hwnd = ctypes.c_void_p(int(self.root.wm_frame(),16))
-                region = gdi.CreateRoundRectRgn(0,0,WINDOW_W+1,height+1,24,24)
+                region = gdi.CreateRoundRectRgn(0,0,m.window_w+1,height+1,m.p(24),m.p(24))
                 if ctypes.windll.user32.SetWindowRgn(hwnd,ctypes.c_void_p(region),True):
                     self._region_h = height
                 else:
@@ -1069,6 +1265,7 @@ class UsageWidget:
                 'y': self.root.winfo_y(),
                 'compact': self.compact,
                 'topmost': self.topmost.get(),
+                'scale': self.scale,
                 'version': 3,
                 'setup_done': True,
                 'notifications': self.notifications.get(),
@@ -1221,10 +1418,12 @@ class UsageWidget:
             return
         self._footer_state = state
         self.footer_text.configure(text=text,fg=MUTED)
-        width = tkfont.Font(root=self.root,font=FONT_FOOT).measure(text)
-        self.footer_sep.place(x=30+width+10,y=1,height=27)
+        m = self.metrics
+        width = tkfont.Font(root=self.root,font=m.font(FONT_FOOT)).measure(text)
+        self.footer_sep.place(x=m.p(30)+width+m.p(10),y=m.p(1),height=m.p(27))
         self.footer_dot.delete('all')
-        self.footer_dot.create_oval(0,0,6,6,fill=dot,outline='')
+        d = m.p(6)
+        self.footer_dot.create_oval(0,0,d,d,fill=dot,outline='')
 
     def tick(self):
         if self.closing:
@@ -1289,7 +1488,8 @@ class UsageWidget:
         self.mini_update.unbind('<Button-1>')
         if self.compact and ready:
             self.mini_update.configure(text='↑', fg=CODEX, cursor='hand2')
-            self.mini_update.place(x=250, y=10, width=16, height=22)
+            m = self.metrics
+            self.mini_update.place(x=m.p(250), y=m.p(10), width=m.p(16), height=m.p(22))
             self.mini_update.bind('<Button-1>', lambda e: self.install_update())
         else:
             self.mini_update.place_forget()

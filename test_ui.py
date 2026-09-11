@@ -74,4 +74,49 @@ class UiTests(unittest.TestCase):
         w.runner.cancel.assert_called_once_with('chatgpt')
         self.assertEqual(w.due['chatgpt'],0)
 
+    def test_scale_resizes_window_and_clamps(self):
+        w=self.w
+        s=ProviderSnapshot('chatgpt','Codex','Plus',True,80,'5시간 기준 잔여',bars=[QuotaBar('5시간',80,20,'','9월 10일 14:00')])
+        w.snapshots['chatgpt']=s;w.render('chatgpt')
+        base=int(w.shell.cget('width'))
+        card_h=w.cards['chatgpt'].height
+        chip_w=int(w.mini_values['chatgpt'].cget('width'))
+        w.set_scale(1.3)
+        self.assertEqual(w.scale, 1.3)
+        self.assertEqual(int(w.shell.cget('width')), u.px(360, 1.3))
+        self.assertGreater(int(w.shell.cget('width')), base)
+        self.assertGreater(w.cards['chatgpt'].height, card_h)
+        self.assertGreater(int(w.mini_values['chatgpt'].cget('width')), chip_w)
+        w.set_scale(0.5)
+        self.assertEqual(w.scale, 0.75)
+        w.set_scale(9)
+        self.assertEqual(w.scale, 1.5)
+        w.nudge_scale(1)
+        self.assertEqual(w.scale, 1.5)
+        w.set_scale(1.0)
+        self.assertEqual(w.scale, 1.0)
+        self.assertEqual(int(w.shell.cget('width')), base)
+        self.assertFalse(u.SETTINGS_PATH.exists())
+
+    def test_scale_reclamps_position(self):
+        w=self.w
+        with patch.object(w, 'place') as place:
+            w.set_scale(1.15)
+            place.assert_called_once()
+        self.assertFalse(u.SETTINGS_PATH.exists())
+
+    def test_persist_includes_scale(self):
+        w=self.w
+        w.preview=False
+        w.set_scale(1.15)
+        self.assertEqual(u.read_json(u.SETTINGS_PATH).get('scale'), 1.15)
+
+    def test_loads_saved_scale(self):
+        self.w.close()
+        u.save_json(u.SETTINGS_PATH, {'scale': 1.3})
+        self.w=u.UsageWidget(preview=True)
+        self.w.root.withdraw()
+        self.assertEqual(self.w.scale, 1.3)
+        self.assertEqual(int(self.w.shell.cget('width')), u.px(360, 1.3))
+
 if __name__=='__main__':unittest.main(verbosity=2)

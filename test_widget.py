@@ -24,6 +24,27 @@ def codex(primary=10, weekly=20, reached=False):
 
 
 class WidgetTests(unittest.TestCase):
+    def test_scale_helpers(self):
+        self.assertEqual(u.clamp_scale(None), 1.0)
+        self.assertEqual(u.clamp_scale('nope'), 1.0)
+        self.assertEqual(u.clamp_scale(0.5), 0.75)
+        self.assertEqual(u.clamp_scale(2), 1.5)
+        self.assertEqual(u.clamp_scale(1.15), 1.15)
+        self.assertEqual(u.clamp_scale(float('nan')), 1.0)
+        self.assertEqual(u.clamp_scale(float('inf')), 1.0)
+        self.assertEqual(u.px(360, 1.0), 360)
+        self.assertEqual(u.px(360, 1.15), 414)
+        self.assertEqual(u.px(8, 0.85), 7)
+        self.assertEqual(u.step_scale(1.0, 1), 1.15)
+        self.assertEqual(u.step_scale(1.15, 1), 1.3)
+        self.assertEqual(u.step_scale(1.0, -1), 0.85)
+        self.assertEqual(u.step_scale(0.85, -1), 0.75)
+        self.assertEqual(u.step_scale(1.45, 1), 1.5)
+        self.assertEqual(u.scaled_font(('Segoe UI Semibold', -13), 1.0), ('Segoe UI Semibold', -13))
+        self.assertEqual(u.scaled_font(('Segoe UI Semibold', -13), 1.3), ('Segoe UI Semibold', -17))
+        self.assertEqual(u.Metrics(1.15).window_w, 414)
+        self.assertEqual(u.Metrics(1.15).header_h, 46)
+
     def test_weekly_exhaustion(self):
         s=codex(10,100,True)
         self.assertEqual(s.hero_percent,0)
