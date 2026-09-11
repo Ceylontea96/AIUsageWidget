@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [3.2.10] - 2026-09-11
+
+### Changed
+- 새 버전이 있으면 제목 옆에 초록 `↑ 업데이트 x.x.x` 배지가 나타남. 없을 때는 숨김
+- 우클릭 메뉴 체크표시를 흰색으로 바꿔 어두운 배경에서 보이게 함
+
 ## [3.2.9] - 2026-09-11
 
 ### Fixed
@@ -108,7 +114,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.9...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.10...HEAD
+[3.2.10]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.10
 [3.2.9]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.9
 [3.2.8]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.8
 [3.2.7]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.7

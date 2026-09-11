@@ -144,6 +144,35 @@ class UiTests(unittest.TestCase):
         self.assertEqual(w._overlay,0)
         self.assertFalse(w._menu_held)
 
+    def test_update_pill_shows_only_when_pending(self):
+        w=self.w
+        w.root.update_idletasks()
+        self.assertEqual(w.update_pill.winfo_manager(),'')
+        self.assertEqual(w.mini_pill.winfo_manager(),'')
+        w.update_info={'version':'9.9.9','zip':'https://example.com/a.zip','notes':''}
+        w.set_update_chrome()
+        self.assertEqual(w.update_pill.winfo_manager(),'place')
+        self.assertIn('9.9.9',w.update_pill.text)
+        self.assertTrue(w.update_pill.ready)
+        self.assertEqual(w.update_pill.cget('cursor'),'hand2')
+        self.assertLessEqual(w.update_pill.width_px,u.px(270,1.0)-u.px(10,1.0)-u.px(84,1.0))
+        w.compact=True;w.apply_mode()
+        self.assertEqual(w.update_pill.winfo_manager(),'')
+        self.assertEqual(w.mini_pill.winfo_manager(),'place')
+        self.assertEqual(w.mini_title.winfo_manager(),'')
+        self.assertLessEqual(w.mini_pill.width_px,u.px(76,1.0)-u.px(6,1.0)-u.px(12,1.0))
+        w._update_busy=True;w.set_update_chrome()
+        self.assertFalse(w.mini_pill.ready)
+        self.assertEqual(w.mini_pill.cget('cursor'),'arrow')
+        self.assertIn('설치',w.mini_pill.text)
+        w._update_busy=False;w.update_info=None;w.set_update_chrome()
+        self.assertEqual(w.mini_pill.winfo_manager(),'')
+        self.assertEqual(w.mini_title.winfo_manager(),'place')
+        w.set_scale(1.3)
+        w.update_info={'version':'9.9.9','zip':'https://example.com/a.zip','notes':''}
+        w.set_update_chrome()
+        self.assertEqual(w.mini_pill.cget('height'),str(u.px(22,1.3)))
+
     def test_version_in_menu_and_help(self):
         w=self.w
         labels=[]
@@ -152,5 +181,8 @@ class UiTests(unittest.TestCase):
                 labels.append(w.menu.entrycget(i,'label'))
         self.assertIn(f'버전 {u.APP_VERSION}', labels)
         self.assertIn(f'현재 버전 {u.APP_VERSION}', w.help_text())
+
+    def test_menu_checkmark_is_white(self):
+        self.assertEqual(str(self.w.menu.cget('selectcolor')).upper(), '#FFFFFF')
 
 if __name__=='__main__':unittest.main(verbosity=2)

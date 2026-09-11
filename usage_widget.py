@@ -141,6 +141,7 @@ FONT_ROW = ('Malgun Gothic', -12)
 FONT_VALUE = ('Segoe UI Semibold', -12)
 FONT_META = ('Malgun Gothic', -11)
 FONT_CHIP = ('Segoe UI Semibold', -12)
+FONT_PILL = ('Malgun Gothic', -11, 'bold')
 FONT_FOOT = ('Malgun Gothic', -11)
 FONT_BADGE = ('Malgun Gothic', -11)
 SCALE_MIN, SCALE_MAX, SCALE_STEP, DEFAULT_SCALE = 0.75, 1.5, 0.15, 1.0
@@ -163,7 +164,7 @@ def px(value, scale, minimum=0):
 def scaled_font(font, scale):
     family, size = font[0], font[1]
     sign = -1 if size < 0 else 1
-    return (family, sign * max(1, int(round(abs(size) * float(scale)))))
+    return (family, sign * max(1, int(round(abs(size) * float(scale))))) + tuple(font[2:])
 
 
 def step_scale(scale, steps=1):
@@ -213,6 +214,10 @@ class Metrics:
     @property
     def chip_w(self):
         return self.p(82, 1)
+
+    @property
+    def pill_h(self):
+        return self.p(22, 1)
 
     @property
     def card_w(self):
@@ -486,6 +491,12 @@ def round_rect(canvas, x1, y1, x2, y2, radius, fill, tags=()):
 def _hex_rgb(value):
     value = value.lstrip('#')
     return tuple(int(value[i:i+2], 16) for i in (0, 2, 4))
+
+
+def lighten(color, amount=0.18):
+    r, g, b = _hex_rgb(color)
+    mix = lambda c: min(255, int(round(c + (255 - c) * amount)))
+    return '#%02X%02X%02X' % (mix(r), mix(g), mix(b))
 
 
 def _cover_round_rect(px, py, width, height, radius):
@@ -771,6 +782,64 @@ class IconButton(tk.Canvas):
         self.create_image(size/2,size/2,image=self.image)
 
 
+class UpdatePill(tk.Canvas):
+    """Filled call-to-action shown only while an update is pending or installing."""
+    def __init__(self, parent, command, metrics=None):
+        self.metrics = metrics or Metrics()
+        super().__init__(parent, width=1, height=1, bg=BG, bd=0, highlightthickness=0)
+        self.command = command
+        self.text, self.ready, self.hover, self.width_px = '', False, False, 0
+        self.bind('<Button-1>', self._click)
+        self.bind('<Enter>', lambda e: self._set_hover(True))
+        self.bind('<Leave>', lambda e: self._set_hover(False))
+
+    def set_metrics(self, metrics):
+        self.metrics = metrics
+        self._redraw()
+
+    def show(self, candidates, ready, max_width):
+        """Pick the longest label that fits; returns the pill width in pixels."""
+        font = tkfont.Font(root=self, font=self.metrics.font(FONT_PILL))
+        pad = self.metrics.p(9)
+        text, width = candidates[-1], 0
+        for option in candidates:
+            width = font.measure(option) + pad * 2
+            if width <= max_width:
+                text = option
+                break
+        else:
+            width = min(font.measure(text) + pad * 2, max_width)
+        self.text, self.ready, self.width_px = text, ready, max(1, int(width))
+        self.configure(width=self.width_px, height=self.metrics.pill_h, cursor='hand2' if ready else 'arrow')
+        self._redraw()
+        return self.width_px
+
+    def hide(self):
+        self.text, self.ready, self.hover = '', False, False
+        self.place_forget()
+
+    def _click(self, event=None):
+        if self.ready:
+            self.command()
+
+    def _set_hover(self, on):
+        if on != self.hover:
+            self.hover = on
+            self._redraw()
+
+    def _redraw(self):
+        self.delete('all')
+        if not self.text:
+            return
+        w, h = self.width_px, self.metrics.pill_h
+        if self.ready:
+            fill, fg = (lighten(CODEX) if self.hover else CODEX), BG
+        else:
+            fill, fg = CARD, MUTED
+        round_rect(self, 0, 0, w, h, h / 2, fill)
+        self.create_text(w / 2, h / 2, text=self.text, fill=fg, font=self.metrics.font(FONT_PILL))
+
+
 class Chip(tk.Canvas):
     """One progress pill: proportional fill and an independent text overlay."""
     def __init__(self, parent, metrics=None):
@@ -1002,7 +1071,7 @@ class UsageWidget:
         self.shell.pack_propagate(False)
         self.header = tk.Frame(self.shell,bg=BG,height=m.header_h)
         self.title = tk.Label(self.header,text='AI Usage',bg=BG,fg=TEXT,font=m.font(FONT_TITLE),bd=0,padx=0,pady=0)
-        self.update_btn = tk.Label(self.header,text='업데이트',bg=BG,fg=DIM,font=m.font(FONT_META),bd=0,padx=0,pady=0)
+        self.update_pill = UpdatePill(self.header, self.install_update, m)
         self.header_buttons = []
         for name,callback in (('refresh',self.refresh),('minus',self.toggle),('close',self.close)):
             self.header_buttons.append(self.icon_button(self.header,name,callback,CLOSE_HOVER if name == 'close' else HOVER))
@@ -1017,7 +1086,7 @@ class UsageWidget:
         self.status = self.footer_text
         self.mini = tk.Frame(self.shell,bg=BG,height=max(1, m.compact_h-2))
         self.mini_title = tk.Label(self.mini,text='AI Usage',bg=BG,fg=TEXT,font=m.font(FONT_TITLE),bd=0,padx=0,pady=0)
-        self.mini_update = tk.Label(self.mini,text='업데이트',bg=BG,fg=DIM,font=m.font(FONT_META),bd=0,padx=0,pady=0)
+        self.mini_pill = UpdatePill(self.mini, self.install_update, m)
         self.mini_values = {}
         for key in FETCHERS:
             chip = Chip(self.mini, m)
@@ -1029,7 +1098,7 @@ class UsageWidget:
         self.apply_metrics()
         for widget in (self.title,self.header,self.mini_title,self.mini):
             self.bind_drag(widget)
-        self.menu = tk.Menu(self.root, tearoff=False, bg=CARD, fg=TEXT, activebackground=HAIR, activeforeground=TEXT, disabledforeground=DIM)
+        self.menu = tk.Menu(self.root, tearoff=False, bg=CARD, fg=TEXT, activebackground=HAIR, activeforeground=TEXT, disabledforeground=DIM, selectcolor='#FFFFFF')
         self.menu.add_command(label='새로고침    F5', command=self.refresh)
         self.menu.add_command(label='한 줄 / 상세    Ctrl+M', command=self.toggle)
         self.menu.add_separator()
@@ -1116,7 +1185,7 @@ class UsageWidget:
             '10% 이하·소진 시 한 번 알림 (12% 초과 회복 시 재설정)\n'
             '로그인 파일 변경 자동 감지 · 조회 제한 15초\n'
             '잠금 중 조회 중지 · 해제 시 즉시 조회\n'
-            '새 버전이 있으면 업데이트가 켜집니다.'
+            '새 버전이 있으면 제목 옆에 초록 ↑ 업데이트 버튼이 나타납니다.'
         )
 
     def help(self):
@@ -1234,9 +1303,9 @@ class UsageWidget:
     def apply_metrics(self):
         m = self.metrics
         self.title.configure(font=m.font(FONT_TITLE))
-        self.update_btn.configure(font=m.font(FONT_META))
+        self.update_pill.set_metrics(m)
         self.mini_title.configure(font=m.font(FONT_TITLE))
-        self.mini_update.configure(font=m.font(FONT_META))
+        self.mini_pill.set_metrics(m)
         self.footer_text.configure(font=m.font(FONT_FOOT))
         self.footer_sep.configure(font=m.font(FONT_FOOT))
         self.footer_hint.configure(font=m.font(FONT_FOOT))
@@ -1245,7 +1314,6 @@ class UsageWidget:
         self.mini.configure(height=max(1, m.compact_h - 2))
         self.body.configure(padx=m.p(12))
         self.title.place(x=m.p(12), y=0, height=m.header_h)
-        self.update_btn.place(x=m.p(96), y=0, height=m.header_h)
         fallback_font = ('Segoe UI', max(8, int(round(11 * m.scale))))
         for index, btn in enumerate(self.header_buttons):
             if isinstance(btn, IconButton):
@@ -1633,30 +1701,38 @@ class UsageWidget:
         self.timer = self.root.after(200 if active else 1000, self.tick)
 
     def set_update_chrome(self):
+        m = self.metrics
         ready = bool(self.update_info) and not self._update_busy
+        pending = ready or self._update_busy
+        version = self.update_info['version'] if self.update_info else ''
         if self._update_busy:
-            text, fg, cursor = '설치 중...', MUTED, 'arrow'
-        elif ready:
-            text, fg, cursor = '업데이트', CODEX, 'hand2'
+            header_labels = ['설치 중...', '설치 중']
+            mini_labels = ['설치 중', '...']
         else:
-            text, fg, cursor = '업데이트', DIM, 'arrow'
-        self.update_btn.configure(text=text, fg=fg, cursor=cursor)
-        self.update_btn.unbind('<Button-1>')
-        if ready:
-            self.update_btn.bind('<Button-1>', lambda e: self.install_update())
-        label = f"업데이트 {self.update_info['version']}" if ready else '업데이트'
+            header_labels = [f'↑ 업데이트 {version}', f'↑ 새 버전 {version}', '↑ 업데이트', '↑ 새 버전', '↑']
+            mini_labels = ['↑ 새 버전', '새 버전', f'↑ {version}', '↑']
+        # Detail header: a filled pill right after the title, hidden when nothing is pending.
+        if pending and not self.compact:
+            x = m.p(84)
+            width = self.update_pill.show(header_labels, ready, m.p(270) - m.p(10) - x)
+            self.update_pill.place(x=x, y=(m.header_h - m.pill_h) // 2, width=width, height=m.pill_h)
+        else:
+            self.update_pill.hide()
+        # Compact row: the pill takes the title slot so it never collides with chips or buttons.
+        mini_h = max(1, m.compact_h - 2)
+        if pending and self.compact:
+            x = m.p(12)
+            width = self.mini_pill.show(mini_labels, ready, m.p(76) - m.p(6) - x)
+            self.mini_title.place_forget()
+            self.mini_pill.place(x=x, y=(mini_h - m.pill_h) // 2, width=width, height=m.pill_h)
+        else:
+            self.mini_pill.hide()
+            self.mini_title.place(x=m.p(12), y=0, height=mini_h)
+        label = f"업데이트 {version}" if ready else '업데이트'
         try:
             self.menu.entryconfig(self._update_menu, label=label, state=('normal' if ready else 'disabled'))
         except tk.TclError:
             pass
-        self.mini_update.unbind('<Button-1>')
-        if self.compact and ready:
-            self.mini_update.configure(text='↑', fg=CODEX, cursor='hand2')
-            m = self.metrics
-            self.mini_update.place(x=m.p(250), y=m.p(10), width=m.p(16), height=m.p(22))
-            self.mini_update.bind('<Button-1>', lambda e: self.install_update())
-        else:
-            self.mini_update.place_forget()
 
     def check_update(self, force=False, notify=False):
         if self.preview:
