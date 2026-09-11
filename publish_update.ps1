@@ -61,7 +61,7 @@ if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -F
 New-Item -ItemType Directory -Path (Join-Path $stage 'assets\icons') -Force | Out-Null
 $copy = @(
     'usage_widget.py', 'providers.py', 'runtime.py', 'poll_worker.py', 'updater.py',
-    'setup_and_run.ps1', 'setup_login.ps1', 'start_usage_widget.vbs', 'start_usage_widget.bat', '문제확인.bat',
+    'setup_and_run.ps1', 'setup_login.ps1', 'start_usage_widget.vbs', 'start_usage_widget.bat',
     'toast.ps1', 'register_notifications.ps1', 'feed_url.txt', 'CHANGELOG.md'
 )
 foreach ($f in $copy) {
@@ -69,6 +69,9 @@ foreach ($f in $copy) {
     if (Test-Path -LiteralPath $src) {
         Copy-Item -LiteralPath $src -Destination (Join-Path $stage $f) -Force
     }
+}
+Get-ChildItem -LiteralPath $project -File | Where-Object { $_.Extension -in '.bat', '.vbs' } | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stage $_.Name) -Force
 }
 Get-ChildItem -LiteralPath (Join-Path $project 'assets\icons') -File | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stage "assets\icons\$($_.Name)") -Force
