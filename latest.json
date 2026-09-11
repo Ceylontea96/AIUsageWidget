@@ -1,1 +1,1 @@
-{"version":"3.2.4","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"프로세스가 이미 꺼진 뒤 남은 widget.lock이 재실행을 막던 문제 / 실행 직후 launch.log를 남기고, 안 될 때는 문제확인.bat으로 원인을 볼 수 있게 함"}
+{"version":"3.2.5","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"diagnose.bat이 UTF-8이라 명령이 깨지던 문제. 영문 ASCII로 저장"}

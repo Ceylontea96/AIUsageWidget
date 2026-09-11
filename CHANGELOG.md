@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [3.2.5] - 2026-09-11
+
+### Fixed
+- diagnose.bat이 UTF-8이라 명령이 깨지던 문제. 영문 ASCII로 저장
+
+### Notes
+- 안 되면 새 zip의 diagnose.bat을 다시 실행하세요.
+
 ## [3.2.4] - 2026-09-11
 
 ### Fixed
@@ -73,7 +81,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.4...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.5...HEAD
+[3.2.5]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.5
 [3.2.4]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.4
 [3.2.3]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.3
 [3.2.2]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.2
