@@ -447,8 +447,77 @@ def set_over_taskbar(root, on=True):
         pass
 
 
+def keep_topmost_style(hwnd, on=True):
+    """Keep WS_EX_TOPMOST without restacking above an already-open menu/dialog."""
+    handle = int(hwnd or 0)
+    if not handle:
+        return
+    try:
+        user32 = ctypes.windll.user32
+        getter = getattr(user32, 'GetWindowLongPtrW', user32.GetWindowLongW)
+        setter = getattr(user32, 'SetWindowLongPtrW', user32.SetWindowLongW)
+        style = int(getter(ctypes.c_void_p(handle), -20) or 0)
+        flag = 0x00000008
+        style = (style | flag) if on else (style & ~flag)
+        setter(ctypes.c_void_p(handle), -20, style)
+    except (AttributeError, OSError, OverflowError, TypeError, ValueError):
+        pass
+
+
 def raise_over_taskbar(root):
     set_over_taskbar(root, True)
+
+
+def lift_owned_popups(owner_hwnd=0):
+    """Raise this process's dialogs/menus above the widget without dropping the widget."""
+    try:
+        user32 = ctypes.windll.user32
+    except (AttributeError, OSError):
+        return
+    insert = ctypes.c_void_p(-1)
+    owner = int(owner_hwnd or 0)
+    pid = os.getpid()
+    buf = ctypes.create_unicode_buffer(256)
+
+    def lift(hwnd):
+        handle = int(hwnd or 0)
+        if not handle or handle == owner:
+            return
+        try:
+            user32.SetWindowPos(ctypes.c_void_p(handle), insert, 0, 0, 0, 0, 0x0013)
+        except (AttributeError, OSError, OverflowError, TypeError, ValueError):
+            pass
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    def callback(hwnd, _lparam):
+        handle = int(hwnd or 0)
+        if not handle or handle == owner:
+            return True
+        try:
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            other = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(other))
+            if other.value != pid:
+                return True
+            owned = int(user32.GetWindow(hwnd, 4) or 0)
+            user32.GetClassNameW(hwnd, buf, 256)
+            if owned == owner or buf.value in ('#32770', '#32768', 'TkTopLevel'):
+                lift(handle)
+        except (AttributeError, OSError, OverflowError, TypeError, ValueError):
+            pass
+        return True
+
+    try:
+        user32.EnumWindows(callback, 0)
+        dialog = user32.FindWindowW('#32770', None)
+        if dialog:
+            other = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(dialog, ctypes.byref(other))
+            if other.value == pid:
+                lift(dialog)
+    except (AttributeError, OSError, OverflowError, TypeError, ValueError):
+        pass
 
 
 def lift_menu_windows(extra_hwnd=0):
@@ -1422,27 +1491,51 @@ class UsageWidget:
         self.menu.bind('<Map>', lambda e: self._lift_menu())
 
     def apply_topmost(self):
-        if self.preview or self._overlay:
+        if self.preview:
             return
         want = bool(self.topmost.get())
+        owner = self._widget_hwnd()
+        if self._overlay or self._menu_held:
+            if want:
+                keep_topmost_style(owner, True)
+            if self._overlay:
+                lift_owned_popups(owner)
+            else:
+                self._raise_open_menus()
+            return
         try:
             self.root.attributes('-topmost', want)
         except tk.TclError:
             return
         set_over_taskbar(self.root, want)
-        if self._menu_held:
-            self._raise_open_menus()
-        elif want:
+        if want:
             lift_tip_window(self.tip.win)
+
+    def _widget_hwnd(self):
+        try:
+            return int(self.root.wm_frame(), 16)
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            return 0
+
+    def _keep_widget_topmost(self):
+        if self.preview or not self.topmost.get():
+            return
+        try:
+            self.root.attributes('-topmost', True)
+        except tk.TclError:
+            return
+        set_over_taskbar(self.root, True)
+        keep_topmost_style(self._widget_hwnd(), True)
 
     def push_overlay(self):
         self._overlay += 1
         try:
-            self.root.attributes('-topmost', False)
-            set_over_taskbar(self.root, False)
-            self.root.update_idletasks()
-        except tk.TclError:
+            self.tip.hide()
+        except (AttributeError, tk.TclError):
             pass
+        if self._overlay == 1:
+            self._keep_widget_topmost()
+            self._arm_overlay_raise()
 
     def pop_overlay(self):
         self._overlay = max(0, self._overlay - 1)
@@ -1456,6 +1549,19 @@ class UsageWidget:
         finally:
             self.pop_overlay()
 
+    def _arm_overlay_raise(self):
+        hwnd = self._widget_hwnd()
+        want = bool(self.topmost.get())
+
+        def lift():
+            while self._overlay and not self.closing:
+                if hwnd and want:
+                    keep_topmost_style(hwnd, True)
+                lift_owned_popups(hwnd)
+                time.sleep(0.05)
+
+        threading.Thread(target=lift, daemon=True, name='overlay-z').start()
+
     def _raise_open_menus(self):
         extra = 0
         try:
@@ -1468,21 +1574,22 @@ class UsageWidget:
     def _lift_menu(self):
         if not self._menu_held or self.closing:
             return
-        if not self.preview and not self._overlay and self.topmost.get():
-            set_over_taskbar(self.root, True)
         self._raise_open_menus()
 
     def _arm_menu_raise(self):
+        hwnd = self._widget_hwnd()
         if not self._overlay and self.topmost.get():
             try:
                 self.root.attributes('-topmost', True)
             except tk.TclError:
                 pass
-        self._lift_menu()
+            set_over_taskbar(self.root, True)
+            keep_topmost_style(hwnd, True)
+        self._raise_open_menus()
         def pulse():
             if not self._menu_held or self.closing:
                 return
-            self._lift_menu()
+            self._raise_open_menus()
             try:
                 self.root.after(50, pulse)
             except tk.TclError:
@@ -1491,20 +1598,11 @@ class UsageWidget:
             self.root.after(50, pulse)
         except tk.TclError:
             pass
-        hwnd = 0
-        try:
-            hwnd = int(self.root.wm_frame(), 16)
-        except (AttributeError, TypeError, ValueError, tk.TclError):
-            hwnd = 0
         want = bool(self.topmost.get())
         def lift():
-            insert = ctypes.c_void_p(-1)
             while self._menu_held and not self.closing:
                 if hwnd and want:
-                    try:
-                        ctypes.windll.user32.SetWindowPos(ctypes.c_void_p(hwnd), insert, 0, 0, 0, 0, 0x0013)
-                    except (AttributeError, OSError, OverflowError, TypeError, ValueError):
-                        pass
+                    keep_topmost_style(hwnd, True)
                 lift_menu_windows()
                 time.sleep(0.05)
         threading.Thread(target=lift, daemon=True, name='menu-z').start()

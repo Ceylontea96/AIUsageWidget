@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [3.2.14] - 2026-09-11
+
+### Fixed
+- 한 줄 모드에서 업데이트 확인 창을 열어도 위젯이 작업 표시줄 뒤로 가지 않음
+- 우클릭 메뉴가 위젯과 앞뒤가 바뀌며 깜빡이던 문제
+
 ## [3.2.13] - 2026-09-11
 
 ### Added
@@ -141,7 +147,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.13...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.14...HEAD
+[3.2.14]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.14
 [3.2.13]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.13
 [3.2.12]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.12
 [3.2.11]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.11

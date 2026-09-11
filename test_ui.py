@@ -122,26 +122,26 @@ class UiTests(unittest.TestCase):
         self.assertEqual(self.w.scale, 1.3)
         self.assertEqual(int(self.w.shell.cget('width')), u.px(360, 1.3))
 
-    def test_environment_skips_raise_while_overlay(self):
+    def test_environment_keeps_widget_while_overlay(self):
         w=self.prepare()
         w._overlay=1
         w.topmost.set(True)
         w.last_area=(0,0,800,600)
         w.root.geometry('+10+10')
-        with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=(0,0,800,600)),patch.object(u,'set_over_taskbar') as zorder:
+        with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=(0,0,800,600)),patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_owned_popups') as popups,patch.object(u,'keep_topmost_style'):
             w.environment(0)
             zorder.assert_not_called()
+            popups.assert_called()
 
-    def test_environment_skips_raise_while_menu_held(self):
+    def test_environment_does_not_restack_widget_while_menu_held(self):
         w=self.prepare()
         w._menu_held=True
         w.topmost.set(True)
         w.last_area=(0,0,800,600)
         w.root.geometry('+10+10')
-        with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=(0,0,800,600)),patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_menu_windows') as lift:
+        with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=(0,0,800,600)),patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_menu_windows') as lift,patch.object(u,'keep_topmost_style'):
             w.environment(0)
-            self.assertTrue(zorder.called)
-            self.assertFalse(self._dropped_topmost(zorder))
+            zorder.assert_not_called()
             lift.assert_called()
 
     def _dropped_topmost(self, zorder):
@@ -178,16 +178,35 @@ class UiTests(unittest.TestCase):
         self.assertTrue(zorder.called)
         lift.assert_called()
 
-    def test_notify_still_drops_topmost(self):
+    def test_menu_pulse_does_not_restack_widget(self):
+        w=self.prepare()
+        w._menu_held=True
+        w.topmost.set(True)
+        with patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_menu_windows') as lift:
+            w._lift_menu()
+        zorder.assert_not_called()
+        lift.assert_called()
+
+    def test_notify_keeps_over_taskbar(self):
         w=self.prepare()
         w.topmost.set(True)
         depth=[]
         def fake():
             depth.append(w._overlay)
-        with patch.object(u,'set_over_taskbar') as zorder:
+        with patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_owned_popups'):
             w.notify(fake)
         self.assertEqual(depth,[1])
-        self.assertTrue(self._dropped_topmost(zorder))
+        self.assertFalse(self._dropped_topmost(zorder))
+        self.assertTrue(zorder.called)
+        self.assertEqual(w._overlay,0)
+
+    def test_update_check_dialog_keeps_over_taskbar(self):
+        w=self.prepare()
+        w.topmost.set(True)
+        w.update_queue.put(('checked', None, True, True))
+        with patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_owned_popups'),patch.object(u.messagebox,'showinfo',return_value='ok'):
+            w.drain_update_queue()
+        self.assertFalse(self._dropped_topmost(zorder))
         self.assertEqual(w._overlay,0)
 
     def test_update_pill_shows_only_when_pending(self):
