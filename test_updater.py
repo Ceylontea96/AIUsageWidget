@@ -1,0 +1,48 @@
+import tempfile
+import unittest
+import zipfile
+from pathlib import Path
+
+import updater as u
+
+
+class UpdaterTests(unittest.TestCase):
+    def test_version_compare(self):
+        self.assertTrue(u.is_newer('3.1.1', '3.1.0'))
+        self.assertFalse(u.is_newer('3.1.0', '3.1.0'))
+        self.assertFalse(u.is_newer('3.0.9', '3.1.0'))
+        self.assertEqual(u.parse_version('3.1'), (3, 1, 0))
+
+    def test_feed_url_ignores_comments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'feed_url.txt'
+            path.write_text('# comment\nhttps://example.com/latest.json\n', encoding='utf-8')
+            self.assertEqual(u.load_feed_url(directory), 'https://example.com/latest.json')
+            path.write_text('# only comment\n', encoding='utf-8')
+            self.assertEqual(u.load_feed_url(directory), '')
+
+    def test_pending_update_requires_newer_https_zip(self):
+        feed = 'https://example.com/latest.json'
+        self.assertIsNone(u.pending_update({'version': '9.0.0'}))
+        self.assertIsNone(u.pending_update({'version': '0.0.1', 'zip': 'https://example.com/a.zip'}, local='3.1.0'))
+        got = u.pending_update({'version': '9.0.0'}, feed=feed)
+        self.assertEqual(got['zip'], 'https://example.com/AIUsageWidget.zip')
+        self.assertIsNone(u.pending_update({'version': '9.0.0', 'zip': 'http://example.com/a.zip'}))
+
+    def test_safe_extract_skips_zip_slip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / 'a.zip'
+            dest = Path(directory) / 'out'
+            with zipfile.ZipFile(archive, 'w') as zf:
+                zf.writestr('usage_widget.py', 'ok')
+                zf.writestr('../escape.py', 'bad')
+            u.safe_extract(archive, dest)
+            self.assertTrue((dest / 'usage_widget.py').is_file())
+            self.assertFalse((Path(directory) / 'escape.py').is_file())
+
+    def test_fetch_latest_rejects_non_https(self):
+        self.assertIsNone(u.fetch_latest('http://example.com/latest.json'))
+
+
+if __name__ == '__main__':
+    unittest.main()

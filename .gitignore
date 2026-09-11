@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+backup_*/
+GPT_HANDOFF.txt
+.cursor/
+*.zip
+error.log
