@@ -319,7 +319,8 @@ function Start-Widget([string]$PythonExe) {
         exit 1
     }
     try {
-        $p = Start-Process -FilePath $pythonw -ArgumentList @('-B', $Widget) -WorkingDirectory $Here -WindowStyle Hidden -PassThru
+        $quoted = '"' + $Widget.Replace('"', '') + '"'
+        $p = Start-Process -FilePath $pythonw -ArgumentList @('-B', $quoted) -WorkingDirectory $Here -WindowStyle Hidden -PassThru
     } catch {
         Show-LaunchError "위젯을 시작하지 못했습니다.`n$pythonw`n$_"
         exit 1

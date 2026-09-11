@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+## [3.2.9] - 2026-09-11
+
+### Fixed
+- 폴더 이름에 공백·괄호·한글이 있어도 위젯이 실행됨. `AIUsageWidget (1)` 그대로 써도 됨
+
 ## [3.2.8] - 2026-09-11
 
 ### Fixed
@@ -103,7 +108,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.8...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.9...HEAD
+[3.2.9]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.9
 [3.2.8]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.8
 [3.2.7]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.7
 [3.2.6]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.6

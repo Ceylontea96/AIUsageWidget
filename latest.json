@@ -1,1 +1,1 @@
-{"version":"3.2.8","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"설치 폴더의 pythonw.exe를 PATH 없이 바로 찾아, 3.13이 있는데도 설치 창이 뜨던 문제"}
+{"version":"3.2.9","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"폴더 이름에 공백·괄호·한글이 있어도 위젯이 실행됨. AIUsageWidget (1) 그대로 써도 됨"}
