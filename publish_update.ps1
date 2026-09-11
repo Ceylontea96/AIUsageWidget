@@ -1,9 +1,41 @@
+#Requires -Version 5
+param([switch]$GitHub)
+
 $ErrorActionPreference = 'Stop'
 $utf8 = New-Object System.Text.UTF8Encoding $true
 $project = Split-Path -Parent $MyInvocation.MyCommand.Path
 $updater = Get-Content -LiteralPath (Join-Path $project 'updater.py') -Raw
 if ($updater -notmatch "APP_VERSION = '([^']+)'") { throw 'APP_VERSION not found' }
 $version = $Matches[1]
+
+function Get-ChangelogSection {
+    param([string]$Path, [string]$Version)
+    if (-not (Test-Path -LiteralPath $Path)) { return "AI Usage $Version" }
+    $text = [System.IO.File]::ReadAllText($Path)
+    $escaped = [regex]::Escape($Version)
+    $match = [regex]::Match($text, "(?ms)^## \[$escaped\][^\r\n]*\r?\n(.*?)(?=^## |\z)")
+    if (-not $match.Success) { return "AI Usage $Version" }
+    $body = $match.Groups[1].Value.Trim()
+    $header = "## $Version"
+    $dateMatch = [regex]::Match($text, "(?m)^## \[$escaped\][ \t]*-[ \t]*(\S+)")
+    if ($dateMatch.Success) { $header = "## $Version - $($dateMatch.Groups[1].Value)" }
+    return ($header + "`n`n" + $body).Trim() + "`n"
+}
+
+function Get-LatestNotes {
+    param([string]$Section, [string]$Version)
+    $added = [regex]::Matches($Section, '(?m)^- (.+)$')
+    if ($added.Count -gt 0) {
+        $bits = @()
+        foreach ($item in $added) {
+            $bits += $item.Groups[1].Value.Trim()
+            if ($bits.Count -ge 3) { break }
+        }
+        return ($bits -join ' · ')
+    }
+    return "AI Usage $Version"
+}
+
 $feed = ''
 $feedFile = Join-Path $project 'feed_url.txt'
 foreach ($line in Get-Content -LiteralPath $feedFile) {
@@ -14,10 +46,13 @@ $zipUrl = ''
 if ($feed.EndsWith('latest.json')) {
     $zipUrl = $feed.Substring(0, $feed.Length - 'latest.json'.Length) + 'AIUsageWidget.zip'
 }
+$changelogPath = Join-Path $project 'CHANGELOG.md'
+$releaseNotes = Get-ChangelogSection -Path $changelogPath -Version $version
+$shortNotes = Get-LatestNotes -Section $releaseNotes -Version $version
 $latest = [ordered]@{
     version = $version
-    zip = $zipUrl
-    notes = "AI Usage $version"
+    zip     = $zipUrl
+    notes   = $shortNotes
 } | ConvertTo-Json -Compress
 [System.IO.File]::WriteAllText((Join-Path $project 'latest.json'), $latest + "`n", $utf8)
 
@@ -25,12 +60,15 @@ $stage = Join-Path $env:TEMP 'AIUsageWidget_dist_stage'
 if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
 New-Item -ItemType Directory -Path (Join-Path $stage 'assets\icons') -Force | Out-Null
 $copy = @(
-    'usage_widget.py','providers.py','runtime.py','poll_worker.py','updater.py',
-    'setup_and_run.ps1','setup_login.ps1','start_usage_widget.vbs','start_usage_widget.bat',
-    'toast.ps1','register_notifications.ps1','feed_url.txt'
+    'usage_widget.py', 'providers.py', 'runtime.py', 'poll_worker.py', 'updater.py',
+    'setup_and_run.ps1', 'setup_login.ps1', 'start_usage_widget.vbs', 'start_usage_widget.bat',
+    'toast.ps1', 'register_notifications.ps1', 'feed_url.txt', 'CHANGELOG.md'
 )
 foreach ($f in $copy) {
-    Copy-Item -LiteralPath (Join-Path $project $f) -Destination (Join-Path $stage $f) -Force
+    $src = Join-Path $project $f
+    if (Test-Path -LiteralPath $src) {
+        Copy-Item -LiteralPath $src -Destination (Join-Path $stage $f) -Force
+    }
 }
 Get-ChildItem -LiteralPath (Join-Path $project 'assets\icons') -File | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stage "assets\icons\$($_.Name)") -Force
@@ -55,14 +93,35 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory($stage, $z1, [System.IO.Compression.CompressionLevel]::Optimal, $false)
 Copy-Item -LiteralPath $z1 -Destination $z2 -Force
 Copy-Item -LiteralPath (Join-Path $project 'latest.json') -Destination (Join-Path $release 'latest.json') -Force
+$notesFile = Join-Path $release 'RELEASE_NOTES.md'
+[System.IO.File]::WriteAllText($notesFile, $releaseNotes, $utf8)
+Copy-Item -LiteralPath $changelogPath -Destination (Join-Path $release 'CHANGELOG.md') -Force
 
 Write-Host "version $version"
 Write-Host "zip $z2"
+Write-Host "notes $notesFile"
 if (-not $feed) {
-    Write-Host 'feed_url.txt에 latest.json 공개 주소를 넣은 뒤 다시 실행하세요.'
-    Write-Host '같은 폴더에 latest.json 과 AIUsageWidget.zip 을 올리면 됩니다.'
+    Write-Host 'feed_url.txt is empty; friends cannot auto-update until it points at latest.json'
 } else {
     Write-Host "feed $feed"
     Write-Host "zip url $zipUrl"
-    Write-Host '이 두 파일을 그 주소가 가리키는 폴더에 올리면 친구 위젯에서 업데이트가 켜집니다.'
+}
+
+$doGitHub = $GitHub
+if (-not $doGitHub -and (Get-Command gh -ErrorAction SilentlyContinue)) { $doGitHub = $true }
+$gh = $null
+foreach ($candidate in @((Get-Command gh -ErrorAction SilentlyContinue).Source, "$env:ProgramFiles\GitHub CLI\gh.exe")) {
+    if ($candidate -and (Test-Path -LiteralPath $candidate)) { $gh = $candidate; break }
+}
+if ($doGitHub -and $gh) {
+    $tag = "v$version"
+    $view = & $gh release view $tag --json tagName 2>$null
+    if ($LASTEXITCODE -eq 0 -and $view) {
+        & $gh release upload $tag $z1 (Join-Path $release 'latest.json') --clobber
+        & $gh release edit $tag --title $version --notes-file $notesFile
+        Write-Host "updated GitHub release $tag"
+    } else {
+        & $gh release create $tag $z1 (Join-Path $release 'latest.json') --title $version --notes-file $notesFile
+        Write-Host "created GitHub release $tag"
+    }
 }

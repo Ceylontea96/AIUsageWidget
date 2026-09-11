@@ -2,6 +2,8 @@
 
 Windows에서 Codex·Cursor 잔여 사용량을 보는 작은 위젯입니다.
 
+현재 버전은 `updater.py`의 `APP_VERSION`입니다.
+
 ## 실행
 
 1. [Releases](https://github.com/Ceylontea96/AIUsageWidget/releases/latest)에서 `AIUsageWidget.zip`을 받습니다.
@@ -10,5 +12,10 @@ Windows에서 Codex·Cursor 잔여 사용량을 보는 작은 위젯입니다.
 4. Codex는 Codex CLI 로그인, Cursor는 Cursor 앱 로그인이 필요합니다.
 
 새 버전이 올라가면 위젯의 **업데이트** 버튼이 켜집니다.
+
+## 패치노트
+
+- [Releases](https://github.com/Ceylontea96/AIUsageWidget/releases)
+- [CHANGELOG.md](CHANGELOG.md)
 
 설정과 로그인은 `%APPDATA%\AiUsageWidget`에 저장되며 저장소에는 없습니다.
