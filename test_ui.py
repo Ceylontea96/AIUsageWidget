@@ -11,11 +11,14 @@ class UiTests(unittest.TestCase):
         path=Path(self.directory.name)
         self.patches=[patch.object(u,'SETTINGS_PATH',path/'settings.json'),patch.object(u,'CACHE_PATH',path/'cache.json')]
         for item in self.patches:item.start()
+        self._pill_animate=u.UpdatePill.animate
+        u.UpdatePill.animate=False
         self.w=u.UsageWidget(preview=True)
         self.w.root.withdraw()
 
     def tearDown(self):
         self.w.close()
+        u.UpdatePill.animate=self._pill_animate
         for item in self.patches:item.stop()
         self.directory.cleanup()
 
@@ -135,9 +138,11 @@ class UiTests(unittest.TestCase):
         w.topmost.set(True)
         w.last_area=(0,0,800,600)
         w.root.geometry('+10+10')
-        with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=(0,0,800,600)),patch.object(u,'set_over_taskbar') as zorder:
+        with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=(0,0,800,600)),patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_menu_windows') as lift:
             w.environment(0)
-            zorder.assert_not_called()
+            self.assertTrue(zorder.called)
+            self.assertFalse(self._dropped_topmost(zorder))
+            lift.assert_called()
 
     def _dropped_topmost(self, zorder):
         return any((len(c.args)>1 and c.args[1] is False) or c.kwargs.get('on') is False for c in zorder.call_args_list)
@@ -165,11 +170,13 @@ class UiTests(unittest.TestCase):
         w.topmost.set(True)
         self.assertTrue(w.root.bind_all('<Button-3>'))
         event=type('E',(),{'x_root':10,'y_root':20})()
-        with patch.object(u,'set_over_taskbar') as zorder,patch.object(w.menu,'tk_popup'),patch.object(w.menu,'grab_release'),patch.object(w.menu,'winfo_ismapped',return_value=False):
+        with patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_menu_windows') as lift,patch.object(w.menu,'tk_popup'),patch.object(w.menu,'grab_release'),patch.object(w.menu,'winfo_ismapped',return_value=False):
             w.popup(event)
             w.root.update()
         self.assertEqual(w._overlay,0)
         self.assertFalse(self._dropped_topmost(zorder))
+        self.assertTrue(zorder.called)
+        lift.assert_called()
 
     def test_notify_still_drops_topmost(self):
         w=self.prepare()
@@ -212,6 +219,52 @@ class UiTests(unittest.TestCase):
         w.set_update_chrome()
         self.assertEqual(w.mini_pill.cget('height'),str(u.px(22,1.3)))
 
+    def test_update_pill_pulse_starts_and_stops(self):
+        w=self.w
+        u.UpdatePill.animate=True
+        w.update_info={'version':'9.9.9','zip':'https://example.com/a.zip','notes':''}
+        w.set_update_chrome()
+        self.assertTrue(w.update_pill.ready)
+        self.assertIsNotNone(w.update_pill._pulse_after)
+        self.assertIsNone(w.mini_pill._pulse_after)
+        w.update_pill.hide()
+        self.assertIsNone(w.update_pill._pulse_after)
+        w.set_update_chrome()
+        self.assertIsNotNone(w.update_pill._pulse_after)
+        w._update_busy=True
+        w.set_update_chrome()
+        self.assertFalse(w.update_pill.ready)
+        self.assertIsNone(w.update_pill._pulse_after)
+        w._update_busy=False
+        w.compact=True
+        w.apply_mode()
+        self.assertTrue(w.mini_pill.ready)
+        self.assertIsNotNone(w.mini_pill._pulse_after)
+        self.assertIsNone(w.update_pill._pulse_after)
+        w.mini_pill.hide()
+        self.assertIsNone(w.mini_pill._pulse_after)
+
+    def test_update_pill_has_tip_when_pending(self):
+        w=self.w
+        self.assertEqual(w.update_pill.tip_text, '')
+        self.assertIs(w.update_pill.tip, w.tip)
+        self.assertIs(w.mini_pill.tip, w.tip)
+        w.update_info={'version':'9.9.9','zip':'https://example.com/a.zip','notes':''}
+        w.set_update_chrome()
+        self.assertEqual(w.update_pill.tip_text, '업데이트 9.9.9')
+        w.update_pill.hide()
+        self.assertEqual(w.update_pill.tip_text, '')
+        w.set_update_chrome()
+        w._update_busy=True
+        w.set_update_chrome()
+        self.assertEqual(w.update_pill.tip_text, '설치 중...')
+        w._update_busy=False
+        w.compact=True
+        w.apply_mode()
+        self.assertEqual(w.mini_pill.tip_text, '업데이트 9.9.9')
+        w.mini_pill.hide()
+        self.assertEqual(w.mini_pill.tip_text, '')
+
     def test_version_in_menu_and_help(self):
         w=self.w
         labels=[]
@@ -219,10 +272,79 @@ class UiTests(unittest.TestCase):
             if w.menu.type(i)=='command':
                 labels.append(w.menu.entrycget(i,'label'))
         self.assertIn(f'버전 {u.APP_VERSION}', labels)
-        self.assertIn(f'현재 버전 {u.APP_VERSION}', w.help_text())
+        help_text = w.help_text()
+        self.assertIn(f'현재 버전 {u.APP_VERSION}', help_text)
+        self.assertIn('제휴되지 않은 비공식', help_text)
+        self.assertIn('실패하거나 바뀔 수 있습니다', help_text)
 
     def test_menu_checkmark_is_white(self):
         self.assertEqual(str(self.w.menu.cget('selectcolor')).upper(), '#FFFFFF')
+
+    def test_icon_buttons_have_hints(self):
+        w=self.w
+        self.assertEqual(w.header_buttons[0].tip_text, '새로고침 (F5)')
+        self.assertEqual(w.header_buttons[1].tip_text, '한 줄로 접기')
+        self.assertEqual(w.header_buttons[2].tip_text, '종료')
+        self.assertEqual(w.mini_buttons[0].tip_text, '새로고침 (F5)')
+        self.assertEqual(w.mini_buttons[1].tip_text, '상세로 펼치기')
+        self.assertEqual(w.mini_buttons[2].tip_text, '종료')
+
+    def test_tip_shows_after_schedule(self):
+        w=self.w
+        w.tip.delay=0
+        btn=w.header_buttons[0]
+        w.tip.schedule(btn, btn.tip_text)
+        w.root.update()
+        self.assertIsNotNone(w.tip.win)
+        self.assertEqual(w.tip.win.winfo_children()[0].cget('text'), '새로고침 (F5)')
+        self.assertIsNotNone(w.tip._keep)
+        w.tip.hide()
+        self.assertIsNone(w.tip.win)
+        self.assertIsNone(w.tip._keep)
+
+    def _assert_tip_lifted_after_widget(self, zorder, tip_win):
+        windows=[c.args[0] for c in zorder.call_args_list]
+        self.assertIn(self.w.root, windows)
+        self.assertIn(tip_win, windows)
+        self.assertGreater(windows.index(tip_win), windows.index(self.w.root))
+        self.assertFalse(self._dropped_topmost(zorder))
+
+    def test_tip_stays_above_after_environment_raise(self):
+        w=self.prepare()
+        w.topmost.set(True)
+        w.last_area=(0,0,800,600)
+        w.root.geometry('+10+10')
+        w.tip.delay=0
+        btn=w.header_buttons[0]
+        w.tip.schedule(btn, btn.tip_text)
+        w.root.update()
+        tip=w.tip.win
+        self.assertIsNotNone(tip)
+        self.assertTrue(tip.winfo_ismapped())
+        with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=(0,0,800,600)),patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_tip_window',wraps=u.lift_tip_window) as lift:
+            w.environment(0)
+            self.assertTrue(tip.winfo_ismapped())
+            self.assertIs(w.tip.win, tip)
+            lift.assert_called()
+            self._assert_tip_lifted_after_widget(zorder, tip)
+
+    def test_update_pill_tip_stays_above_after_apply_topmost(self):
+        w=self.prepare()
+        w.topmost.set(True)
+        w.update_info={'version':'9.9.9','zip':'https://example.com/a.zip','notes':''}
+        w.set_update_chrome()
+        w.tip.delay=0
+        w.tip.schedule(w.update_pill, w.update_pill.tip_text)
+        w.root.update()
+        tip=w.tip.win
+        self.assertIsNotNone(tip)
+        self.assertEqual(tip.winfo_children()[0].cget('text'), '업데이트 9.9.9')
+        with patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_tip_window',wraps=u.lift_tip_window) as lift:
+            w.apply_topmost()
+            self.assertTrue(tip.winfo_ismapped())
+            self.assertIs(w.tip.win, tip)
+            lift.assert_called()
+            self._assert_tip_lifted_after_widget(zorder, tip)
 
     def test_install_update_asks_with_notes_then_cancels(self):
         w=self.prepare()

@@ -2,6 +2,8 @@ AI Usage 위젯
 =============
 Windows에서 Codex·Cursor 잔여 사용량을 보는 작은 위젯입니다.
 
+이 위젯은 OpenAI(ChatGPT·Codex)·Cursor와 제휴되지 않은 비공식 도구입니다. 공식 앱이 아니며, 사용량 조회는 언제든 실패하거나 바뀔 수 있습니다. 소스 라이선스는 LICENSE(MIT)입니다.
+
 실행 (원클릭)
 1) zip을 폴더로 압축 해제합니다. zip 안에서 바로 실행하면 안 됩니다. 폴더 이름과 위치는 자유입니다.
 2) start_usage_widget.vbs 를 더블클릭합니다. 안 되면 같은 폴더의 문제확인.bat 또는 diagnose.bat 을 실행하고 나오는 글을 보내세요.

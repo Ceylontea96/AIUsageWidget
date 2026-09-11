@@ -12,11 +12,11 @@ import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
 
-APP_VERSION = '3.2.12'
+APP_VERSION = '3.2.13'
 USER_AGENT = f'AIUsageWidget/{APP_VERSION}'
 JSON_LIMIT = 256 * 1024
 ZIP_LIMIT = 30 * 1024 * 1024
-CHECK_EVERY = 6 * 3600
+CHECK_EVERY = 30 * 60
 
 APPLY_PS1 = r'''param([string]$Target,[string]$Source,[int]$WaitPid,[string]$Launch)
 $ErrorActionPreference = 'Stop'

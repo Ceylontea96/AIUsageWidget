@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+## [3.2.13] - 2026-09-11
+
+### Added
+- 새로고침·한 줄로 접기·상세로 펼치기·종료 아이콘에 마우스를 올리면 안내가 뜸
+- 새 버전이 있으면 업데이트 배지가 천천히 밝아졌다 어두워지고, 올리면 설치 안내가 뜸
+- MIT 라이선스와 비공식 안내
+
+### Changed
+- 실행 후에도 30분마다 새 버전을 확인함
+
+### Fixed
+- 한 줄 모드에서 우클릭해도 위젯이 작업 표시줄 뒤로 가지 않음
+- 안내 말풍선이 위젯 뒤에 가려지던 문제
+
 ## [3.2.12] - 2026-09-11
 
 ### Added
@@ -127,7 +141,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.12...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.13...HEAD
+[3.2.13]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.13
 [3.2.12]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.12
 [3.2.11]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.11
 [3.2.10]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.10

@@ -4,6 +4,8 @@ Windows에서 Codex·Cursor 잔여 사용량을 보는 작은 위젯입니다.
 
 [![version](https://img.shields.io/github/v/release/Ceylontea96/AIUsageWidget?label=version)](https://github.com/Ceylontea96/AIUsageWidget/releases/latest)
 
+이 위젯은 OpenAI(ChatGPT·Codex)·Cursor와 제휴되지 않은 비공식 도구입니다. 공식 앱이 아니며, 사용량 조회는 언제든 실패하거나 바뀔 수 있습니다. 소스 라이선스는 [LICENSE](LICENSE)(MIT)입니다.
+
 현재 버전은 [Releases](https://github.com/Ceylontea96/AIUsageWidget/releases/latest)의 최신 태그입니다.
 
 ## 실행

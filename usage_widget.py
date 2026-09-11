@@ -124,6 +124,12 @@ GREEN, AMBER, RED, LINE = CODEX, WARN, DANGER, HAIR
 ACCENTS = {'chatgpt': CODEX, 'cursor': CURSOR}
 CHIP_OK = {'chatgpt': CHIP_CODEX, 'cursor': CHIP_CURSOR}
 TITLES = {'chatgpt': 'Codex', 'cursor': 'Cursor'}
+ICON_HINTS = {
+    'refresh': '새로고침 (F5)',
+    'minus': '한 줄로 접기',
+    'expand': '상세로 펼치기',
+    'close': '종료',
+}
 HERO_SUB = {'chatgpt': '5시간 기준 잔여', 'cursor': '전체 잔여'}
 URLS = {'chatgpt': 'https://chatgpt.com/codex/settings/usage', 'cursor': 'https://cursor.com/dashboard/usage'}
 FETCHERS = ('chatgpt', 'cursor')
@@ -474,6 +480,18 @@ def lift_menu_windows(extra_hwnd=0):
         pass
 
 
+def lift_tip_window(win):
+    """Raise a mapped Tip Toplevel into the TOPMOST band without activating it."""
+    if win is None:
+        return
+    try:
+        if not win.winfo_exists() or not win.winfo_ismapped():
+            return
+    except (AttributeError, tk.TclError):
+        return
+    set_over_taskbar(win, True)
+
+
 def geometry_at(x, y):
     return f'+{int(x)}+{int(y)}'
 
@@ -526,6 +544,14 @@ def lighten(color, amount=0.18):
     r, g, b = _hex_rgb(color)
     mix = lambda c: min(255, int(round(c + (255 - c) * amount)))
     return '#%02X%02X%02X' % (mix(r), mix(g), mix(b))
+
+
+def blend(a, b, t):
+    t = max(0.0, min(1.0, float(t)))
+    ar, ag, ab = _hex_rgb(a)
+    br, bg, bb = _hex_rgb(b)
+    mix = lambda x, y: int(round(x + (y - x) * t))
+    return '#%02X%02X%02X' % (mix(ar, br), mix(ag, bg), mix(ab, bb))
 
 
 def _cover_round_rect(px, py, width, height, radius):
@@ -786,17 +812,168 @@ class Instance:
             self.handle = None
 
 
+class Tip:
+    """Delayed hover label that stays above the always-on-top widget."""
+    def __init__(self, root, metrics):
+        self.root = root
+        self.metrics = metrics
+        self.delay = 400
+        self.after = None
+        self._keep = None
+        self.win = None
+        self._widget = None
+        self._text = ''
+
+    def schedule(self, widget, text):
+        self.cancel()
+        self._destroy()
+        self._widget, self._text = widget, text
+        if not text:
+            return
+        try:
+            self.after = self.root.after(self.delay, self._fire)
+        except tk.TclError:
+            pass
+
+    def hide(self):
+        self.cancel()
+        self._destroy()
+
+    def cancel(self):
+        if self.after is not None:
+            try:
+                self.root.after_cancel(self.after)
+            except tk.TclError:
+                pass
+            self.after = None
+
+    def _fire(self):
+        self.after = None
+        widget, text = self._widget, self._text
+        try:
+            if not self.root.winfo_exists() or not widget.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        self.show(widget, text)
+
+    def show(self, widget, text):
+        self._destroy()
+        if not text:
+            return
+        try:
+            wx, wy = widget.winfo_rootx(), widget.winfo_rooty()
+            ww, wh = widget.winfo_width(), widget.winfo_height()
+        except tk.TclError:
+            return
+        m = self.metrics() if callable(self.metrics) else self.metrics
+        win = tk.Toplevel(self.root)
+        win.withdraw()
+        win.overrideredirect(True)
+        try:
+            win.attributes('-topmost', True)
+        except tk.TclError:
+            pass
+        label = tk.Label(
+            win, text=text, bg=CARD, fg=TEXT, font=m.font(FONT_FOOT),
+            padx=m.p(8), pady=m.p(4), bd=0, highlightthickness=1, highlightbackground=HAIR,
+        )
+        label.pack()
+        win.update_idletasks()
+        gap = m.p(6)
+        tw, th = win.winfo_reqwidth(), win.winfo_reqheight()
+        x, y = wx, wy + wh + gap
+        try:
+            area = monitor_area(wx + ww // 2, wy + wh // 2)
+        except (tk.TclError, OSError, ValueError):
+            area = None
+        if area:
+            left, top, right, bottom = area
+            if y + th > bottom:
+                y = wy - th - gap
+            x = min(max(x, left), max(left, right - tw))
+            y = min(max(y, top), max(top, bottom - th))
+        win.geometry(f'+{int(x)}+{int(y)}')
+        try:
+            win.deiconify()
+            win.update_idletasks()
+        except tk.TclError:
+            try:
+                win.destroy()
+            except tk.TclError:
+                pass
+            return
+        set_over_taskbar(win, True)
+        self.win = win
+        self._arm_keep()
+
+    def _arm_keep(self):
+        self._cancel_keep()
+        def pulse():
+            self._keep = None
+            win = self.win
+            if win is None:
+                return
+            try:
+                if not win.winfo_exists() or not win.winfo_ismapped():
+                    return
+            except tk.TclError:
+                return
+            set_over_taskbar(win, True)
+            try:
+                self._keep = self.root.after(80, pulse)
+            except tk.TclError:
+                pass
+        try:
+            self._keep = self.root.after(80, pulse)
+        except tk.TclError:
+            pass
+
+    def _cancel_keep(self):
+        if self._keep is not None:
+            try:
+                self.root.after_cancel(self._keep)
+            except tk.TclError:
+                pass
+            self._keep = None
+
+    def _destroy(self):
+        self._cancel_keep()
+        if self.win is not None:
+            try:
+                self.win.destroy()
+            except tk.TclError:
+                pass
+            self.win = None
+
+
 class IconButton(tk.Canvas):
-    def __init__(self, parent, image, command, hover_bg=HOVER, size=24):
+    def __init__(self, parent, image, command, hover_bg=HOVER, size=24, tip=None, hint=''):
         super().__init__(parent,width=size,height=size,bg=BG,bd=0,highlightthickness=0,
                          cursor='hand2',takefocus=True)
         self.image, self.command, self.hover, self.size = image, command, hover_bg, size
-        self.bind('<Button-1>',lambda e:command())
+        self.tip, self.tip_text = tip, hint
+        self.bind('<Button-1>', self._click)
         self.bind('<Return>',lambda e:command())
         self.bind('<space>',lambda e:command())
-        self.bind('<Enter>',lambda e:self.paint(True))
-        self.bind('<Leave>',lambda e:self.paint(False))
+        self.bind('<Enter>', self._enter)
+        self.bind('<Leave>', self._leave)
         self.paint(False)
+
+    def _click(self, event=None):
+        if self.tip:
+            self.tip.hide()
+        self.command()
+
+    def _enter(self, event=None):
+        self.paint(True)
+        if self.tip and self.tip_text:
+            self.tip.schedule(self, self.tip_text)
+
+    def _leave(self, event=None):
+        self.paint(False)
+        if self.tip:
+            self.tip.hide()
 
     def set_size(self, size):
         self.size = max(1, int(size))
@@ -813,20 +990,28 @@ class IconButton(tk.Canvas):
 
 class UpdatePill(tk.Canvas):
     """Filled call-to-action shown only while an update is pending or installing."""
-    def __init__(self, parent, command, metrics=None):
+    animate = True
+    _PULSE_MS = 50
+    _PULSE_PERIOD = 1200
+
+    def __init__(self, parent, command, metrics=None, tip=None):
         self.metrics = metrics or Metrics()
         super().__init__(parent, width=1, height=1, bg=BG, bd=0, highlightthickness=0)
         self.command = command
+        self.tip, self.tip_text = tip, ''
         self.text, self.ready, self.hover, self.width_px = '', False, False, 0
+        self._pulse_after = None
+        self._pulse_phase = 0.0
         self.bind('<Button-1>', self._click)
         self.bind('<Enter>', lambda e: self._set_hover(True))
         self.bind('<Leave>', lambda e: self._set_hover(False))
+        self.bind('<Destroy>', self._stop_pulse)
 
     def set_metrics(self, metrics):
         self.metrics = metrics
         self._redraw()
 
-    def show(self, candidates, ready, max_width):
+    def show(self, candidates, ready, max_width, hint=''):
         """Pick the longest label that fits; returns the pill width in pixels."""
         font = tkfont.Font(root=self, font=self.metrics.font(FONT_PILL))
         pad = self.metrics.p(9)
@@ -838,23 +1023,84 @@ class UpdatePill(tk.Canvas):
                 break
         else:
             width = min(font.measure(text) + pad * 2, max_width)
-        self.text, self.ready, self.width_px = text, ready, max(1, int(width))
+        self.text, self.ready, self.width_px, self.tip_text = text, ready, max(1, int(width)), hint
         self.configure(width=self.width_px, height=self.metrics.pill_h, cursor='hand2' if ready else 'arrow')
+        self._sync_pulse(0.0)
         self._redraw()
+        if self.hover:
+            self._tip_hover(True)
         return self.width_px
 
     def hide(self):
-        self.text, self.ready, self.hover = '', False, False
+        self._stop_pulse()
+        if self.tip and (self.hover or getattr(self.tip, '_widget', None) is self):
+            self.tip.hide()
+        self.text, self.ready, self.hover, self.tip_text = '', False, False, ''
         self.place_forget()
 
     def _click(self, event=None):
+        if self.tip:
+            self.tip.hide()
         if self.ready:
             self.command()
 
     def _set_hover(self, on):
-        if on != self.hover:
-            self.hover = on
+        if on == self.hover:
+            return
+        self.hover = on
+        if on:
+            self._stop_pulse()
+        else:
+            self._sync_pulse(math.pi / 2)
+        self._tip_hover(on)
+        self._redraw()
+
+    def _tip_hover(self, on):
+        if not self.tip:
+            return
+        if on and self.tip_text:
+            self.tip.schedule(self, self.tip_text)
+        else:
+            self.tip.hide()
+
+    def _sync_pulse(self, phase=0.0):
+        if self.ready and self.animate and not self.hover and self.text:
+            if self._pulse_after is None:
+                self._pulse_phase = phase
+                self._schedule_pulse()
+        else:
+            self._stop_pulse()
+
+    def _schedule_pulse(self):
+        try:
+            self._pulse_after = self.after(self._PULSE_MS, self._pulse_tick)
+        except tk.TclError:
+            self._pulse_after = None
+
+    def _stop_pulse(self, event=None):
+        aid = self._pulse_after
+        self._pulse_after = None
+        if aid is not None:
+            try:
+                self.after_cancel(aid)
+            except tk.TclError:
+                pass
+
+    def _pulse_tick(self):
+        self._pulse_after = None
+        if not self.animate or not self.ready or self.hover or not self.text:
+            return
+        try:
+            if not self.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        self._pulse_phase += 2 * math.pi * (self._PULSE_MS / self._PULSE_PERIOD)
+        try:
             self._redraw()
+        except tk.TclError:
+            return
+        self._schedule_pulse()
 
     def _redraw(self):
         self.delete('all')
@@ -862,10 +1108,22 @@ class UpdatePill(tk.Canvas):
             return
         w, h = self.width_px, self.metrics.pill_h
         if self.ready:
-            fill, fg = (lighten(CODEX) if self.hover else CODEX), BG
+            peak = lighten(CODEX)
+            if self.hover:
+                amount = 1.0
+            elif self.animate:
+                amount = 0.5 * (1.0 + math.sin(self._pulse_phase))
+            else:
+                amount = 0.28
+            fill = blend(CODEX, peak, amount)
+            glow = blend(peak, lighten(CODEX, 0.42), amount)
+            round_rect(self, 0, 0, w, h, h / 2, glow)
+            inset = max(1.0, min(h / 6.0, float(self.metrics.p(1))))
+            round_rect(self, inset, inset, w - inset, h - inset, max(0.0, (h - 2 * inset) / 2), fill)
+            fg = BG
         else:
-            fill, fg = CARD, MUTED
-        round_rect(self, 0, 0, w, h, h / 2, fill)
+            round_rect(self, 0, 0, w, h, h / 2, CARD)
+            fg = MUTED
         self.create_text(w / 2, h / 2, text=self.text, fill=fg, font=self.metrics.font(FONT_PILL))
 
 
@@ -1048,6 +1306,7 @@ class UsageWidget:
         self._update_busy = False
         self._overlay = 0
         self._menu_held = False
+        self.tip = Tip(self.root, lambda: self.metrics)
         self._load_icons()
         self.build()
         if should_setup(self.settings, self.preview):
@@ -1084,14 +1343,19 @@ class UsageWidget:
                 self.icons[name] = image
 
     def icon_button(self, parent, name, command, hover_bg=HOVER):
+        hint = ICON_HINTS.get(name, '')
         image = self.icons.get(name)
         if image is None:
             fallback = {'refresh': '↻', 'minus': '−', 'close': '×', 'expand': '＋', 'plus': '＋'}
             button = tk.Label(parent, text=fallback.get(name, '·'), bg=parent.cget('bg'), fg=MUTED,
                               font=('Segoe UI', max(8, int(round(11 * self.metrics.scale)))), cursor='hand2')
-            button.bind('<Button-1>', lambda e: command())
+            button.tip_text = hint
+            button.bind('<Button-1>', lambda e: (self.tip.hide(), command()))
+            if hint:
+                button.bind('<Enter>', lambda e, b=button, t=hint: self.tip.schedule(b, t), add='+')
+                button.bind('<Leave>', lambda e: self.tip.hide(), add='+')
             return button
-        return IconButton(parent, image, command, hover_bg=hover_bg, size=self.metrics.icon)
+        return IconButton(parent, image, command, hover_bg=hover_bg, size=self.metrics.icon, tip=self.tip, hint=hint)
 
     def build(self):
         m = self.metrics
@@ -1100,7 +1364,7 @@ class UsageWidget:
         self.shell.pack_propagate(False)
         self.header = tk.Frame(self.shell,bg=BG,height=m.header_h)
         self.title = tk.Label(self.header,text='AI Usage',bg=BG,fg=TEXT,font=m.font(FONT_TITLE),bd=0,padx=0,pady=0)
-        self.update_pill = UpdatePill(self.header, self.install_update, m)
+        self.update_pill = UpdatePill(self.header, self.install_update, m, tip=self.tip)
         self.header_buttons = []
         for name,callback in (('refresh',self.refresh),('minus',self.toggle),('close',self.close)):
             self.header_buttons.append(self.icon_button(self.header,name,callback,CLOSE_HOVER if name == 'close' else HOVER))
@@ -1115,7 +1379,7 @@ class UsageWidget:
         self.status = self.footer_text
         self.mini = tk.Frame(self.shell,bg=BG,height=max(1, m.compact_h-2))
         self.mini_title = tk.Label(self.mini,text='AI Usage',bg=BG,fg=TEXT,font=m.font(FONT_TITLE),bd=0,padx=0,pady=0)
-        self.mini_pill = UpdatePill(self.mini, self.install_update, m)
+        self.mini_pill = UpdatePill(self.mini, self.install_update, m, tip=self.tip)
         self.mini_values = {}
         for key in FETCHERS:
             chip = Chip(self.mini, m)
@@ -1158,7 +1422,7 @@ class UsageWidget:
         self.menu.bind('<Map>', lambda e: self._lift_menu())
 
     def apply_topmost(self):
-        if self.preview or self._overlay or self._menu_held:
+        if self.preview or self._overlay:
             return
         want = bool(self.topmost.get())
         try:
@@ -1166,6 +1430,10 @@ class UsageWidget:
         except tk.TclError:
             return
         set_over_taskbar(self.root, want)
+        if self._menu_held:
+            self._raise_open_menus()
+        elif want:
+            lift_tip_window(self.tip.win)
 
     def push_overlay(self):
         self._overlay += 1
@@ -1188,9 +1456,7 @@ class UsageWidget:
         finally:
             self.pop_overlay()
 
-    def _lift_menu(self):
-        if not self._menu_held or self.closing:
-            return
+    def _raise_open_menus(self):
         extra = 0
         try:
             if self.menu.winfo_ismapped():
@@ -1199,13 +1465,46 @@ class UsageWidget:
             extra = 0
         lift_menu_windows(extra)
 
+    def _lift_menu(self):
+        if not self._menu_held or self.closing:
+            return
+        if not self.preview and not self._overlay and self.topmost.get():
+            set_over_taskbar(self.root, True)
+        self._raise_open_menus()
+
     def _arm_menu_raise(self):
+        if not self._overlay and self.topmost.get():
+            try:
+                self.root.attributes('-topmost', True)
+            except tk.TclError:
+                pass
+        self._lift_menu()
+        def pulse():
+            if not self._menu_held or self.closing:
+                return
+            self._lift_menu()
+            try:
+                self.root.after(50, pulse)
+            except tk.TclError:
+                pass
         try:
-            self.root.after(1, self._lift_menu)
+            self.root.after(50, pulse)
         except tk.TclError:
             pass
+        hwnd = 0
+        try:
+            hwnd = int(self.root.wm_frame(), 16)
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            hwnd = 0
+        want = bool(self.topmost.get())
         def lift():
+            insert = ctypes.c_void_p(-1)
             while self._menu_held and not self.closing:
+                if hwnd and want:
+                    try:
+                        ctypes.windll.user32.SetWindowPos(ctypes.c_void_p(hwnd), insert, 0, 0, 0, 0, 0x0013)
+                    except (AttributeError, OSError, OverflowError, TypeError, ValueError):
+                        pass
                 lift_menu_windows()
                 time.sleep(0.05)
         threading.Thread(target=lift, daemon=True, name='menu-z').start()
@@ -1225,6 +1524,8 @@ class UsageWidget:
     def help_text(self):
         return (
             f'현재 버전 {APP_VERSION}\n\n'
+            '이 위젯은 OpenAI(ChatGPT·Codex)·Cursor와 제휴되지 않은 비공식 도구입니다.\n'
+            '사용량 조회는 언제든 실패하거나 바뀔 수 있습니다.\n\n'
             'Codex: 5시간·주간 중 더 적게 남은 한도입니다.\n'
             'Cursor: 전체 잔여와 자사 모델·API 잔여를 구분합니다.\n'
             '기본 포함량 소진과 전체 한도 소진은 다를 수 있습니다.\n\n'
@@ -1500,6 +1801,7 @@ class UsageWidget:
             self.notify(messagebox.showerror, '시작 설정', str(exc), parent=self.root)
 
     def popup(self, event):
+        self.tip.hide()
         if not self._menu_held:
             self._menu_held = True
             self._arm_menu_raise()
@@ -1522,6 +1824,7 @@ class UsageWidget:
         widget.bind('<Double-Button-1>', lambda e: self.toggle())
 
     def start_drag(self, e):
+        self.tip.hide()
         self.dragging = True
         self.drag_offset = (e.x_root - self.root.winfo_x(), e.y_root - self.root.winfo_y())
 
@@ -1761,13 +2064,15 @@ class UsageWidget:
         if self._update_busy:
             header_labels = ['설치 중...', '설치 중']
             mini_labels = ['설치 중', '...']
+            hint = '설치 중...'
         else:
             header_labels = [f'↑ 업데이트 {version}', f'↑ 새 버전 {version}', '↑ 업데이트', '↑ 새 버전', '↑']
             mini_labels = ['↑ 새 버전', '새 버전', f'↑ {version}', '↑']
+            hint = f'업데이트 {version}' if ready else ''
         # Detail header: a filled pill right after the title, hidden when nothing is pending.
         if pending and not self.compact:
             x = m.p(84)
-            width = self.update_pill.show(header_labels, ready, m.p(270) - m.p(10) - x)
+            width = self.update_pill.show(header_labels, ready, m.p(270) - m.p(10) - x, hint)
             self.update_pill.place(x=x, y=(m.header_h - m.pill_h) // 2, width=width, height=m.pill_h)
         else:
             self.update_pill.hide()
@@ -1775,7 +2080,7 @@ class UsageWidget:
         mini_h = max(1, m.compact_h - 2)
         if pending and self.compact:
             x = m.p(12)
-            width = self.mini_pill.show(mini_labels, ready, m.p(76) - m.p(6) - x)
+            width = self.mini_pill.show(mini_labels, ready, m.p(76) - m.p(6) - x, hint)
             self.mini_title.place_forget()
             self.mini_pill.place(x=x, y=(mini_h - m.pill_h) // 2, width=width, height=m.pill_h)
         else:
@@ -1861,6 +2166,12 @@ class UsageWidget:
             return
         self.persist()
         self.closing = True
+        self.tip.hide()
+        try:
+            self.update_pill.hide()
+            self.mini_pill.hide()
+        except tk.TclError:
+            pass
         self.runner.close()
         if self.timer:
             self.root.after_cancel(self.timer)

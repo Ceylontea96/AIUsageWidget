@@ -7,6 +7,9 @@ import updater as u
 
 
 class UpdaterTests(unittest.TestCase):
+    def test_check_every_is_thirty_minutes(self):
+        self.assertEqual(u.CHECK_EVERY, 30 * 60)
+
     def test_version_compare(self):
         self.assertTrue(u.is_newer('3.1.1', '3.1.0'))
         self.assertFalse(u.is_newer('3.1.0', '3.1.0'))
