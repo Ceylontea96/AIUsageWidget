@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [3.2.7] - 2026-09-11
+
+### Fixed
+- `py -3`으로 이미 있는 Python 3.13+Tk를 먼저 찾아, 있는 PC에 3.12를 또 깔지 않음
+- 이미 Python이 있을 때 위젯용 3.12를 PATH 맨 앞에 넣지 않음
+
+### Notes
+- 3.13이 있는데도 설치 창이 뜨면 이 버전 zip을 다시 받아 diagnose.bat을 실행하세요.
+
 ## [3.2.6] - 2026-09-11
 
 ### Fixed
@@ -89,7 +98,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.6...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.7...HEAD
+[3.2.7]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.7
 [3.2.6]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.6
 [3.2.5]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.5
 [3.2.4]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.4

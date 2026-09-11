@@ -96,7 +96,7 @@ function Add-RawCandidate {
     param([string]$Path, $Seen, $Hits)
     if (-not $Path) { return }
     try { $Path = (Get-Item -LiteralPath $Path).FullName } catch { return }
-    if ($Path -like '*WindowsApps*') { return }
+    if (($Path -like '*WindowsApps*') -and (Test-TinyOrMissing $Path)) { return }
     $key = $Path.ToLowerInvariant()
     if ($Seen.ContainsKey($key)) { return }
     $Seen[$key] = $true
@@ -134,6 +134,12 @@ function Get-RawPythonHits {
         )) {
         if ($root) { $roots.Add($root) | Out-Null }
     }
+    foreach ($ver in @('314', '313', '312', '311', '310', '39')) {
+        foreach ($base in @($env:LocalAppData + '\Programs\Python', $env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+            if (-not $base) { continue }
+            $roots.Add((Join-Path $base "Python$ver")) | Out-Null
+        }
+    }
     foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
         if (-not $base -or -not (Test-Path -LiteralPath $base)) { continue }
         Get-ChildItem -LiteralPath $base -Directory -Filter 'Python*' -ErrorAction SilentlyContinue | ForEach-Object {
@@ -167,12 +173,27 @@ function Get-RawPythonHits {
 }
 
 function Test-ReadyPython([string]$PythonExe) {
-    $code = "import sys,tkinter; raise SystemExit(0 if sys.version_info>=($($MinPython.Major),$($MinPython.Minor)) else 3)"
+    $code = "import sys,tkinter; sys.exit(3) if sys.version_info<($($MinPython.Major),$($MinPython.Minor)) else print(sys.executable)"
     $text = Invoke-PythonText -Exe $PythonExe -Args (Get-PythonArgs $PythonExe $code)
-    return ($null -ne $text)
+    return ($null -ne $text -and $text -ne '')
+}
+
+function Get-PyLauncherPython {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $cmds = @(Get-Command py -CommandType Application -All -ErrorAction SilentlyContinue)
+    $ErrorActionPreference = $prev
+    foreach ($cmd in $cmds) {
+        if (-not $cmd) { continue }
+        $text = Invoke-PythonText -Exe $cmd.Source -Args @('-3', '-B', '-c', 'import sys,tkinter; print(sys.executable)') -TimeoutMs 8000
+        if ($text -and (Test-Path -LiteralPath $text)) { return $text }
+    }
+    return $null
 }
 
 function Get-ReadyPython {
+    $fromPy = Get-PyLauncherPython
+    if ($fromPy) { return $fromPy }
     $raw = @(Get-RawPythonHits)
     $real = @($raw | Where-Object { -not (Test-NeedsResolve $_) })
     $launchers = @($raw | Where-Object { Test-NeedsResolve $_ })
@@ -215,10 +236,12 @@ function Install-FromPythonOrg {
     Write-Host "Python $ver 설치 파일을 받는 중..."
     Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing
     Write-Host 'Python 설치 중... (1~2분)'
-    $installArgs = '/quiet InstallAllUsers=0 PrependPath=1 Include_tcltk=1 Include_pip=1 Include_test=0 Include_doc=0 Include_launcher=1 SimpleInstall=1'
+    $installArgs = '/quiet InstallAllUsers=0 PrependPath=0 Include_tcltk=1 Include_pip=1 Include_test=0 Include_doc=0 Include_launcher=1 SimpleInstall=1'
     $p = Start-Process -FilePath $tmp -ArgumentList $installArgs -Wait -PassThru
+    Start-Sleep -Seconds 2
     Refresh-Path
-    return ($p.ExitCode -eq 0) -and (Get-ReadyPython)
+    if (Get-ReadyPython) { return $true }
+    return ($p.ExitCode -eq 0)
 }
 
 function Unblock-Here {
@@ -307,7 +330,7 @@ if (-not $ok) {
 $python = Get-ReadyPython
 if (-not $python) {
     Start-Process 'https://www.python.org/downloads/windows/'
-    Show-LaunchError "자동 설치에 실패했습니다. 브라우저에서 Python 3.12를 설치한 뒤 start_usage_widget.vbs 를 다시 실행하세요.`n설치 시 Add python.exe to PATH 와 tcl/tk 를 켜세요."
+    Show-LaunchError "자동 설치에 실패했습니다. Microsoft Store Python은 위젯이 못 쓸 수 있습니다.`nhttps://www.python.org/downloads/windows/ 에서 Windows 설치 파일을 받아 Add python.exe to PATH 와 tcl/tk 를 켠 뒤 diagnose.bat 을 다시 실행하세요."
     exit 1
 }
 
