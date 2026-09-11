@@ -426,12 +426,17 @@ def clamp_position(x, y, w, h, work, monitor):
     return x, y
 
 
-def raise_over_taskbar(root):
+def set_over_taskbar(root, on=True):
     try:
         hwnd = ctypes.c_void_p(int(root.wm_frame(), 16))
-        ctypes.windll.user32.SetWindowPos(hwnd, ctypes.c_void_p(-1), 0, 0, 0, 0, 0x0013)
+        insert = ctypes.c_void_p(-1 if on else -2)
+        ctypes.windll.user32.SetWindowPos(hwnd, insert, 0, 0, 0, 0, 0x0013)
     except (AttributeError, OSError, ValueError, tk.TclError):
         pass
+
+
+def raise_over_taskbar(root):
+    set_over_taskbar(root, True)
 
 
 def geometry_at(x, y):
@@ -842,6 +847,8 @@ class UsageWidget:
         self.update_queue = queue.Queue()
         self.last_update_check = float('-inf')
         self._update_busy = False
+        self._overlay = 0
+        self._menu_held = False
         self._load_icons()
         self.build()
         if should_setup(self.settings, self.preview):
@@ -921,7 +928,7 @@ class UsageWidget:
         self.apply_metrics()
         for widget in (self.title,self.header,self.mini_title,self.mini):
             self.bind_drag(widget)
-        self.menu = tk.Menu(self.root, tearoff=False, bg=CARD, fg=TEXT, activebackground=HAIR, activeforeground=TEXT)
+        self.menu = tk.Menu(self.root, tearoff=False, bg=CARD, fg=TEXT, activebackground=HAIR, activeforeground=TEXT, disabledforeground=DIM)
         self.menu.add_command(label='새로고침    F5', command=self.refresh)
         self.menu.add_command(label='한 줄 / 상세    Ctrl+M', command=self.toggle)
         self.menu.add_separator()
@@ -947,11 +954,54 @@ class UsageWidget:
             self.menu.add_command(label=TITLES[key] + ' 사용량 페이지', command=lambda k=key: webbrowser.open(URLS[k]))
         self.menu.add_command(label='표시 기준 / 도움말', command=self.help)
         self.menu.add_separator()
+        self.menu.add_command(label=f'버전 {APP_VERSION}', state='disabled')
         self.menu.add_command(label='종료', command=self.close)
 
-    def help(self):
-        messagebox.showinfo(
-            'AI Usage',
+    def apply_topmost(self):
+        if self.preview or self._overlay:
+            return
+        want = bool(self.topmost.get())
+        try:
+            self.root.attributes('-topmost', want)
+        except tk.TclError:
+            return
+        set_over_taskbar(self.root, want)
+
+    def push_overlay(self):
+        self._overlay += 1
+        try:
+            self.root.attributes('-topmost', False)
+            set_over_taskbar(self.root, False)
+            self.root.update_idletasks()
+        except tk.TclError:
+            pass
+
+    def pop_overlay(self):
+        self._overlay = max(0, self._overlay - 1)
+        if self._overlay == 0 and not self.closing:
+            self.apply_topmost()
+
+    def notify(self, fn, *args, **kwargs):
+        self.push_overlay()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            self.pop_overlay()
+
+    def _release_menu(self):
+        try:
+            if self.menu.winfo_ismapped():
+                self.root.after(50, self._release_menu)
+                return
+        except tk.TclError:
+            pass
+        if self._menu_held:
+            self._menu_held = False
+            self.pop_overlay()
+
+    def help_text(self):
+        return (
+            f'현재 버전 {APP_VERSION}\n\n'
             'Codex: 5시간·주간 중 더 적게 남은 한도입니다.\n'
             'Cursor: 전체 잔여와 자사 모델·API 잔여를 구분합니다.\n'
             '기본 포함량 소진과 전체 한도 소진은 다를 수 있습니다.\n\n'
@@ -965,11 +1015,14 @@ class UsageWidget:
             '10% 이하·소진 시 한 번 알림 (12% 초과 회복 시 재설정)\n'
             '로그인 파일 변경 자동 감지 · 조회 제한 15초\n'
             '잠금 중 조회 중지 · 해제 시 즉시 조회\n'
-            '새 버전이 있으면 업데이트가 켜집니다.',
-            parent=self.root,
+            '새 버전이 있으면 업데이트가 켜집니다.'
         )
 
+    def help(self):
+        self.notify(messagebox.showinfo, 'AI Usage', self.help_text(), parent=self.root)
+
     def pick_services(self):
+        self.push_overlay()
         dialog = tk.Toplevel(self.root)
         dialog.title('표시할 서비스')
         dialog.configure(bg=BG)
@@ -1036,7 +1089,7 @@ class UsageWidget:
                 lines.append('Codex: ChatGPT 데스크톱이 아니라 Codex CLI가 필요합니다.')
             if need_cursor:
                 lines.append('Cursor: Cursor 앱에서 로그인해야 합니다.')
-            if messagebox.askyesno('로그인 준비', '\n'.join(lines), parent=self.root):
+            if self.notify(messagebox.askyesno, '로그인 준비', '\n'.join(lines), parent=self.root):
                 start_tool_setup('prepare', codex=need_codex, cursor=need_cursor)
 
         def commit():
@@ -1071,8 +1124,11 @@ class UsageWidget:
         dialog.update_idletasks()
         dialog.geometry(f'+{self.root.winfo_rootx() + 24}+{self.root.winfo_rooty() + 48}')
         refresh_status()
-        dialog.grab_set()
-        dialog.wait_window()
+        try:
+            dialog.grab_set()
+            dialog.wait_window()
+        finally:
+            self.pop_overlay()
 
     def apply_metrics(self):
         m = self.metrics
@@ -1208,9 +1264,7 @@ class UsageWidget:
         self.persist()
 
     def set_topmost(self):
-        self.root.attributes('-topmost', self.topmost.get())
-        if self.topmost.get():
-            raise_over_taskbar(self.root)
+        self.apply_topmost()
         self.persist()
 
     def toggle_startup(self):
@@ -1221,13 +1275,23 @@ class UsageWidget:
             set_startup(self.startup.get())
         except (OSError, RuntimeError) as exc:
             self.startup.set(not self.startup.get())
-            messagebox.showerror('시작 설정', str(exc), parent=self.root)
+            self.notify(messagebox.showerror, '시작 설정', str(exc), parent=self.root)
 
     def popup(self, event):
+        if not self._menu_held:
+            self._menu_held = True
+            self.push_overlay()
         try:
             self.menu.tk_popup(event.x_root, event.y_root)
         finally:
-            self.menu.grab_release()
+            try:
+                self.menu.grab_release()
+            except tk.TclError:
+                pass
+            try:
+                self.root.after(0, self._release_menu)
+            except tk.TclError:
+                self._release_menu()
 
     def bind_drag(self, widget):
         widget.bind('<ButtonPress-1>', self.start_drag)
@@ -1253,8 +1317,7 @@ class UsageWidget:
         cx, cy = x + w // 2, y + h // 2
         x, y = clamp_position(x, y, w, h, work_area(cx, cy), monitor_area(cx, cy))
         self.root.geometry(geometry_at(x, y))
-        if not self.preview and self.topmost.get():
-            raise_over_taskbar(self.root)
+        self.apply_topmost()
 
     def persist(self):
         if self.preview:
@@ -1341,7 +1404,7 @@ class UsageWidget:
                     self.last_area = area
                     self.persist()
                 elif self.topmost.get():
-                    raise_over_taskbar(self.root)
+                    self.apply_topmost()
         if not self.locked and now - self.last_auth_scan >= 3:
             self.last_auth_scan = now
             for key in self.watcher.changed(now):
@@ -1527,17 +1590,17 @@ class UsageWidget:
                     self.set_update_chrome()
                     if notify:
                         if not had_feed:
-                            messagebox.showinfo('업데이트', '배포 주소가 없습니다.\nfeed_url.txt에 latest.json 공개 주소를 넣으면 친구가 업데이트를 받을 수 있습니다.', parent=self.root)
+                            self.notify(messagebox.showinfo, '업데이트', '배포 주소가 없습니다.\nfeed_url.txt에 latest.json 공개 주소를 넣으면 친구가 업데이트를 받을 수 있습니다.', parent=self.root)
                         elif info:
-                            messagebox.showinfo('업데이트', f"{info['version']} 을 받을 수 있습니다.", parent=self.root)
+                            self.notify(messagebox.showinfo, '업데이트', f"{info['version']} 을 받을 수 있습니다.", parent=self.root)
                         else:
-                            messagebox.showinfo('업데이트', f'이미 최신입니다. ({APP_VERSION})', parent=self.root)
+                            self.notify(messagebox.showinfo, '업데이트', f'이미 최신입니다. ({APP_VERSION})', parent=self.root)
                 elif kind == 'downloaded':
                     self._finish_update(item[1])
                 elif kind == 'failed':
                     self._update_busy = False
                     self.set_update_chrome()
-                    messagebox.showinfo('업데이트', item[1], parent=self.root)
+                    self.notify(messagebox.showinfo, '업데이트', item[1], parent=self.root)
         except queue.Empty:
             pass
 
@@ -1546,7 +1609,7 @@ class UsageWidget:
             return
         notes = self.update_info.get('notes') or ''
         extra = ('\n' + notes) if notes else ''
-        if not messagebox.askyesno('업데이트', f"{self.update_info['version']} 파일을 받고 위젯을 다시 시작할까요?{extra}", parent=self.root):
+        if not self.notify(messagebox.askyesno, '업데이트', f"{self.update_info['version']} 파일을 받고 위젯을 다시 시작할까요?{extra}", parent=self.root):
             return
         self._update_busy = True
         self.set_update_chrome()

@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-09-11
+
+### Added
+- GitHub 저장소 README에 최신 릴리스 버전 배지
+- 우클릭 메뉴·도움말에 현재 위젯 버전
+
+### Fixed
+- 우클릭 메뉴와 대화상자가 항상 위 위젯 뒤로 가던 문제
+
+### Notes
+- 3.2.0에서 업데이트 버튼을 눌러 받을 수 있습니다.
+
 ## [3.2.0] - 2026-09-11
 
 ### Added
@@ -32,6 +44,7 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.0...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.1...HEAD
+[3.2.1]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.1
 [3.2.0]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.0
 [3.1.0]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.1.0

@@ -2,7 +2,9 @@
 
 Windows에서 Codex·Cursor 잔여 사용량을 보는 작은 위젯입니다.
 
-현재 버전은 `updater.py`의 `APP_VERSION`입니다.
+[![version](https://img.shields.io/github/v/release/Ceylontea96/AIUsageWidget?label=version)](https://github.com/Ceylontea96/AIUsageWidget/releases/latest)
+
+현재 버전은 [Releases](https://github.com/Ceylontea96/AIUsageWidget/releases/latest)의 최신 태그입니다.
 
 ## 실행
 

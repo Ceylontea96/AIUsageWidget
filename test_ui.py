@@ -119,4 +119,38 @@ class UiTests(unittest.TestCase):
         self.assertEqual(self.w.scale, 1.3)
         self.assertEqual(int(self.w.shell.cget('width')), u.px(360, 1.3))
 
+    def test_environment_skips_raise_while_overlay(self):
+        w=self.prepare()
+        w._overlay=1
+        w.topmost.set(True)
+        w.last_area=(0,0,800,600)
+        w.root.geometry('+10+10')
+        with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=(0,0,800,600)),patch.object(u,'set_over_taskbar') as zorder:
+            w.environment(0)
+            zorder.assert_not_called()
+
+    def test_popup_holds_overlay_until_menu_closes(self):
+        w=self.prepare()
+        w.topmost.set(True)
+        event=type('E',(),{'x_root':10,'y_root':20})()
+        seen=[]
+        def fake_popup(*_a,**_k):
+            seen.append(w._overlay)
+            seen.append(w._menu_held)
+        with patch.object(w.menu,'tk_popup',side_effect=fake_popup),patch.object(w.menu,'grab_release'),patch.object(w.menu,'winfo_ismapped',return_value=False):
+            w.popup(event)
+            w.root.update()
+        self.assertEqual(seen,[1,True])
+        self.assertEqual(w._overlay,0)
+        self.assertFalse(w._menu_held)
+
+    def test_version_in_menu_and_help(self):
+        w=self.w
+        labels=[]
+        for i in range(w.menu.index('end')+1):
+            if w.menu.type(i)=='command':
+                labels.append(w.menu.entrycget(i,'label'))
+        self.assertIn(f'버전 {u.APP_VERSION}', labels)
+        self.assertIn(f'현재 버전 {u.APP_VERSION}', w.help_text())
+
 if __name__=='__main__':unittest.main(verbosity=2)
