@@ -61,7 +61,7 @@ if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -F
 New-Item -ItemType Directory -Path (Join-Path $stage 'assets\icons') -Force | Out-Null
 $copy = @(
     'usage_widget.py', 'providers.py', 'runtime.py', 'poll_worker.py', 'updater.py',
-    'setup_and_run.ps1', 'setup_login.ps1', 'start_usage_widget.vbs', 'start_usage_widget.bat',
+    'setup_and_run.ps1', 'setup_login.ps1', 'start_usage_widget.vbs', 'start_usage_widget.bat', '문제확인.bat',
     'toast.ps1', 'register_notifications.ps1', 'feed_url.txt', 'CHANGELOG.md'
 )
 foreach ($f in $copy) {

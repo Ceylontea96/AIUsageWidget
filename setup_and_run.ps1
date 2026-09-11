@@ -267,8 +267,10 @@ function Start-Widget([string]$PythonExe) {
         Show-LaunchError "위젯 프로세스를 만들지 못했습니다.`n$pythonw"
         exit 1
     }
+    Write-LaunchLog "widget start $pythonw pid $($p.Id)"
     Start-Sleep -Milliseconds 1200
     if (-not $p.HasExited) { return }
+    Write-LaunchLog "widget exited $($p.ExitCode)"
     if ($p.ExitCode -eq 0) { return }
     $log = Join-Path $env:APPDATA 'AiUsageWidget\error.log'
     $extra = ''
@@ -283,8 +285,8 @@ function Start-Widget([string]$PythonExe) {
 }
 
 try {
-    Unblock-Here
     Write-LaunchLog 'setup start'
+    Unblock-Here
     $python = Get-ReadyPython
     if ($python) {
         Start-Widget $python

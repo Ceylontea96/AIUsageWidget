@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [3.2.4] - 2026-09-11
+
+### Fixed
+- 프로세스가 이미 꺼진 뒤 남은 widget.lock이 재실행을 막던 문제
+- 실행 직후 launch.log를 남기고, 안 될 때는 문제확인.bat으로 원인을 볼 수 있게 함
+
+### Notes
+- 위젯이 안 뜨면 zip을 폴더로 푼 뒤 문제확인.bat을 실행하고 창 내용을 보내세요.
+
 ## [3.2.3] - 2026-09-11
 
 ### Fixed
@@ -64,7 +73,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.3...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.4...HEAD
+[3.2.4]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.4
 [3.2.3]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.3
 [3.2.2]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.2
 [3.2.1]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.1

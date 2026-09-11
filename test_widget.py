@@ -207,6 +207,9 @@ class WidgetTests(unittest.TestCase):
                 self.assertFalse(u.process_alive(0))
                 u.log_launch('hello')
                 self.assertIn('hello', (root / 'launch.log').read_text(encoding='utf-8'))
+                (root / 'widget.lock').write_text('0\n0\n', encoding='ascii')
+                self.assertTrue(u.clear_stale_lock())
+                self.assertFalse((root / 'widget.lock').exists())
 
     def test_oversize_response_rejected(self):
         class Response:

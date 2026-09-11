@@ -647,15 +647,6 @@ def process_alive(pid):
     return True
 
 
-def terminate_pid(pid):
-    handle = ctypes.windll.kernel32.OpenProcess(0x0001, False, pid)
-    if not handle:
-        return False
-    ok = bool(ctypes.windll.kernel32.TerminateProcess(handle, 1))
-    ctypes.windll.kernel32.CloseHandle(handle)
-    return ok
-
-
 def show_window(hwnd):
     user32 = ctypes.windll.user32
     handle = ctypes.c_void_p(int(hwnd))
@@ -696,6 +687,20 @@ def activate_existing():
     return False
 
 
+def clear_stale_lock():
+    try:
+        pid, _ = read_lock()
+    except (OSError, ValueError, IndexError):
+        pid = 0
+    if process_alive(pid):
+        return False
+    try:
+        (APP_DIR / 'widget.lock').unlink()
+        return True
+    except OSError:
+        return False
+
+
 class Instance:
     """Windows byte lock compatible with v1, held until process shutdown."""
     def __init__(self):
@@ -717,16 +722,16 @@ class Instance:
             if activate_existing():
                 log_launch('activated existing window')
                 return False
-            pid = 0
-            try:
-                pid, _ = read_lock()
-            except (OSError, ValueError, IndexError):
-                pass
-            if retry and process_alive(pid) and terminate_pid(pid):
-                log_launch(f'terminated invisible pid {pid}')
-                time.sleep(0.4)
+            if retry and clear_stale_lock():
+                log_launch('cleared stale lock')
                 return self.claim(False)
-            notify_user('AI Usage', '이미 실행 중인 위젯을 찾지 못했습니다. 작업 관리자에서 pythonw.exe를 종료한 뒤 다시 실행하세요.', 0x40)
+            notify_user(
+                'AI Usage',
+                'widget.lock 때문에 시작하지 못했습니다.\n\n'
+                '작업 관리자 세부 정보에서 pythonw.exe와 python.exe를 종료하고,\n'
+                '%APPDATA%\\AiUsageWidget\\widget.lock 을 지운 뒤 다시 실행하세요.',
+                0x40,
+            )
             return False
         self.handle = f
         return True
