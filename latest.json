@@ -1,1 +1,1 @@
-{"version":"3.2.7","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"py -3으로 이미 있는 Python 3.13+Tk를 먼저 찾아, 있는 PC에 3.12를 또 깔지 않음 / 이미 Python이 있을 때 위젯용 3.12를 PATH 맨 앞에 넣지 않음"}
+{"version":"3.2.8","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"설치 폴더의 pythonw.exe를 PATH 없이 바로 찾아, 3.13이 있는데도 설치 창이 뜨던 문제"}

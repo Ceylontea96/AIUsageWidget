@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+## [3.2.8] - 2026-09-11
+
+### Fixed
+- 설치 폴더의 pythonw.exe를 PATH 없이 바로 찾아, 3.13이 있는데도 설치 창이 뜨던 문제
+
 ## [3.2.7] - 2026-09-11
 
 ### Fixed
@@ -98,7 +103,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.7...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.8...HEAD
+[3.2.8]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.8
 [3.2.7]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.7
 [3.2.6]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.6
 [3.2.5]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.5

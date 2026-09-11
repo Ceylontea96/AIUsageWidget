@@ -58,22 +58,20 @@ function Invoke-PythonText {
     param(
         [string]$Exe,
         [string[]]$Args,
-        [int]$TimeoutMs = 3000
+        [int]$TimeoutMs = 8000
     )
-    $outFile = [IO.Path]::GetTempFileName()
-    $errFile = [IO.Path]::GetTempFileName()
     try {
-        $p = Start-Process -FilePath $Exe -ArgumentList $Args -WorkingDirectory $Here -RedirectStandardOutput $outFile -RedirectStandardError $errFile -WindowStyle Hidden -PassThru
-        if (-not $p.WaitForExit($TimeoutMs)) {
-            try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
-            return $null
-        }
-        if ($p.ExitCode -ne 0) { return $null }
-        return ([IO.File]::ReadAllText($outFile).Trim())
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        $out = & $Exe @Args 2>&1 | Out-String
+        $code = $LASTEXITCODE
+        $ErrorActionPreference = $prev
+        if ($null -ne $code -and $code -ne 0) { return $null }
+        $line = (($out -split "`r?`n") | Where-Object { $_.Trim() } | Select-Object -Last 1)
+        if (-not $line) { return $null }
+        return $line.Trim()
     } catch {
         return $null
-    } finally {
-        Remove-Item -LiteralPath $outFile, $errFile -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -178,20 +176,59 @@ function Test-ReadyPython([string]$PythonExe) {
     return ($null -ne $text -and $text -ne '')
 }
 
+function Get-InstalledPython {
+    $dirs = New-Object System.Collections.Generic.List[string]
+    foreach ($ver in @('314', '313', '312', '311', '310', '39')) {
+        $dirs.Add((Join-Path $env:LocalAppData "Programs\Python\Python$ver")) | Out-Null
+        if ($env:ProgramFiles) { $dirs.Add((Join-Path $env:ProgramFiles "Python$ver")) | Out-Null }
+        if (${env:ProgramFiles(x86)}) { $dirs.Add((Join-Path ${env:ProgramFiles(x86)} "Python$ver")) | Out-Null }
+    }
+    $parent = Join-Path $env:LocalAppData 'Programs\Python'
+    if (Test-Path -LiteralPath $parent) {
+        Get-ChildItem -LiteralPath $parent -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $dirs.Add($_.FullName) | Out-Null
+        }
+    }
+    foreach ($dir in $dirs) {
+        $exe = Join-Path $dir 'python.exe'
+        $win = Join-Path $dir 'pythonw.exe'
+        if ((Test-Path -LiteralPath $exe) -and (Test-Path -LiteralPath $win)) {
+            Write-LaunchLog "found $exe"
+            return $exe
+        }
+    }
+    return $null
+}
+
 function Get-PyLauncherPython {
+    Refresh-Path
     $prev = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     $cmds = @(Get-Command py -CommandType Application -All -ErrorAction SilentlyContinue)
     $ErrorActionPreference = $prev
+    $extra = @(
+        (Join-Path $env:LocalAppData 'Programs\Python\Launcher\py.exe'),
+        (Join-Path $env:SystemRoot 'py.exe')
+    )
+    foreach ($path in $extra) {
+        if (Test-Path -LiteralPath $path) {
+            $cmds += Get-Item -LiteralPath $path
+        }
+    }
     foreach ($cmd in $cmds) {
-        if (-not $cmd) { continue }
-        $text = Invoke-PythonText -Exe $cmd.Source -Args @('-3', '-B', '-c', 'import sys,tkinter; print(sys.executable)') -TimeoutMs 8000
+        $exe = $cmd.Source
+        if (-not $exe) { $exe = $cmd.FullName }
+        if (-not $exe) { continue }
+        $text = Invoke-PythonText -Exe $exe -Args @('-3', '-B', '-c', 'import sys,tkinter; print(sys.executable)')
         if ($text -and (Test-Path -LiteralPath $text)) { return $text }
     }
     return $null
 }
 
 function Get-ReadyPython {
+    Refresh-Path
+    $installed = Get-InstalledPython
+    if ($installed) { return $installed }
     $fromPy = Get-PyLauncherPython
     if ($fromPy) { return $fromPy }
     $raw = @(Get-RawPythonHits)
@@ -204,6 +241,7 @@ function Get-ReadyPython {
         $resolved = Resolve-PythonExe $launcher
         if ($resolved -and (Test-ReadyPython $resolved)) { return $resolved }
     }
+    Write-LaunchLog 'no usable python'
     return $null
 }
 
