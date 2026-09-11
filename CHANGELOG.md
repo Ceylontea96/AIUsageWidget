@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+## [3.2.11] - 2026-09-11
+
+### Notes
+- 업데이트 배지 확인용. 3.2.10에서 초록 `↑ 업데이트 3.2.11`이 보여야 함
+
 ## [3.2.10] - 2026-09-11
 
 ### Changed
@@ -114,7 +119,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.10...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.11...HEAD
+[3.2.11]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.11
 [3.2.10]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.10
 [3.2.9]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.9
 [3.2.8]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.8
