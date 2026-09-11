@@ -21,7 +21,7 @@ from tkinter import messagebox, font as tkfont
 
 from providers import error_snapshot, snapshot_from_dict, snapshot_to_dict
 from runtime import AlertGate, AuthWatcher, PollRunner, ToastSender, limiting_quota, login_present, login_status, prepare_action, session_locked, start_tool_setup
-from updater import APP_VERSION, CHECK_EVERY, download_and_stage, fetch_latest, load_feed_url, start_apply
+from updater import APP_VERSION, CHECK_EVERY, download_and_stage, fetch_latest, load_feed_url, start_apply, update_confirm_text
 
 APP_DIR = Path(os.environ.get('APPDATA', str(Path.home()))) / 'AiUsageWidget'
 SETTINGS_PATH = APP_DIR / 'settings.json'
@@ -443,6 +443,35 @@ def set_over_taskbar(root, on=True):
 
 def raise_over_taskbar(root):
     set_over_taskbar(root, True)
+
+
+def lift_menu_windows(extra_hwnd=0):
+    """Raise native/Tk popup menus into the TOPMOST band; do not touch the widget."""
+    try:
+        user32 = ctypes.windll.user32
+    except (AttributeError, OSError):
+        return
+    insert = ctypes.c_void_p(-1)
+
+    def lift(hwnd):
+        if not hwnd:
+            return
+        try:
+            user32.SetWindowPos(ctypes.c_void_p(int(hwnd)), insert, 0, 0, 0, 0, 0x0013)
+        except (AttributeError, OSError, OverflowError, TypeError, ValueError):
+            pass
+
+    try:
+        lift(extra_hwnd)
+        hwnd = user32.FindWindowW('#32768', None)
+        if not hwnd:
+            return
+        pid = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value == os.getpid():
+            lift(hwnd)
+    except (AttributeError, OSError, OverflowError, TypeError, ValueError):
+        pass
 
 
 def geometry_at(x, y):
@@ -1126,9 +1155,10 @@ class UsageWidget:
         self.menu.add_separator()
         self.menu.add_command(label=f'버전 {APP_VERSION}', state='disabled')
         self.menu.add_command(label='종료', command=self.close)
+        self.menu.bind('<Map>', lambda e: self._lift_menu())
 
     def apply_topmost(self):
-        if self.preview or self._overlay:
+        if self.preview or self._overlay or self._menu_held:
             return
         want = bool(self.topmost.get())
         try:
@@ -1158,6 +1188,28 @@ class UsageWidget:
         finally:
             self.pop_overlay()
 
+    def _lift_menu(self):
+        if not self._menu_held or self.closing:
+            return
+        extra = 0
+        try:
+            if self.menu.winfo_ismapped():
+                extra = int(self.menu.winfo_id())
+        except (TypeError, ValueError, tk.TclError):
+            extra = 0
+        lift_menu_windows(extra)
+
+    def _arm_menu_raise(self):
+        try:
+            self.root.after(1, self._lift_menu)
+        except tk.TclError:
+            pass
+        def lift():
+            while self._menu_held and not self.closing:
+                lift_menu_windows()
+                time.sleep(0.05)
+        threading.Thread(target=lift, daemon=True, name='menu-z').start()
+
     def _release_menu(self):
         try:
             if self.menu.winfo_ismapped():
@@ -1167,7 +1219,8 @@ class UsageWidget:
             pass
         if self._menu_held:
             self._menu_held = False
-            self.pop_overlay()
+            if not self._overlay and not self.closing:
+                self.apply_topmost()
 
     def help_text(self):
         return (
@@ -1449,7 +1502,7 @@ class UsageWidget:
     def popup(self, event):
         if not self._menu_held:
             self._menu_held = True
-            self.push_overlay()
+            self._arm_menu_raise()
         try:
             self.menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -1784,9 +1837,7 @@ class UsageWidget:
     def install_update(self):
         if self.preview or not self.update_info or self._update_busy:
             return
-        notes = self.update_info.get('notes') or ''
-        extra = ('\n' + notes) if notes else ''
-        if not self.notify(messagebox.askyesno, '업데이트', f"{self.update_info['version']} 파일을 받고 위젯을 다시 시작할까요?{extra}", parent=self.root):
+        if not self.notify(messagebox.askyesno, '업데이트', update_confirm_text(self.update_info), parent=self.root):
             return
         self._update_busy = True
         self.set_update_chrome()

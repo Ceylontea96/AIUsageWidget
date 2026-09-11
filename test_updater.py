@@ -43,6 +43,18 @@ class UpdaterTests(unittest.TestCase):
     def test_fetch_latest_rejects_non_https(self):
         self.assertIsNone(u.fetch_latest('http://example.com/latest.json'))
 
+    def test_update_confirm_text_lists_short_notes(self):
+        text = u.update_confirm_text({
+            'version': '9.9.9',
+            'notes': '체크표시를 흰색으로 바꿈 / 초록 `↑ 업데이트` 배지',
+        })
+        self.assertIn('새 버전 9.9.9', text)
+        self.assertIn('· 체크표시를 흰색으로 바꿈', text)
+        self.assertIn('· 초록 ↑ 업데이트 배지', text)
+        self.assertTrue(text.endswith('이 파일을 받고 위젯을 다시 시작할까요?'))
+        self.assertEqual(u.note_lines('a / b / c / d'), ['a', 'b', 'c'])
+        self.assertNotIn('·', u.update_confirm_text({'version': '1.0.0'}))
+
 
 if __name__ == '__main__':
     unittest.main()

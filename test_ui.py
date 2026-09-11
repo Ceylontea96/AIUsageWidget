@@ -129,6 +129,19 @@ class UiTests(unittest.TestCase):
             w.environment(0)
             zorder.assert_not_called()
 
+    def test_environment_skips_raise_while_menu_held(self):
+        w=self.prepare()
+        w._menu_held=True
+        w.topmost.set(True)
+        w.last_area=(0,0,800,600)
+        w.root.geometry('+10+10')
+        with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=(0,0,800,600)),patch.object(u,'set_over_taskbar') as zorder:
+            w.environment(0)
+            zorder.assert_not_called()
+
+    def _dropped_topmost(self, zorder):
+        return any((len(c.args)>1 and c.args[1] is False) or c.kwargs.get('on') is False for c in zorder.call_args_list)
+
     def test_popup_holds_overlay_until_menu_closes(self):
         w=self.prepare()
         w.topmost.set(True)
@@ -137,12 +150,38 @@ class UiTests(unittest.TestCase):
         def fake_popup(*_a,**_k):
             seen.append(w._overlay)
             seen.append(w._menu_held)
-        with patch.object(w.menu,'tk_popup',side_effect=fake_popup),patch.object(w.menu,'grab_release'),patch.object(w.menu,'winfo_ismapped',return_value=False):
+        with patch.object(w,'push_overlay') as pushed,patch.object(w.menu,'tk_popup',side_effect=fake_popup),patch.object(w.menu,'grab_release'),patch.object(w.menu,'winfo_ismapped',return_value=False):
             w.popup(event)
             w.root.update()
-        self.assertEqual(seen,[1,True])
+        self.assertEqual(seen,[0,True])
+        pushed.assert_not_called()
         self.assertEqual(w._overlay,0)
         self.assertFalse(w._menu_held)
+
+    def test_compact_popup_keeps_over_taskbar(self):
+        w=self.prepare()
+        w.compact=True
+        w.apply_mode()
+        w.topmost.set(True)
+        self.assertTrue(w.root.bind_all('<Button-3>'))
+        event=type('E',(),{'x_root':10,'y_root':20})()
+        with patch.object(u,'set_over_taskbar') as zorder,patch.object(w.menu,'tk_popup'),patch.object(w.menu,'grab_release'),patch.object(w.menu,'winfo_ismapped',return_value=False):
+            w.popup(event)
+            w.root.update()
+        self.assertEqual(w._overlay,0)
+        self.assertFalse(self._dropped_topmost(zorder))
+
+    def test_notify_still_drops_topmost(self):
+        w=self.prepare()
+        w.topmost.set(True)
+        depth=[]
+        def fake():
+            depth.append(w._overlay)
+        with patch.object(u,'set_over_taskbar') as zorder:
+            w.notify(fake)
+        self.assertEqual(depth,[1])
+        self.assertTrue(self._dropped_topmost(zorder))
+        self.assertEqual(w._overlay,0)
 
     def test_update_pill_shows_only_when_pending(self):
         w=self.w
@@ -184,5 +223,20 @@ class UiTests(unittest.TestCase):
 
     def test_menu_checkmark_is_white(self):
         self.assertEqual(str(self.w.menu.cget('selectcolor')).upper(), '#FFFFFF')
+
+    def test_install_update_asks_with_notes_then_cancels(self):
+        w=self.prepare()
+        w.update_info={'version':'9.9.9','zip':'https://example.com/a.zip','notes':'체크표시를 흰색으로 바꿈'}
+        seen=[]
+        def fake_notify(fn,*args,**kwargs):
+            seen.append((fn, args[0], args[1]))
+            return False
+        w.notify=fake_notify
+        w.install_update()
+        self.assertEqual(seen[0][0], u.messagebox.askyesno)
+        self.assertEqual(seen[0][1], '업데이트')
+        self.assertIn('새 버전 9.9.9', seen[0][2])
+        self.assertIn('체크표시를 흰색으로 바꿈', seen[0][2])
+        self.assertFalse(w._update_busy)
 
 if __name__=='__main__':unittest.main(verbosity=2)

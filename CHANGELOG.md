@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [3.2.12] - 2026-09-11
+
+### Added
+- 업데이트 전에 새 버전과 짧은 변경 요약을 보여 줌
+
+### Fixed
+- 한 줄 모드에서 작업 표시줄 위에 두고 우클릭하면 위젯이 표시줄 뒤로 가던 문제
+
 ## [3.2.11] - 2026-09-11
 
 ### Notes
@@ -119,7 +127,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.11...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.12...HEAD
+[3.2.12]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.12
 [3.2.11]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.11
 [3.2.10]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.10
 [3.2.9]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.9

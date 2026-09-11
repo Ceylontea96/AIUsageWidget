@@ -12,7 +12,7 @@ import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
 
-APP_VERSION = '3.2.11'
+APP_VERSION = '3.2.12'
 USER_AGENT = f'AIUsageWidget/{APP_VERSION}'
 JSON_LIMIT = 256 * 1024
 ZIP_LIMIT = 30 * 1024 * 1024
@@ -78,6 +78,31 @@ def pending_update(payload, local=APP_VERSION, feed=''):
         return None
     notes = str(payload.get('notes') or '').strip()
     return {'version': version, 'zip': zip_url, 'notes': notes}
+
+
+def note_lines(notes, limit=3):
+    parts = []
+    text = str(notes or '').replace('\r\n', '\n').replace('\r', '\n')
+    for chunk in text.split('\n'):
+        for bit in chunk.split(' / '):
+            bit = bit.replace('`', '').strip()
+            if not bit:
+                continue
+            parts.append(bit)
+            if len(parts) >= limit:
+                return parts
+    return parts
+
+
+def update_confirm_text(info):
+    info = info or {}
+    version = str(info.get('version') or '').strip()
+    lines = [f'새 버전 {version}' if version else '새 버전']
+    for note in note_lines(info.get('notes')):
+        lines.append(f'· {note}')
+    lines.append('')
+    lines.append('이 파일을 받고 위젯을 다시 시작할까요?')
+    return '\n'.join(lines)
 
 
 def _open(url, timeout):
