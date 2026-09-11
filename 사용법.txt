@@ -1,6 +1,6 @@
 AI Usage 3.0 — Codex + Cursor
 ============================
-실행: start_usage_widget.vbs 더블클릭
+실행: zip을 폴더로 푼 뒤 start_usage_widget.vbs 더블클릭. 안 되면 start_usage_widget.bat. .exe는 없습니다.
 이미 있는 Python 3.9 이상을 먼저 사용합니다. 없거나 버전이 낮거나 Tk를 쓸 수 없을 때만 위젯용 Python을 추가로 설치합니다. 기존 Python은 업그레이드하지 않습니다.
 
 표시 기준

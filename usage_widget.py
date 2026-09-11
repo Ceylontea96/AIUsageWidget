@@ -11,6 +11,7 @@ import struct
 import sys
 import threading
 import time
+import traceback
 import tkinter as tk
 import webbrowser
 import zlib
@@ -606,6 +607,34 @@ def baseline_text(canvas, x, y, text, font, fill, right=False, tags=()):
                               fill=fill, anchor='se' if right else 'sw', tags=tags)
 
 
+def notify_user(title, text, icon=0x10):
+    try:
+        ctypes.windll.user32.MessageBoxW(None, text, title, 0x00040000 | icon)
+    except (AttributeError, OSError):
+        pass
+
+
+def record_crash():
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+    text = time.strftime('%Y-%m-%d %H:%M:%S') + '\n' + traceback.format_exc()
+    (APP_DIR / 'error.log').write_text(text, encoding='utf-8')
+    return text
+
+
+def activate_existing():
+    path = APP_DIR / 'widget.lock'
+    try:
+        raw = path.read_text(encoding='ascii', errors='replace').strip().splitlines()
+        hwnd = int(raw[1]) if len(raw) >= 2 else 0
+        if hwnd and ctypes.windll.user32.IsWindow(ctypes.c_void_p(hwnd)):
+            ctypes.windll.user32.ShowWindow(ctypes.c_void_p(hwnd), 9)
+            ctypes.windll.user32.SetForegroundWindow(ctypes.c_void_p(hwnd))
+            return True
+    except (OSError, ValueError, IndexError):
+        pass
+    return False
+
+
 class Instance:
     """Windows byte lock compatible with v1, held until process shutdown."""
     def __init__(self):
@@ -623,14 +652,8 @@ class Instance:
             msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
         except OSError:
             f.close()
-            try:
-                with open(path, 'rb', buffering=0) as other:
-                    other.seek(1)
-                    hwnd = int(other.read().splitlines()[1])
-                ctypes.windll.user32.ShowWindow(ctypes.c_void_p(hwnd), 9)
-                ctypes.windll.user32.SetForegroundWindow(ctypes.c_void_p(hwnd))
-            except (OSError, ValueError, IndexError):
-                pass
+            if not activate_existing():
+                notify_user('AI Usage', '위젯이 이미 실행 중입니다. 화면 가장자리나 다른 모니터를 확인하세요.', 0x40)
             return False
         self.handle = f
         return True
@@ -1666,9 +1689,6 @@ if __name__ == '__main__':
     try:
         main()
     except Exception:
-        APP_DIR.mkdir(parents=True, exist_ok=True)
-        (APP_DIR / 'error.log').write_text(
-            time.strftime('%Y-%m-%d %H:%M:%S') + ' 위젯 시작 실패. Python/Tk 설치와 파일 권한을 확인하세요.\n',
-            encoding='utf-8',
-        )
+        record_crash()
+        notify_user('AI Usage', '위젯을 시작하지 못했습니다.\n\n%APPDATA%\\AiUsageWidget\\error.log 를 확인하세요.')
         raise

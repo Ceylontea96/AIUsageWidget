@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [3.2.2] - 2026-09-11
+
+### Fixed
+- 실행 실패 시 숨기지 않고 오류 창을 띄움. zip 안에서 바로 실행하면 bat이 안내함
+- 위젯이 바로 꺼지면 error.log를 남기고 알림
+- 이미 실행 중이면 기존 창을 앞으로 가져옴
+
+### Notes
+- 실행이 안 되는 친구는 이 zip을 새로 받으세요. 이미 3.2.1이 켜져 있으면 업데이트 버튼으로 받을 수 있습니다.
+
 ## [3.2.1] - 2026-09-11
 
 ### Added
@@ -44,7 +54,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.1...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.2...HEAD
+[3.2.2]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.2
 [3.2.1]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.1
 [3.2.0]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.0
 [3.1.0]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.1.0

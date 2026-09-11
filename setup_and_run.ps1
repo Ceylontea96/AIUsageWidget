@@ -218,22 +218,77 @@ function Install-FromPythonOrg {
     return ($p.ExitCode -eq 0) -and (Get-ReadyPython)
 }
 
+function Unblock-Here {
+    Get-ChildItem -LiteralPath $Here -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+        Unblock-File -LiteralPath $_.FullName -ErrorAction SilentlyContinue
+    }
+}
+
+function Write-LaunchLog([string]$Message) {
+    $dir = Join-Path $env:APPDATA 'AiUsageWidget'
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $line = '{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
+    Add-Content -LiteralPath (Join-Path $dir 'launch.log') -Value $line -Encoding UTF8
+}
+
+function Show-LaunchError([string]$Message) {
+    Write-LaunchLog $Message
+    try {
+        $wshell = New-Object -ComObject WScript.Shell
+        $null = $wshell.Popup($Message, 0, 'AI Usage', 16)
+    } catch {
+        if ($InstallUi) {
+            Write-Host $Message
+            Read-Host 'Enter'
+        }
+    }
+}
+
 function Start-Widget([string]$PythonExe) {
     $pythonw = Get-Pythonw $PythonExe
-    Start-Process -FilePath $pythonw -ArgumentList @('-B', $Widget) -WorkingDirectory $Here
+    try {
+        $p = Start-Process -FilePath $pythonw -ArgumentList @('-B', $Widget) -WorkingDirectory $Here -PassThru
+    } catch {
+        Show-LaunchError "위젯을 시작하지 못했습니다.`n$pythonw`n$_"
+        exit 1
+    }
+    if (-not $p) {
+        Show-LaunchError "위젯 프로세스를 만들지 못했습니다.`n$pythonw"
+        exit 1
+    }
+    Start-Sleep -Milliseconds 1200
+    if (-not $p.HasExited) { return }
+    if ($p.ExitCode -eq 0) { return }
+    $log = Join-Path $env:APPDATA 'AiUsageWidget\error.log'
+    $extra = ''
+    if (Test-Path -LiteralPath $log) {
+        $item = Get-Item -LiteralPath $log
+        if (((Get-Date) - $item.LastWriteTime).TotalSeconds -lt 10) {
+            $extra = "`n`n" + [string](Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue)
+        }
+    }
+    Show-LaunchError "위젯이 바로 종료되었습니다 (코드 $($p.ExitCode)).`nzip을 폴더로 푼 뒤 start_usage_widget.vbs 또는 start_usage_widget.bat 을 실행하세요.$extra"
+    exit 1
 }
 
-$python = Get-ReadyPython
-if ($python) {
-    Start-Widget $python
-    exit 0
-}
+try {
+    Unblock-Here
+    $python = Get-ReadyPython
+    if ($python) {
+        Start-Widget $python
+        exit 0
+    }
 
-if (-not $InstallUi) {
-    Start-Process -FilePath 'powershell.exe' -ArgumentList @(
-        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-InstallUi'
-    ) -Wait
-    exit 0
+    if (-not $InstallUi) {
+        $ui = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-InstallUi'
+        ) -Wait -PassThru
+        if ($ui -and $ui.ExitCode -ne 0) { exit $ui.ExitCode }
+        exit 0
+    }
+} catch {
+    Show-LaunchError "실행에 실패했습니다.`n$_"
+    exit 1
 }
 
 Set-Utf8Console

@@ -182,6 +182,18 @@ class WidgetTests(unittest.TestCase):
         with patch.object(p._OPENER,'open',return_value=Response(b'[]')):
             with self.assertRaises(RuntimeError):p.http_json('GET','https://example.invalid',{})
 
+    def test_record_crash_writes_traceback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(u, 'APP_DIR', Path(directory)):
+                try:
+                    raise RuntimeError('boom')
+                except RuntimeError:
+                    text = u.record_crash()
+                log = (Path(directory) / 'error.log').read_text(encoding='utf-8')
+                self.assertIn('boom', text)
+                self.assertIn('boom', log)
+                self.assertIn('RuntimeError', log)
+
     def test_oversize_response_rejected(self):
         class Response:
             status=200
