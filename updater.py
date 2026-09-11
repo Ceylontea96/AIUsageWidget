@@ -96,7 +96,7 @@ def fetch_latest(url, timeout=8):
     if not raw or len(raw) > JSON_LIMIT:
         return None
     try:
-        payload = json.loads(raw.decode('utf-8'))
+        payload = json.loads(raw.decode('utf-8-sig'))
     except (UnicodeError, json.JSONDecodeError):
         return None
     return pending_update(payload, feed=url)

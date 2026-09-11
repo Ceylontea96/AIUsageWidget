@@ -2,7 +2,7 @@
 param([switch]$GitHub)
 
 $ErrorActionPreference = 'Stop'
-$utf8 = New-Object System.Text.UTF8Encoding $true
+$utf8 = New-Object System.Text.UTF8Encoding $false
 $project = Split-Path -Parent $MyInvocation.MyCommand.Path
 $updater = Get-Content -LiteralPath (Join-Path $project 'updater.py') -Raw
 if ($updater -notmatch "APP_VERSION = '([^']+)'") { throw 'APP_VERSION not found' }
@@ -31,7 +31,7 @@ function Get-LatestNotes {
             $bits += $item.Groups[1].Value.Trim()
             if ($bits.Count -ge 3) { break }
         }
-        return ($bits -join ' · ')
+        return ($bits -join ' / ')
     }
     return "AI Usage $Version"
 }
@@ -115,13 +115,20 @@ foreach ($candidate in @((Get-Command gh -ErrorAction SilentlyContinue).Source, 
 }
 if ($doGitHub -and $gh) {
     $tag = "v$version"
-    $view = & $gh release view $tag --json tagName 2>$null
-    if ($LASTEXITCODE -eq 0 -and $view) {
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $null = & $gh release view $tag --json tagName 2>$null
+    $exists = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = $prevEap
+    if ($exists) {
         & $gh release upload $tag $z1 (Join-Path $release 'latest.json') --clobber
+        if ($LASTEXITCODE -ne 0) { throw "gh release upload failed for $tag" }
         & $gh release edit $tag --title $version --notes-file $notesFile
+        if ($LASTEXITCODE -ne 0) { throw "gh release edit failed for $tag" }
         Write-Host "updated GitHub release $tag"
     } else {
         & $gh release create $tag $z1 (Join-Path $release 'latest.json') --title $version --notes-file $notesFile
+        if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag" }
         Write-Host "created GitHub release $tag"
     }
 }
