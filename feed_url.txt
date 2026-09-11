@@ -1,3 +1,1 @@
-# latest.json 공개 주소 (https). 아래 예처럼 한 줄만 남기세요.
-# 같은 폴더에 AIUsageWidget.zip 과 latest.json 을 함께 올리면 됩니다.
-# https://github.com/계정/AIUsageWidget/releases/latest/download/latest.json
+https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/latest.json
