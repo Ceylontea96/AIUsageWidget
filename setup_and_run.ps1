@@ -58,7 +58,7 @@ function Invoke-PythonText {
     param(
         [string]$Exe,
         [string[]]$Args,
-        [int]$TimeoutMs = 10000
+        [int]$TimeoutMs = 3000
     )
     $outFile = [IO.Path]::GetTempFileName()
     $errFile = [IO.Path]::GetTempFileName()
@@ -96,6 +96,7 @@ function Add-RawCandidate {
     param([string]$Path, $Seen, $Hits)
     if (-not $Path) { return }
     try { $Path = (Get-Item -LiteralPath $Path).FullName } catch { return }
+    if ($Path -like '*WindowsApps*') { return }
     $key = $Path.ToLowerInvariant()
     if ($Seen.ContainsKey($key)) { return }
     $Seen[$key] = $true
@@ -187,9 +188,11 @@ function Get-ReadyPython {
 
 function Get-Pythonw([string]$PythonExe) {
     $dir = Split-Path -Parent $PythonExe
-    $pythonw = Join-Path $dir 'pythonw.exe'
-    if (Test-Path -LiteralPath $pythonw) { return $pythonw }
-    return $PythonExe
+    foreach ($name in @('pythonw.exe', 'pyw.exe')) {
+        $candidate = Join-Path $dir $name
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    }
+    return $null
 }
 
 function Install-WithWinget {
@@ -231,23 +234,31 @@ function Write-LaunchLog([string]$Message) {
     Add-Content -LiteralPath (Join-Path $dir 'launch.log') -Value $line -Encoding UTF8
 }
 
-function Show-LaunchError([string]$Message) {
+function Show-Popup([string]$Message, [int]$Icon = 64) {
     Write-LaunchLog $Message
     try {
         $wshell = New-Object -ComObject WScript.Shell
-        $null = $wshell.Popup($Message, 0, 'AI Usage', 16)
-    } catch {
-        if ($InstallUi) {
-            Write-Host $Message
-            Read-Host 'Enter'
-        }
+        $null = $wshell.Popup($Message, 0, 'AI Usage', $Icon)
+        return
+    } catch {}
+    if ($InstallUi) {
+        Write-Host $Message
+        Read-Host 'Enter'
     }
+}
+
+function Show-LaunchError([string]$Message) {
+    Show-Popup $Message 16
 }
 
 function Start-Widget([string]$PythonExe) {
     $pythonw = Get-Pythonw $PythonExe
+    if (-not $pythonw) {
+        Show-LaunchError "창 없는 Python(pythonw.exe)을 찾지 못했습니다.`n$PythonExe"
+        exit 1
+    }
     try {
-        $p = Start-Process -FilePath $pythonw -ArgumentList @('-B', $Widget) -WorkingDirectory $Here -PassThru
+        $p = Start-Process -FilePath $pythonw -ArgumentList @('-B', $Widget) -WorkingDirectory $Here -WindowStyle Hidden -PassThru
     } catch {
         Show-LaunchError "위젯을 시작하지 못했습니다.`n$pythonw`n$_"
         exit 1
@@ -273,6 +284,7 @@ function Start-Widget([string]$PythonExe) {
 
 try {
     Unblock-Here
+    Write-LaunchLog 'setup start'
     $python = Get-ReadyPython
     if ($python) {
         Start-Widget $python
@@ -280,9 +292,10 @@ try {
     }
 
     if (-not $InstallUi) {
+        Show-Popup 'Python이 없어 설치합니다. 1~2분 걸릴 수 있습니다. 설치가 끝날 때까지 기다리세요.'
         $ui = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
-            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-InstallUi'
-        ) -Wait -PassThru
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $PSCommandPath, '-InstallUi'
+        ) -WindowStyle Hidden -Wait -PassThru
         if ($ui -and $ui.ExitCode -ne 0) { exit $ui.ExitCode }
         exit 0
     }
@@ -291,34 +304,18 @@ try {
     exit 1
 }
 
-Set-Utf8Console
-Write-Host 'AI Usage 위젯'
-if (@(Get-RawPythonHits).Count -gt 0) {
-    Write-Host "있는 Python이 $($MinPython) 미만이거나 Tk를 쓸 수 없습니다."
-    Write-Host '기존 Python은 그대로 두고, 위젯용 Python을 추가로 설치합니다. 인터넷이 필요합니다.'
-} else {
-    Write-Host 'Python이 없어 설치합니다. 인터넷이 필요합니다.'
-}
+Write-LaunchLog 'InstallUi start'
 $ok = $false
-try { $ok = Install-WithWinget } catch { $ok = $false }
+try { $ok = Install-WithWinget } catch { Write-LaunchLog $_; $ok = $false }
 if (-not $ok) {
-    try { $ok = Install-FromPythonOrg } catch { Write-Host $_; $ok = $false }
+    try { $ok = Install-FromPythonOrg } catch { Write-LaunchLog $_; $ok = $false }
 }
 $python = Get-ReadyPython
 if (-not $python) {
-    Write-Host '자동 설치에 실패했습니다. 브라우저에서 Python을 설치하세요.'
-    Write-Host '설치 시 Add python.exe to PATH 와 tcl/tk 가 켜져 있어야 합니다.'
     Start-Process 'https://www.python.org/downloads/windows/'
-    Read-Host '설치 후 Enter'
-    Refresh-Path
-    $python = Get-ReadyPython
-}
-if (-not $python) {
-    Write-Host 'Python을 찾지 못해 위젯을 실행할 수 없습니다.'
-    Read-Host 'Enter'
+    Show-LaunchError "자동 설치에 실패했습니다. 브라우저에서 Python 3.12를 설치한 뒤 start_usage_widget.vbs 를 다시 실행하세요.`n설치 시 Add python.exe to PATH 와 tcl/tk 를 켜세요."
     exit 1
 }
 
-Write-Host '위젯을 시작합니다.'
 Start-Widget $python
 exit 0

@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [3.2.3] - 2026-09-11
+
+### Fixed
+- 실행 시 검은 명령 창만 보이던 문제. 위젯은 창 없이 시작하고, Python 설치는 안내 창으로 알림
+- 이미 떠 있는 숨은 위젯이 있으면 앞으로 가져오고, 창이 없으면 잠금을 해제한 뒤 다시 시작
+- 실행할 때마다 `%APPDATA%\\AiUsageWidget\\launch.log`에 기록을 남김
+
+### Notes
+- 검은 창만 깜빡이면 작업 관리자에서 pythonw.exe를 종료하고 widget.lock을 지운 뒤 start_usage_widget.vbs를 다시 실행하세요.
+
 ## [3.2.2] - 2026-09-11
 
 ### Fixed
@@ -54,7 +64,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.2...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.3...HEAD
+[3.2.3]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.3
 [3.2.2]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.2
 [3.2.1]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.1
 [3.2.0]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.0

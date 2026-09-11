@@ -1,5 +1,6 @@
 import json
 import math
+import os
 import tempfile
 import time
 import unittest
@@ -193,6 +194,19 @@ class WidgetTests(unittest.TestCase):
                 self.assertIn('boom', text)
                 self.assertIn('boom', log)
                 self.assertIn('RuntimeError', log)
+
+    def test_lock_helpers_and_launch_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'widget.lock').write_text(f'{os.getpid()}\n12345\n', encoding='ascii')
+            with patch.object(u, 'APP_DIR', root):
+                pid, hwnd = u.read_lock()
+                self.assertEqual(pid, os.getpid())
+                self.assertEqual(hwnd, 12345)
+                self.assertTrue(u.process_alive(os.getpid()))
+                self.assertFalse(u.process_alive(0))
+                u.log_launch('hello')
+                self.assertIn('hello', (root / 'launch.log').read_text(encoding='utf-8'))
 
     def test_oversize_response_rejected(self):
         class Response:

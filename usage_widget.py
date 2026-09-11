@@ -614,24 +614,85 @@ def notify_user(title, text, icon=0x10):
         pass
 
 
+def log_launch(message):
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+    line = time.strftime('%Y-%m-%d %H:%M:%S') + ' ' + message + '\n'
+    with (APP_DIR / 'launch.log').open('a', encoding='utf-8') as log:
+        log.write(line)
+
+
 def record_crash():
     APP_DIR.mkdir(parents=True, exist_ok=True)
     text = time.strftime('%Y-%m-%d %H:%M:%S') + '\n' + traceback.format_exc()
     (APP_DIR / 'error.log').write_text(text, encoding='utf-8')
+    log_launch('crash')
     return text
 
 
+def read_lock(path=None):
+    path = path or (APP_DIR / 'widget.lock')
+    raw = path.read_text(encoding='ascii', errors='replace').strip().splitlines()
+    pid = int(raw[0]) if raw else 0
+    hwnd = int(raw[1]) if len(raw) >= 2 else 0
+    return pid, hwnd
+
+
+def process_alive(pid):
+    if pid <= 0:
+        return False
+    handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+    if not handle:
+        return False
+    ctypes.windll.kernel32.CloseHandle(handle)
+    return True
+
+
+def terminate_pid(pid):
+    handle = ctypes.windll.kernel32.OpenProcess(0x0001, False, pid)
+    if not handle:
+        return False
+    ok = bool(ctypes.windll.kernel32.TerminateProcess(handle, 1))
+    ctypes.windll.kernel32.CloseHandle(handle)
+    return ok
+
+
+def show_window(hwnd):
+    user32 = ctypes.windll.user32
+    handle = ctypes.c_void_p(int(hwnd))
+    if not hwnd or not user32.IsWindow(handle):
+        return False
+    user32.ShowWindow(handle, 9)
+    user32.ShowWindow(handle, 5)
+    user32.SetWindowPos(handle, ctypes.c_void_p(-1), 0, 0, 0, 0, 0x0013)
+    user32.SetForegroundWindow(handle)
+    return True
+
+
+def windows_for_pid(pid):
+    found = []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    def callback(hwnd, _lparam):
+        other = ctypes.c_ulong()
+        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(other))
+        if other.value == pid:
+            found.append(int(hwnd))
+        return True
+
+    ctypes.windll.user32.EnumWindows(callback, 0)
+    return found
+
+
 def activate_existing():
-    path = APP_DIR / 'widget.lock'
     try:
-        raw = path.read_text(encoding='ascii', errors='replace').strip().splitlines()
-        hwnd = int(raw[1]) if len(raw) >= 2 else 0
-        if hwnd and ctypes.windll.user32.IsWindow(ctypes.c_void_p(hwnd)):
-            ctypes.windll.user32.ShowWindow(ctypes.c_void_p(hwnd), 9)
-            ctypes.windll.user32.SetForegroundWindow(ctypes.c_void_p(hwnd))
-            return True
+        pid, hwnd = read_lock()
     except (OSError, ValueError, IndexError):
-        pass
+        return False
+    if show_window(hwnd):
+        return True
+    for other in windows_for_pid(pid):
+        if show_window(other):
+            return True
     return False
 
 
@@ -640,7 +701,7 @@ class Instance:
     def __init__(self):
         self.handle = None
 
-    def claim(self):
+    def claim(self, retry=True):
         import msvcrt
         APP_DIR.mkdir(parents=True, exist_ok=True)
         path = APP_DIR / 'widget.lock'
@@ -652,8 +713,20 @@ class Instance:
             msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
         except OSError:
             f.close()
-            if not activate_existing():
-                notify_user('AI Usage', '위젯이 이미 실행 중입니다. 화면 가장자리나 다른 모니터를 확인하세요.', 0x40)
+            log_launch('lock busy')
+            if activate_existing():
+                log_launch('activated existing window')
+                return False
+            pid = 0
+            try:
+                pid, _ = read_lock()
+            except (OSError, ValueError, IndexError):
+                pass
+            if retry and process_alive(pid) and terminate_pid(pid):
+                log_launch(f'terminated invisible pid {pid}')
+                time.sleep(0.4)
+                return self.claim(False)
+            notify_user('AI Usage', '이미 실행 중인 위젯을 찾지 못했습니다. 작업 관리자에서 pythonw.exe를 종료한 뒤 다시 실행하세요.', 0x40)
             return False
         self.handle = f
         return True
@@ -1663,6 +1736,7 @@ class UsageWidget:
 
 
 def main():
+    log_launch('start ' + APP_VERSION)
     try:
         ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
     except (AttributeError, OSError):
