@@ -362,14 +362,12 @@ def next_interval(snap, failures=0):
     if failures:
         return min(900, 30 * (2 ** min(failures - 1, 5)))
     if not snap or not snap.ok:
-        return 60
+        return 30
     if snap.blocked or snap.hero_percent == 0:
         return 300
-    if snap.hero_percent is not None and snap.hero_percent <= 10:
-        return 20
     if snap.hero_percent is not None and snap.hero_percent <= 35:
-        return 30
-    return 60
+        return 20
+    return 30
 
 
 def should_setup(settings, preview=False):

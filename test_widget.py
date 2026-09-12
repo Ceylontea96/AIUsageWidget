@@ -130,10 +130,14 @@ class WidgetTests(unittest.TestCase):
     def test_backoff_and_recovery(self):
         s=codex()
         self.assertEqual([u.next_interval(s,i) for i in (1,2,3,6,20)],[30,60,120,900,900])
-        self.assertEqual(u.next_interval(s,0),60)
+        self.assertEqual(u.next_interval(s,0),30)
 
     def test_exhausted_slow_poll(self):
         self.assertEqual(u.next_interval(codex(100,20)),300)
+
+    def test_low_remaining_polls_faster(self):
+        self.assertEqual(u.next_interval(codex(70,20)),20)
+        self.assertEqual(u.next_interval(codex(95,20)),20)
 
     def test_failed_provider_keeps_last_good(self):
         w=u.UsageWidget.__new__(u.UsageWidget)

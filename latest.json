@@ -1,1 +1,1 @@
-{"version":"3.2.14","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"한 줄 모드에서 업데이트 확인 창을 열어도 위젯이 작업 표시줄 뒤로 가지 않음 / 우클릭 메뉴가 위젯과 앞뒤가 바뀌며 깜빡이던 문제"}
+{"version":"3.2.15","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"사용량 조회 간격을 정상 30초, 잔여 35% 이하 20초로 줄임. 소진·실패 백오프는 그대로"}

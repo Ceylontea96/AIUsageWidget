@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+## [3.2.15] - 2026-09-12
+
+### Changed
+- 사용량 조회 간격을 정상 30초, 잔여 35% 이하 20초로 줄임. 소진·실패 백오프는 그대로
+
 ## [3.2.14] - 2026-09-11
 
 ### Fixed
@@ -147,7 +152,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.14...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.15...HEAD
+[3.2.15]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.15
 [3.2.14]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.14
 [3.2.13]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.13
 [3.2.12]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.12
