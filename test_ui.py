@@ -291,10 +291,12 @@ class UiTests(unittest.TestCase):
             if w.menu.type(i)=='command':
                 labels.append(w.menu.entrycget(i,'label'))
         self.assertIn(f'버전 {u.APP_VERSION}', labels)
+        self.assertIn('바탕화면 바로가기', labels)
         help_text = w.help_text()
         self.assertIn(f'현재 버전 {u.APP_VERSION}', help_text)
         self.assertIn('제휴되지 않은 비공식', help_text)
         self.assertIn('실패하거나 바뀔 수 있습니다', help_text)
+        self.assertIn('AI Usage.exe', help_text)
 
     def test_menu_checkmark_is_white(self):
         self.assertEqual(str(self.w.menu.cget('selectcolor')).upper(), '#FFFFFF')

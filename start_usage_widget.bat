@@ -6,5 +6,9 @@ if not exist "%~dp0usage_widget.py" (
     pause
     exit /b 1
 )
+if exist "%~dp0AI Usage.exe" (
+    start "" "%~dp0AI Usage.exe"
+    exit /b 0
+)
 start "" wscript.exe "%~dp0start_usage_widget.vbs"
 exit /b 0

@@ -58,6 +58,13 @@ class UpdaterTests(unittest.TestCase):
         self.assertEqual(u.note_lines('a / b / c / d'), ['a', 'b', 'c'])
         self.assertNotIn('·', u.update_confirm_text({'version': '1.0.0'}))
 
+    def test_launch_after_update_prefers_exe(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            self.assertEqual(u.launch_after_update(target).name, 'start_usage_widget.vbs')
+            (target / u.LAUNCHER_EXE).write_bytes(b'MZ')
+            self.assertEqual(u.launch_after_update(target).name, u.LAUNCHER_EXE)
+
 
 if __name__ == '__main__':
     unittest.main()

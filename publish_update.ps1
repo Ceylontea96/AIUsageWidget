@@ -4,6 +4,7 @@ param([switch]$GitHub)
 $ErrorActionPreference = 'Stop'
 $utf8 = New-Object System.Text.UTF8Encoding $false
 $project = Split-Path -Parent $MyInvocation.MyCommand.Path
+& (Join-Path $project 'build_launcher.ps1')
 $updater = Get-Content -LiteralPath (Join-Path $project 'updater.py') -Raw
 if ($updater -notmatch "APP_VERSION = '([^']+)'") { throw 'APP_VERSION not found' }
 $version = $Matches[1]
@@ -61,7 +62,8 @@ if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -F
 New-Item -ItemType Directory -Path (Join-Path $stage 'assets\icons') -Force | Out-Null
 $copy = @(
     'usage_widget.py', 'providers.py', 'runtime.py', 'poll_worker.py', 'updater.py',
-    'setup_and_run.ps1', 'setup_login.ps1', 'start_usage_widget.vbs', 'start_usage_widget.bat',
+    'setup_and_run.ps1', 'setup_login.ps1', 'create_shortcut.ps1',
+    'start_usage_widget.vbs', 'start_usage_widget.bat',
     'toast.ps1', 'register_notifications.ps1', 'feed_url.txt', 'CHANGELOG.md'
 )
 foreach ($f in $copy) {
@@ -70,6 +72,9 @@ foreach ($f in $copy) {
         Copy-Item -LiteralPath $src -Destination (Join-Path $stage $f) -Force
     }
 }
+$launcher = Join-Path $project 'AI Usage.exe'
+if (-not (Test-Path -LiteralPath $launcher)) { throw 'AI Usage.exe missing after build' }
+Copy-Item -LiteralPath $launcher -Destination (Join-Path $stage 'AI Usage.exe') -Force
 Get-ChildItem -LiteralPath $project -File | Where-Object { $_.Extension -in '.bat', '.vbs' } | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stage $_.Name) -Force
 }

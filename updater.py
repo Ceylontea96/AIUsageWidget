@@ -12,8 +12,9 @@ import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
 
-APP_VERSION = '3.2.15'
+APP_VERSION = '3.2.16'
 USER_AGENT = f'AIUsageWidget/{APP_VERSION}'
+LAUNCHER_EXE = 'AI Usage.exe'
 JSON_LIMIT = 256 * 1024
 ZIP_LIMIT = 30 * 1024 * 1024
 CHECK_EVERY = 30 * 60
@@ -27,7 +28,12 @@ for ($i = 0; $i -lt 80; $i++) {
 Start-Sleep -Milliseconds 400
 Copy-Item -Path (Join-Path $Source '*') -Destination $Target -Recurse -Force
 if (Test-Path -LiteralPath $Launch) {
-    Start-Process -FilePath 'wscript.exe' -ArgumentList ('"' + $Launch + '"')
+    $ext = [IO.Path]::GetExtension($Launch)
+    if ($ext -eq '.exe') {
+        Start-Process -FilePath $Launch
+    } else {
+        Start-Process -FilePath 'wscript.exe' -ArgumentList ('"' + $Launch + '"')
+    }
 }
 '''
 
@@ -171,7 +177,7 @@ def download_and_stage(zip_url, timeout=60):
 
 def start_apply(source, target=None):
     target = Path(target or Path(__file__).resolve().parent)
-    launch = target / 'start_usage_widget.vbs'
+    launch = launch_after_update(target)
     script = Path(tempfile.gettempdir()) / 'AIUsageWidget-apply.ps1'
     script.write_text(APPLY_PS1, encoding='utf-8')
     flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
@@ -187,3 +193,11 @@ def start_apply(source, target=None):
         creationflags=flags,
     )
     return True
+
+
+def launch_after_update(target):
+    target = Path(target)
+    exe = target / LAUNCHER_EXE
+    if exe.is_file():
+        return exe
+    return target / 'start_usage_widget.vbs'

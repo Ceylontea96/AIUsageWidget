@@ -295,6 +295,24 @@ function Write-LaunchLog([string]$Message) {
     Add-Content -LiteralPath (Join-Path $dir 'launch.log') -Value $line -Encoding UTF8
 }
 
+function Save-InstallRoot {
+    $dir = Join-Path $env:APPDATA 'AiUsageWidget'
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $file = Join-Path $dir 'install.json'
+    $asked = $false
+    if (Test-Path -LiteralPath $file) {
+        try {
+            $prev = ConvertFrom-Json ([System.IO.File]::ReadAllText($file))
+            if ($prev.shortcut_asked) { $asked = $true }
+        } catch {}
+    }
+    $escaped = $Here.Replace('\', '\\').Replace('"', '\"')
+    $flag = if ($asked) { 'true' } else { 'false' }
+    $payload = '{{"root":"{0}","shortcut_asked":{1}}}{2}' -f $escaped, $flag, "`n"
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($file, $payload, $utf8NoBom)
+}
+
 function Show-Popup([string]$Message, [int]$Icon = 64) {
     Write-LaunchLog $Message
     try {
@@ -342,12 +360,13 @@ function Start-Widget([string]$PythonExe) {
             $extra = "`n`n" + [string](Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue)
         }
     }
-    Show-LaunchError "위젯이 바로 종료되었습니다 (코드 $($p.ExitCode)).`nzip을 폴더로 푼 뒤 start_usage_widget.vbs 또는 start_usage_widget.bat 을 실행하세요.$extra"
+    Show-LaunchError "위젯이 바로 종료되었습니다 (코드 $($p.ExitCode)).`nzip을 폴더로 푼 뒤 AI Usage.exe 를 실행하세요.$extra"
     exit 1
 }
 
 try {
     Write-LaunchLog "setup start $Here"
+    try { Save-InstallRoot } catch { Write-LaunchLog $_ }
     Unblock-Here
     $python = Get-ReadyPython
     if ($python) {

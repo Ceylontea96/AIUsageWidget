@@ -1,1 +1,1 @@
-{"version":"3.2.15","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"사용량 조회 간격을 정상 30초, 잔여 35% 이하 20초로 줄임. 소진·실패 백오프는 그대로"}
+{"version":"3.2.16","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"`AI Usage.exe` 실행 파일. 폴더에서 한 번 실행하면 경로를 기억해 실행 파일만 옮겨도 됨 / 첫 실행과 우클릭 메뉴에서 바탕화면 바로가기를 만들 수 있음 / 이미 실행 중이면 작업 관리자 안내 대신 기존 창을 앞으로 가져옴. 멈춘 잠금은 자동으로 해제함"}

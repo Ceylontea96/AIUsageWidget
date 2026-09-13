@@ -139,6 +139,37 @@ class WidgetTests(unittest.TestCase):
         self.assertEqual(u.next_interval(codex(70,20)),20)
         self.assertEqual(u.next_interval(codex(95,20)),20)
 
+    def test_install_root_round_trip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'widget'
+            root.mkdir()
+            (root / 'usage_widget.py').write_text('x', encoding='utf-8')
+            (root / 'setup_and_run.ps1').write_text('x', encoding='utf-8')
+            store = Path(directory) / 'install.json'
+            with patch.object(u, 'INSTALL_PATH', store):
+                self.assertTrue(u.is_widget_root(root))
+                self.assertFalse(u.is_widget_root(directory))
+                self.assertEqual(u.save_install_root(root), root.resolve())
+                self.assertEqual(u.read_install_root(), root.resolve())
+                u.save_install_root(root, shortcut_asked=True)
+                self.assertTrue(u.read_json(store)['shortcut_asked'])
+
+    def test_create_desktop_shortcut(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'widget'
+            desktop = Path(directory) / 'Desktop'
+            root.mkdir()
+            desktop.mkdir()
+            (root / 'usage_widget.py').write_text('x', encoding='utf-8')
+            (root / 'setup_and_run.ps1').write_text('x', encoding='utf-8')
+            (root / u.LAUNCHER_EXE).write_bytes(b'MZ')
+            store = Path(directory) / 'install.json'
+            with patch.object(u, 'INSTALL_PATH', store):
+                path = u.create_desktop_shortcut(root, desktop)
+            self.assertTrue(path.is_file())
+            self.assertEqual(path.name, u.SHORTCUT_NAME)
+            self.assertTrue(u.read_json(store).get('shortcut_asked'))
+
     def test_failed_provider_keeps_last_good(self):
         w=u.UsageWidget.__new__(u.UsageWidget)
         w.failures={'chatgpt':0};w.snapshots={'chatgpt':codex()};w.due={};w.preview=True;w.render=lambda k:None
@@ -202,7 +233,7 @@ class WidgetTests(unittest.TestCase):
     def test_lock_helpers_and_launch_log(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / 'widget.lock').write_text(f'{os.getpid()}\n12345\n', encoding='ascii')
+            (root / 'widget.instance').write_text(f'{os.getpid()}\n12345\n', encoding='ascii')
             with patch.object(u, 'APP_DIR', root):
                 pid, hwnd = u.read_lock()
                 self.assertEqual(pid, os.getpid())
@@ -211,9 +242,25 @@ class WidgetTests(unittest.TestCase):
                 self.assertFalse(u.process_alive(0))
                 u.log_launch('hello')
                 self.assertIn('hello', (root / 'launch.log').read_text(encoding='utf-8'))
-                (root / 'widget.lock').write_text('0\n0\n', encoding='ascii')
+                (root / 'widget.lock').write_text('0\n', encoding='ascii')
+                (root / 'widget.instance').write_text('0\n0\n', encoding='ascii')
                 self.assertTrue(u.clear_stale_lock())
                 self.assertFalse((root / 'widget.lock').exists())
+                self.assertFalse((root / 'widget.instance').exists())
+
+    def test_activate_existing_uses_instance_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'widget.instance').write_text(f'{os.getpid()}\n4242\n', encoding='ascii')
+            with patch.object(u, 'APP_DIR', root), patch.object(u, 'show_window', return_value=True) as show:
+                self.assertTrue(u.activate_existing())
+                show.assert_called_with(4242)
+
+    def test_recover_busy_lock_activates_without_killing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(u, 'APP_DIR', Path(directory)), patch.object(u, 'activate_existing', return_value=True), patch.object(u, 'terminate_pid') as kill:
+                self.assertEqual(u.recover_busy_lock(), 'activated')
+                kill.assert_not_called()
 
     def test_oversize_response_rejected(self):
         class Response:

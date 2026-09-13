@@ -8,6 +8,7 @@ import os
 import queue
 import re
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -21,13 +22,23 @@ from tkinter import messagebox, font as tkfont
 
 from providers import error_snapshot, snapshot_from_dict, snapshot_to_dict
 from runtime import AlertGate, AuthWatcher, PollRunner, ToastSender, limiting_quota, login_present, login_status, prepare_action, session_locked, start_tool_setup
-from updater import APP_VERSION, CHECK_EVERY, download_and_stage, fetch_latest, load_feed_url, start_apply, update_confirm_text
+from updater import APP_VERSION, CHECK_EVERY, LAUNCHER_EXE, download_and_stage, fetch_latest, load_feed_url, start_apply, update_confirm_text
 
 APP_DIR = Path(os.environ.get('APPDATA', str(Path.home()))) / 'AiUsageWidget'
 SETTINGS_PATH = APP_DIR / 'settings.json'
 CACHE_PATH = APP_DIR / 'last_snapshot.json'
 ALERT_PATH = APP_DIR / 'alerts.json'
+INSTALL_PATH = APP_DIR / 'install.json'
 ICON_DIR = Path(__file__).resolve().parent / 'assets' / 'icons'
+SHORTCUT_NAME = 'AI Usage.lnk'
+
+
+def lock_path():
+    return APP_DIR / 'widget.lock'
+
+
+def instance_path():
+    return APP_DIR / 'widget.instance'
 
 # Variant A: pixel dimensions from the supplied tokens.json.
 TOKENS = {'width': 360,
@@ -257,6 +268,75 @@ def save_json(path, value):
     tmp = path.with_suffix('.tmp')
     tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False), encoding='utf-8')
     os.replace(tmp, path)
+
+
+def widget_root():
+    return Path(__file__).resolve().parent
+
+
+def is_widget_root(path):
+    path = Path(path)
+    return (path / 'usage_widget.py').is_file() and (path / 'setup_and_run.ps1').is_file()
+
+
+def read_install_root(path=None):
+    data = read_json(path or INSTALL_PATH)
+    raw = str(data.get('root') or '')
+    if not raw:
+        return None
+    root = Path(raw)
+    if root.is_dir() and is_widget_root(root):
+        return root.resolve()
+    return None
+
+
+def save_install_root(root=None, shortcut_asked=None):
+    root = Path(root or widget_root()).resolve()
+    if not is_widget_root(root):
+        raise RuntimeError('위젯 폴더가 아닙니다.')
+    current = read_json(INSTALL_PATH)
+    current['root'] = str(root)
+    if shortcut_asked is not None:
+        current['shortcut_asked'] = bool(shortcut_asked)
+    save_json(INSTALL_PATH, current)
+    return root
+
+
+def desktop_dir():
+    buf = ctypes.create_unicode_buffer(260)
+    try:
+        if ctypes.windll.shell32.SHGetFolderPathW(None, 0x0010, None, 0, buf) == 0 and buf.value:
+            return Path(buf.value)
+    except (AttributeError, OSError):
+        pass
+    return Path(os.environ.get('USERPROFILE', str(Path.home()))) / 'Desktop'
+
+
+def create_desktop_shortcut(root=None, desktop=None):
+    root = Path(root or widget_root()).resolve()
+    exe = root / LAUNCHER_EXE
+    if not exe.is_file():
+        raise RuntimeError('AI Usage.exe를 찾지 못했습니다. zip을 폴더로 푼 뒤 다시 시도하세요.')
+    script = widget_root() / 'create_shortcut.ps1'
+    if not script.is_file():
+        raise RuntimeError('create_shortcut.ps1을 찾지 못했습니다.')
+    desktop = Path(desktop) if desktop else desktop_dir()
+    flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    completed = subprocess.run(
+        [
+            'powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', str(script),
+            '-Root', str(root),
+            '-Desktop', str(desktop),
+        ],
+        capture_output=True, text=True, encoding='utf-8', errors='replace',
+        creationflags=flags,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or '').strip()
+        raise RuntimeError(detail or '바탕화면 바로가기를 만들지 못했습니다.')
+    save_install_root(root, shortcut_asked=True)
+    return desktop / SHORTCUT_NAME
 
 
 def visual_state(snap):
@@ -763,11 +843,19 @@ def record_crash():
 
 
 def read_lock(path=None):
-    path = path or (APP_DIR / 'widget.lock')
+    path = path or instance_path()
     raw = path.read_text(encoding='ascii', errors='replace').strip().splitlines()
     pid = int(raw[0]) if raw else 0
     hwnd = int(raw[1]) if len(raw) >= 2 else 0
     return pid, hwnd
+
+
+def write_instance(pid, hwnd=0):
+    path = instance_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix('.tmp')
+    tmp.write_text(f'{int(pid)}\n{int(hwnd)}\n', encoding='ascii')
+    os.replace(tmp, path)
 
 
 def process_alive(pid):
@@ -780,6 +868,18 @@ def process_alive(pid):
     return True
 
 
+def terminate_pid(pid):
+    if pid <= 0:
+        return False
+    handle = ctypes.windll.kernel32.OpenProcess(1, False, pid)
+    if not handle:
+        return False
+    try:
+        return bool(ctypes.windll.kernel32.TerminateProcess(handle, 1))
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
 def show_window(hwnd):
     user32 = ctypes.windll.user32
     handle = ctypes.c_void_p(int(hwnd))
@@ -788,8 +888,23 @@ def show_window(hwnd):
     user32.ShowWindow(handle, 9)
     user32.ShowWindow(handle, 5)
     user32.SetWindowPos(handle, ctypes.c_void_p(-1), 0, 0, 0, 0, 0x0013)
+    user32.BringWindowToTop(handle)
+    foreground = user32.GetForegroundWindow()
+    this_tid = ctypes.windll.kernel32.GetCurrentThreadId()
+    other_tid = user32.GetWindowThreadProcessId(foreground, None)
+    attached = False
+    if other_tid and other_tid != this_tid:
+        attached = bool(user32.AttachThreadInput(this_tid, other_tid, True))
     user32.SetForegroundWindow(handle)
+    if attached:
+        user32.AttachThreadInput(this_tid, other_tid, False)
     return True
+
+
+def window_title(hwnd):
+    buf = ctypes.create_unicode_buffer(512)
+    ctypes.windll.user32.GetWindowTextW(ctypes.c_void_p(int(hwnd)), buf, 512)
+    return buf.value
 
 
 def windows_for_pid(pid):
@@ -807,42 +922,90 @@ def windows_for_pid(pid):
     return found
 
 
+def widget_windows():
+    found = []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    def callback(hwnd, _lparam):
+        title = window_title(hwnd)
+        if title == 'AI Usage' or title.startswith('AI Usage —'):
+            found.append(int(hwnd))
+        return True
+
+    ctypes.windll.user32.EnumWindows(callback, 0)
+    return found
+
+
 def activate_existing():
+    pid = hwnd = 0
     try:
         pid, hwnd = read_lock()
     except (OSError, ValueError, IndexError):
-        return False
+        pass
     if show_window(hwnd):
         return True
-    for other in windows_for_pid(pid):
+    if pid:
+        for other in windows_for_pid(pid):
+            if show_window(other):
+                return True
+    for other in widget_windows():
         if show_window(other):
             return True
     return False
 
 
 def clear_stale_lock():
+    pid = 0
     try:
         pid, _ = read_lock()
     except (OSError, ValueError, IndexError):
         pid = 0
     if process_alive(pid):
         return False
+    removed = False
+    for path in (lock_path(), instance_path()):
+        try:
+            path.unlink()
+            removed = True
+        except OSError:
+            pass
+    return removed
+
+
+def recover_busy_lock():
+    for _ in range(5):
+        if activate_existing():
+            return 'activated'
+        time.sleep(0.15)
+    pid = 0
     try:
-        (APP_DIR / 'widget.lock').unlink()
-        return True
-    except OSError:
-        return False
+        pid, _ = read_lock()
+    except (OSError, ValueError, IndexError):
+        pid = 0
+    if pid and process_alive(pid):
+        log_launch(f'replacing hung instance {pid}')
+        terminate_pid(pid)
+        for _ in range(10):
+            if not process_alive(pid):
+                break
+            time.sleep(0.1)
+    for path in (lock_path(), instance_path()):
+        try:
+            path.unlink()
+        except OSError:
+            pass
+    return 'cleared'
 
 
 class Instance:
-    """Windows byte lock compatible with v1, held until process shutdown."""
+    """Single-instance lock. Window identity lives in an unlocked sidecar file."""
     def __init__(self):
         self.handle = None
 
     def claim(self, retry=True):
         import msvcrt
         APP_DIR.mkdir(parents=True, exist_ok=True)
-        path = APP_DIR / 'widget.lock'
+        path = lock_path()
         f = open(path, 'a+', encoding='ascii')
         if path.stat().st_size == 0:
             f.write('0'); f.flush()
@@ -852,26 +1015,19 @@ class Instance:
         except OSError:
             f.close()
             log_launch('lock busy')
-            if activate_existing():
-                log_launch('activated existing window')
+            recovered = recover_busy_lock()
+            log_launch('lock recover ' + recovered)
+            if recovered == 'activated':
                 return False
-            if retry and clear_stale_lock():
-                log_launch('cleared stale lock')
+            if retry:
                 return self.claim(False)
-            notify_user(
-                'AI Usage',
-                'widget.lock 때문에 시작하지 못했습니다.\n\n'
-                '작업 관리자 세부 정보에서 pythonw.exe와 python.exe를 종료하고,\n'
-                '%APPDATA%\\AiUsageWidget\\widget.lock 을 지운 뒤 다시 실행하세요.',
-                0x40,
-            )
             return False
         self.handle = f
+        write_instance(os.getpid(), 0)
         return True
 
     def identify(self, hwnd):
-        self.handle.seek(0); self.handle.truncate()
-        self.handle.write(f'{os.getpid()}\n{hwnd}\n'); self.handle.flush()
+        write_instance(os.getpid(), hwnd)
 
     def close(self):
         if self.handle:
@@ -1376,6 +1532,11 @@ class UsageWidget:
         self.tip = Tip(self.root, lambda: self.metrics)
         self._load_icons()
         self.build()
+        if not preview:
+            try:
+                save_install_root()
+            except (OSError, RuntimeError):
+                pass
         if should_setup(self.settings, self.preview):
             self.pick_services()
         self.apply_mode()
@@ -1469,6 +1630,7 @@ class UsageWidget:
         self.menu.add_checkbutton(label='항상 위', variable=self.topmost, command=self.set_topmost)
         self.startup = tk.BooleanVar(value=startup_path().exists())
         self.menu.add_checkbutton(label='Windows 시작 시 실행', variable=self.startup, command=self.toggle_startup)
+        self.menu.add_command(label='바탕화면 바로가기', command=self.make_desktop_shortcut)
         self.menu.add_checkbutton(label='한도 임박·소진 알림', variable=self.notifications, command=self.persist)
         self.menu.add_command(label='알림 테스트', command=self.test_toast)
         self.menu.add_separator()
@@ -1629,6 +1791,8 @@ class UsageWidget:
             '우클릭 → 표시할 서비스·로그인에서 Codex / Cursor를 고릅니다.\n'
             '계정 로그인은 각 서비스에서 하세요. 위젯은 읽기만 합니다.\n'
             'Codex는 ChatGPT 데스크톱 앱이 아니라 Codex CLI 로그인이 필요합니다.\n\n'
+            '실행은 zip 푼 폴더의 AI Usage.exe 입니다. 한 번 실행한 뒤에는 실행 파일만 옮겨도 됩니다.\n'
+            '우클릭 → 바탕화면 바로가기로 바로가기를 만들 수 있습니다.\n\n'
             'F5 새로고침 · Ctrl+M 한 줄 모드\n'
             'Ctrl++ / Ctrl+- 크기 조절 · Ctrl+0 기본 크기\n'
             '제목 드래그로 이동 · 우클릭으로 설정\n\n'
@@ -1640,6 +1804,14 @@ class UsageWidget:
 
     def help(self):
         self.notify(messagebox.showinfo, 'AI Usage', self.help_text(), parent=self.root)
+
+    def make_desktop_shortcut(self):
+        try:
+            path = create_desktop_shortcut()
+        except Exception as exc:
+            self.notify(messagebox.showerror, 'AI Usage', str(exc) or '바탕화면 바로가기를 만들지 못했습니다.', parent=self.root)
+            return
+        self.notify(messagebox.showinfo, 'AI Usage', '바탕화면에 바로가기를 만들었습니다.\n' + str(path), parent=self.root)
 
     def pick_services(self):
         self.push_overlay()
@@ -2286,7 +2458,7 @@ def main():
     try:
         app = UsageWidget()
         app.root.update_idletasks()
-        hwnd = int(app.root.wm_frame(), 16)
+        hwnd = int(app.root.winfo_id())
         instance.identify(hwnd)
         try:
             pref = ctypes.c_int(2)

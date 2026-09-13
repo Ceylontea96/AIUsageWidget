@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [3.2.16] - 2026-09-13
+
+### Added
+- `AI Usage.exe` 실행 파일. 폴더에서 한 번 실행하면 경로를 기억해 실행 파일만 옮겨도 됨
+- 첫 실행과 우클릭 메뉴에서 바탕화면 바로가기를 만들 수 있음
+
+### Fixed
+- 이미 실행 중이면 작업 관리자 안내 대신 기존 창을 앞으로 가져옴. 멈춘 잠금은 자동으로 해제함
+
 ## [3.2.15] - 2026-09-12
 
 ### Changed
@@ -152,7 +161,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.15...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.16...HEAD
+[3.2.16]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.16
 [3.2.15]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.15
 [3.2.14]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.14
 [3.2.13]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.13
