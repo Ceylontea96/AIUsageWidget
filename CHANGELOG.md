@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+## [3.2.19] - 2026-09-14
+
+### Changed
+- 잔여량이 줄면 1분 동안 이전 조회가 끝나는 즉시 다시 조회
+
 ## [3.2.18] - 2026-09-14
 
 ### Changed
@@ -175,7 +180,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.18...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.19...HEAD
+[3.2.19]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.19
 [3.2.18]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.18
 [3.2.17]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.17
 [3.2.16]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.16

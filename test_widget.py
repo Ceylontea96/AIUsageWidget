@@ -154,6 +154,22 @@ class WidgetTests(unittest.TestCase):
         self.assertEqual(u.next_interval(codex(70,20)),20)
         self.assertEqual(u.next_interval(codex(95,20)),20)
 
+    def test_usage_drop_polls_faster_then_cools_down(self):
+        first, second = codex(10,20), codex(20,20)
+        self.assertTrue(u.usage_dropped(first, second))
+        self.assertFalse(u.usage_dropped(second, second))
+        self.assertFalse(u.usage_dropped(second, first))
+        self.assertEqual(u.next_interval(second, active=True), 0)
+        self.assertEqual(u.next_interval(second, active=False), 30)
+        self.assertEqual(u.next_interval(codex(100,20), active=True), 300)
+        w=u.UsageWidget.__new__(u.UsageWidget)
+        w.failures={'chatgpt':0};w.snapshots={};w.due={};w.usage_until={};w.preview=True;w.render=lambda k:None
+        w.accept('chatgpt', first)
+        self.assertLessEqual(w.usage_until.get('chatgpt', 0), time.monotonic())
+        w.accept('chatgpt', second)
+        self.assertGreater(w.usage_until['chatgpt'], time.monotonic())
+        self.assertLessEqual(w.due['chatgpt'] - time.monotonic(), 0.05)
+
     def test_install_root_round_trip(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'widget'

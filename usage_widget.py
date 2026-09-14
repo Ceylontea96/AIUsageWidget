@@ -480,13 +480,37 @@ def bonus_line(snap):
     return ''
 
 
-def next_interval(snap, failures=0):
+ACTIVE_POLL = 0
+ACTIVE_HOLD = 60
+
+
+def remaining_marks(snap):
+    if not snap or not snap.ok:
+        return []
+    marks = []
+    if snap.hero_percent is not None:
+        marks.append(bar_display_percent(snap.hero_percent))
+    marks.extend(bar_display_percent(bar.remaining_percent) for bar in snap.bars)
+    return marks
+
+
+def usage_dropped(previous, current):
+    before = remaining_marks(previous)
+    after = remaining_marks(current)
+    if not before or len(before) != len(after):
+        return False
+    return any(old - new > 0.25 for old, new in zip(before, after))
+
+
+def next_interval(snap, failures=0, active=False):
     if failures:
         return min(900, 30 * (2 ** min(failures - 1, 5)))
     if not snap or not snap.ok:
         return 30
     if snap.blocked or snap.hero_percent == 0:
         return 300
+    if active:
+        return ACTIVE_POLL
     if snap.hero_percent is not None and snap.hero_percent <= 35:
         return 20
     return 30
@@ -1711,6 +1735,7 @@ class UsageWidget:
         self.snapshots = {}
         self.failures = dict.fromkeys(FETCHERS, 0)
         self.due = dict.fromkeys(FETCHERS, 0.0)
+        self.usage_until = dict.fromkeys(FETCHERS, 0.0)
         self.last_save = 0
         self.cache_signature = ''
         self.timer = None
@@ -2444,8 +2469,16 @@ class UsageWidget:
         previous = self.snapshots.get(key)
         if not snap.ok and previous and previous.ok:
             snap = replace(previous, stale=True, error=snap.error)
+        now = time.monotonic()
+        until = getattr(self, 'usage_until', None)
+        if until is None:
+            until = {}
+            self.usage_until = until
+        if snap.ok and usage_dropped(previous, snap):
+            until[key] = now + ACTIVE_HOLD
         self.snapshots[key] = snap
-        self.due[key] = time.monotonic() + next_interval(snap, self.failures[key])
+        active = bool(snap.ok) and until.get(key, 0) > now
+        self.due[key] = now + next_interval(snap, self.failures[key], active)
         self.render(key)
         if not self.preview:
             self.save_cache()
@@ -2551,7 +2584,8 @@ class UsageWidget:
             self.set_footer('일부 데이터 이전 기준', MUTED, STALE_STRIP)
         else:
             self.set_footer('자동 감지', MUTED, CODEX)
-        self.timer = self.root.after(200 if active else 1000, self.tick)
+        heat = any(until > now for until in getattr(self, 'usage_until', {}).values())
+        self.timer = self.root.after(200 if active or heat else 1000, self.tick)
 
     def set_update_chrome(self):
         m = self.metrics
