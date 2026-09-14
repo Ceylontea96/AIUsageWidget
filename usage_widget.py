@@ -1713,6 +1713,9 @@ class UsageWidget:
         self.root = tk.Tk()
         self.root.title('AI Usage' if not preview else 'AI Usage — Preview')
         self.root.configure(bg=BG)
+        app_icon = ICON_DIR / 'app.ico'
+        if app_icon.is_file():
+            self.root.iconbitmap(default=str(app_icon))
         self.root.resizable(False, False)
         self.root.overrideredirect(not preview)
         self.topmost = tk.BooleanVar(value=bool(self.settings.get('topmost', True)))

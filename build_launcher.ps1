@@ -3,6 +3,8 @@ $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $source = Join-Path $here 'launcher\AIUsageLauncher.cs'
 $out = Join-Path $here 'AI Usage.exe'
+$icon = Join-Path $here 'assets\icons\app.ico'
+if (-not (Test-Path -LiteralPath $icon)) { throw 'assets\icons\app.ico missing' }
 if (-not (Test-Path -LiteralPath $source)) { throw 'launcher\AIUsageLauncher.cs 를 찾지 못했습니다.' }
 
 $csc = @(
@@ -17,7 +19,7 @@ if (-not (Test-Path -LiteralPath $forms)) {
     $forms = Join-Path $winDir 'Microsoft.NET\Framework\v4.0.30319\System.Windows.Forms.dll'
 }
 
-& $csc /nologo /target:winexe /platform:anycpu /optimize+ /codepage:65001 "/out:$out" "/reference:$forms" $source
+& $csc /nologo /target:winexe /platform:anycpu /optimize+ /codepage:65001 "/out:$out" "/win32icon:$icon" "/reference:$forms" $source
 if ($LASTEXITCODE -ne 0) { throw "launcher build failed ($LASTEXITCODE)" }
 if (-not (Test-Path -LiteralPath $out)) { throw 'AI Usage.exe 가 만들어지지 않았습니다.' }
 Write-Host "built $out"
