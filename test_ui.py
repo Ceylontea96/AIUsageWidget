@@ -1,4 +1,5 @@
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -12,13 +13,19 @@ class UiTests(unittest.TestCase):
         self.patches=[patch.object(u,'SETTINGS_PATH',path/'settings.json'),patch.object(u,'CACHE_PATH',path/'cache.json')]
         for item in self.patches:item.start()
         self._pill_animate=u.UpdatePill.animate
+        self._card_animate=u.Card.animate
+        self._chip_animate=u.Chip.animate
         u.UpdatePill.animate=False
+        u.Card.animate=False
+        u.Chip.animate=False
         self.w=u.UsageWidget(preview=True)
         self.w.root.withdraw()
 
     def tearDown(self):
         self.w.close()
         u.UpdatePill.animate=self._pill_animate
+        u.Card.animate=self._card_animate
+        u.Chip.animate=self._chip_animate
         for item in self.patches:item.stop()
         self.directory.cleanup()
 
@@ -30,6 +37,56 @@ class UiTests(unittest.TestCase):
         w.snapshots['chatgpt']=error_snapshot('chatgpt','Codex','조회 실패','');w.render('chatgpt');w.root.update_idletasks()
         self.assertLess(w.cards['chatgpt'].rows.winfo_reqheight(),before)
         mode=w.compact;w.toggle();self.assertNotEqual(w.compact,mode);w.toggle();self.assertEqual(w.compact,mode)
+
+    def test_cursor_card_shows_billing_reset(self):
+        w=self.w
+        bars=[QuotaBar('자사 모델',80,20,'','9월 14일 09:00'),QuotaBar('API 사용량',70,30,'','9월 14일 09:00')]
+        w.snapshots['cursor']=ProviderSnapshot('cursor','Cursor','Pro',True,80,'',bars=bars)
+        w.render('cursor')
+        with_reset=w.cards['cursor'].height
+        w.snapshots['cursor']=ProviderSnapshot('cursor','Cursor','Pro',True,80,'',bars=[QuotaBar('자사 모델',80,20,'',''),QuotaBar('API 사용량',70,30,'','')])
+        w.cards['cursor'].last_signature=None
+        w.render('cursor')
+        self.assertGreater(with_reset,w.cards['cursor'].height)
+
+    def test_card_eases_bar_when_remaining_drops(self):
+        w=self.w
+        card=w.cards['chatgpt']
+        u.Card.animate=True
+        card.render(ProviderSnapshot('chatgpt','Codex','Plus',True,80,'',bars=[QuotaBar('5시간',80,20,'','')]))
+        self.assertEqual(card._shown_pcts,[80])
+        card.render(ProviderSnapshot('chatgpt','Codex','Plus',True,50,'',bars=[QuotaBar('5시간',50,50,'','')]))
+        self.assertGreater(card._shown_pcts[0],50)
+        self.assertLessEqual(card._shown_pcts[0],80)
+        card._anim_t0=time.monotonic()-2
+        card._anim_tick()
+        self.assertEqual(card._shown_pcts,[50])
+        card.render(ProviderSnapshot('chatgpt','Codex','Plus',True,80,'',bars=[QuotaBar('5시간',80,20,'','')]))
+        self.assertLess(card._shown_pcts[0],80)
+        self.assertGreaterEqual(card._shown_pcts[0],50)
+        self.assertLessEqual(card._anim_ms, u.BAR_ANIM_MAX_MS)
+        u.Card.animate=False
+        card.render(ProviderSnapshot('chatgpt','Codex','Plus',True,20,'',bars=[QuotaBar('5시간',20,80,'','')]))
+        self.assertEqual(card._shown_pcts,[20])
+
+    def test_chip_eases_fill_when_remaining_drops(self):
+        chip=self.w.mini_values['chatgpt']
+        u.Chip.animate=True
+        chip.configure(percent=80)
+        self.assertEqual(chip.percent,80)
+        chip.configure(percent=40)
+        self.assertGreater(chip.percent,40)
+        self.assertLessEqual(chip.percent,80)
+        chip._anim_t0=time.monotonic()-2
+        chip._anim_tick()
+        self.assertEqual(chip.percent,40)
+        chip.configure(percent=90)
+        self.assertLess(chip.percent,90)
+        self.assertGreaterEqual(chip.percent,40)
+        chip._anim_t0=time.monotonic()-3
+        chip._anim_tick()
+        self.assertEqual(chip.percent,90)
+        u.Chip.animate=False
 
     def prepare(self):
         w=self.w;w.preview=False
@@ -291,7 +348,7 @@ class UiTests(unittest.TestCase):
             if w.menu.type(i)=='command':
                 labels.append(w.menu.entrycget(i,'label'))
         self.assertIn(f'버전 {u.APP_VERSION}', labels)
-        self.assertIn('바탕화면 바로가기', labels)
+        self.assertEqual(labels[labels.index(f'버전 {u.APP_VERSION}')-1], '바탕화면 바로가기 생성')
         help_text = w.help_text()
         self.assertIn(f'현재 버전 {u.APP_VERSION}', help_text)
         self.assertIn('제휴되지 않은 비공식', help_text)

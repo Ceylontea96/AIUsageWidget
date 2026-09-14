@@ -1,1 +1,1 @@
-{"version":"3.2.16","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"`AI Usage.exe` 실행 파일. 폴더에서 한 번 실행하면 경로를 기억해 실행 파일만 옮겨도 됨 / 첫 실행과 우클릭 메뉴에서 바탕화면 바로가기를 만들 수 있음 / 이미 실행 중이면 작업 관리자 안내 대신 기존 창을 앞으로 가져옴. 멈춘 잠금은 자동으로 해제함"}
+{"version":"3.2.17","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"Cursor 상세 카드에 청구 주기 초기화 시각을 표시 / 잔여량이 변하면 막대와 한 줄 칩이 최대 2초에 걸쳐 따라감 / 우클릭 메뉴의 바탕화면 바로가기를 버전 위로 옮기고 `바탕화면 바로가기 생성`으로 바꿈"}

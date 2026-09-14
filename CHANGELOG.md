@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [3.2.17] - 2026-09-14
+
+### Added
+- Cursor 상세 카드에 청구 주기 초기화 시각을 표시
+
+### Changed
+- 잔여량이 변하면 막대와 한 줄 칩이 최대 2초에 걸쳐 따라감
+- 우클릭 메뉴의 바탕화면 바로가기를 버전 위로 옮기고 `바탕화면 바로가기 생성`으로 바꿈
+
 ## [3.2.16] - 2026-09-13
 
 ### Added
@@ -161,7 +170,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.16...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.17...HEAD
+[3.2.17]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.17
 [3.2.16]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.16
 [3.2.15]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.15
 [3.2.14]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.14

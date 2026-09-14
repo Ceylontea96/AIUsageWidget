@@ -406,11 +406,53 @@ def chip_fill_width(total, percent):
     return max(0.0, min(float(total), float(total) * max(0.0, min(100.0, value)) / 100.0))
 
 
+BAR_ANIM_MIN_MS = 400
+BAR_ANIM_MAX_MS = 2000
+BAR_ANIM_STEP = 32
+
+
+def bar_display_percent(value):
+    if value is None:
+        return 0.0
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return number if math.isfinite(number) else 0.0
+
+
+def should_tween(shown, target):
+    return abs(bar_display_percent(target) - bar_display_percent(shown)) > 0.25
+
+
+def bar_anim_ms(*pairs):
+    delta = 0.0
+    for shown, target in pairs:
+        delta = max(delta, abs(bar_display_percent(target) - bar_display_percent(shown)))
+    if delta <= 0.25:
+        return 0
+    return min(BAR_ANIM_MAX_MS, max(BAR_ANIM_MIN_MS, int(delta / 100.0 * BAR_ANIM_MAX_MS)))
+
+
+def ease_out_cubic(t):
+    t = max(0.0, min(1.0, float(t)))
+    return 1.0 - (1.0 - t) ** 3
+
+
+def lerp(start, end, t):
+    return start + (end - start) * t
+
+
 def reset_stamp(text):
     if not text:
         return ''
     found = re.search(r'(\d{1,2}:\d{2})', text)
     return f'{found.group(1)} 재설정' if found else ''
+
+
+def cursor_reset(text):
+    clean = str(text or '').replace(' 초기화', '').replace(' 재설정', '').strip()
+    return f'{clean} 초기화' if clean else ''
 
 
 def reset_credit(snap):
@@ -1352,11 +1394,18 @@ class UpdatePill(tk.Canvas):
 
 class Chip(tk.Canvas):
     """One progress pill: proportional fill and an independent text overlay."""
+    animate = True
+
     def __init__(self, parent, metrics=None):
         self.metrics = metrics or Metrics()
         super().__init__(parent,width=self.metrics.chip_w,height=self.metrics.chip_h,highlightthickness=0,bd=0,bg=BG)
         self.text, self.fill, self.fg, self.percent = '—', CHIP_STALE, CHIP_FG, 0.0
         self._photo = None
+        self._seeded = False
+        self._anim_after = None
+        self._anim_from = self._anim_to = self._anim_t0 = None
+        self._anim_ms = BAR_ANIM_MAX_MS
+        self.bind('<Destroy>', self._cancel_anim)
         self._redraw()
 
     def set_metrics(self, metrics):
@@ -1369,7 +1418,7 @@ class Chip(tk.Canvas):
             return self.text
         return super().cget(key)
 
-    def configure(self,text=None,fg=None,bg=None,percent=None,**kwargs):
+    def configure(self,text=None,fg=None,bg=None,percent=None,animate=None,**kwargs):
         changed = False
         if text is not None and text != self.text:
             self.text = text
@@ -1379,14 +1428,58 @@ class Chip(tk.Canvas):
             changed = True
         if percent is not None:
             value = chip_fill_width(100, percent)
-            if value != self.percent:
-                self.percent = value
-                changed = True
+            do_anim = self.animate if animate is None else animate
+            if do_anim and self._seeded and should_tween(self.percent, value):
+                self._anim_from = self.percent
+                self._anim_to = value
+                self._anim_ms = bar_anim_ms((self.percent, value))
+                self._anim_t0 = time.monotonic()
+                self._arm_anim()
+            else:
+                self._cancel_anim()
+                if value != self.percent:
+                    self.percent = value
+                    changed = True
+                self._seeded = True
         self.fg = CHIP_FG
         if kwargs:
             super().configure(**kwargs)
         if changed:
             self._redraw()
+
+    def _arm_anim(self):
+        if self._anim_after is not None:
+            return
+        try:
+            self._anim_after = self.after(BAR_ANIM_STEP, self._anim_tick)
+        except tk.TclError:
+            self._anim_after = None
+
+    def _cancel_anim(self, event=None):
+        aid = self._anim_after
+        self._anim_after = None
+        self._anim_from = self._anim_to = self._anim_t0 = None
+        if aid is not None:
+            try:
+                self.after_cancel(aid)
+            except tk.TclError:
+                pass
+
+    def _anim_tick(self):
+        self._anim_after = None
+        if self._anim_from is None or self._anim_to is None or self._anim_t0 is None:
+            return
+        t = (time.monotonic() - self._anim_t0) / (max(1, self._anim_ms) / 1000.0)
+        self.percent = self._anim_to if t >= 1 else lerp(self._anim_from, self._anim_to, ease_out_cubic(t))
+        try:
+            if self.winfo_exists():
+                self._redraw()
+        except tk.TclError:
+            return
+        if t < 1:
+            self._arm_anim()
+        else:
+            self._anim_from = self._anim_to = self._anim_t0 = None
 
     def _redraw(self):
         self.delete('all')
@@ -1400,15 +1493,24 @@ class Chip(tk.Canvas):
 
 class Card(tk.Frame):
     """Explicit pixel layout matching the supplied 334px-wide card references."""
+    animate = True
+
     def __init__(self,parent,key,metrics=None):
         self.metrics = metrics or Metrics()
         m = self.metrics
         super().__init__(parent,width=m.card_w,height=m.p(120),bg=BG)
         self.key, self.height, self.last_signature = key,m.p(120),None
         self._bar_photos = []
+        self._shown_pcts = []
+        self._anim_from = self._anim_to = []
+        self._anim_t0 = None
+        self._anim_ms = BAR_ANIM_MAX_MS
+        self._anim_after = None
+        self._snap = None
         self.rows = tk.Canvas(self,width=m.card_w,height=self.height,bg=BG,bd=0,highlightthickness=0,cursor='hand2')
         self.rows.pack()
         self.rows.bind('<Button-1>',lambda e:webbrowser.open(URLS[key]))
+        self.bind('<Destroy>', self._cancel_anim)
 
     def set_metrics(self, metrics):
         if self.metrics.scale != metrics.scale:
@@ -1422,14 +1524,80 @@ class Card(tk.Frame):
         if signature == self.last_signature:
             return
         self.last_signature = signature
+        self._snap = snap
+        bars = list(snap.bars) if snap.ok else []
+        targets = [bar_display_percent(bar.remaining_percent) for bar in bars]
+        shown = self._shown_pcts
+        animate = (
+            self.animate and snap.ok and shown
+            and len(shown) == len(targets)
+            and any(should_tween(a, b) for a, b in zip(shown, targets))
+        )
+        if animate:
+            self._anim_from = list(shown)
+            self._anim_to = targets
+            self._anim_ms = bar_anim_ms(*zip(shown, targets))
+            self._anim_t0 = time.monotonic()
+            self._arm_anim()
+        else:
+            self._cancel_anim()
+            self._shown_pcts = targets
+        self._paint(snap, self._shown_pcts)
+
+    def _arm_anim(self):
+        if self._anim_after is not None:
+            return
+        try:
+            self._anim_after = self.after(BAR_ANIM_STEP, self._anim_tick)
+        except tk.TclError:
+            self._anim_after = None
+
+    def _cancel_anim(self, event=None):
+        aid = self._anim_after
+        self._anim_after = None
+        self._anim_from = self._anim_to = []
+        self._anim_t0 = None
+        if aid is not None:
+            try:
+                self.after_cancel(aid)
+            except tk.TclError:
+                pass
+
+    def _anim_tick(self):
+        self._anim_after = None
+        if not self._anim_from or not self._anim_to or self._anim_t0 is None:
+            return
+        t = (time.monotonic() - self._anim_t0) / (max(1, self._anim_ms) / 1000.0)
+        if t >= 1:
+            self._shown_pcts = list(self._anim_to)
+            self._anim_from = self._anim_to = []
+            self._anim_t0 = None
+        else:
+            e = ease_out_cubic(t)
+            self._shown_pcts = [lerp(a, b, e) for a, b in zip(self._anim_from, self._anim_to)]
+            self._arm_anim()
+        if self._snap is not None:
+            try:
+                if self.winfo_exists():
+                    self._paint(self._snap, self._shown_pcts)
+            except tk.TclError:
+                return
+
+    def _paint(self,snap,percents):
         m = self.metrics
         positions = []
         label_y = m.p(108)
-        for bar in snap.bars if snap.ok else []:
-            reset = reset_stamp(bar.reset_text) if self.key == 'chatgpt' and bar.label == '5시간' else ''
+        bars = list(snap.bars) if snap.ok else []
+        for index, bar in enumerate(bars):
+            if self.key == 'chatgpt' and bar.label == '5시간':
+                reset = reset_stamp(bar.reset_text)
+            elif self.key == 'cursor' and index == len(bars) - 1:
+                reset = cursor_reset(bar.reset_text)
+            else:
+                reset = ''
             positions.append((bar,label_y,reset))
             label_y += m.p(42) + (m.p(20) if reset else 0)
-        last_bottom = positions[-1][1]+m.p(18) if positions else m.p(92)
+        last_bottom = positions[-1][1] + m.p(18) + (m.p(20) if positions[-1][2] else 0) if positions else m.p(92)
         amount = included_amount(snap) if self.key == 'cursor' and snap.ok else ''
         extra = bonus_line(snap) if self.key == 'cursor' and snap.ok else ''
         bill_y = last_bottom+m.p(27)
@@ -1439,10 +1607,11 @@ class Card(tk.Frame):
         strip_h = max(1, self.height - m.p(24))
         photos = [round_photo(m.strip_w, strip_h, m.strip_w / 2, state, CARD)]
         track_w = m.card_w - m.p(36)
-        for bar,_,_ in positions:
-            fill_w = chip_fill_width(track_w, bar.remaining_percent)
+        for index,(bar,_,_) in enumerate(positions):
+            shown = percents[index] if index < len(percents) else bar_display_percent(bar.remaining_percent)
+            fill_w = chip_fill_width(track_w, shown)
             photos.append(progress_photo(track_w, m.bar_h, 4 * m.scale, fill_w, TRACK,
-                                         bar_color(self.key, bar.remaining_percent, snap.stale), CARD))
+                                         bar_color(self.key, shown, snap.stale), CARD))
         c = self.rows
         c.configure(width=m.card_w,height=self.height)
         self.configure(width=m.card_w,height=self.height)
@@ -1630,7 +1799,6 @@ class UsageWidget:
         self.menu.add_checkbutton(label='항상 위', variable=self.topmost, command=self.set_topmost)
         self.startup = tk.BooleanVar(value=startup_path().exists())
         self.menu.add_checkbutton(label='Windows 시작 시 실행', variable=self.startup, command=self.toggle_startup)
-        self.menu.add_command(label='바탕화면 바로가기', command=self.make_desktop_shortcut)
         self.menu.add_checkbutton(label='한도 임박·소진 알림', variable=self.notifications, command=self.persist)
         self.menu.add_command(label='알림 테스트', command=self.test_toast)
         self.menu.add_separator()
@@ -1646,6 +1814,7 @@ class UsageWidget:
             self.menu.add_command(label=TITLES[key] + ' 사용량 페이지', command=lambda k=key: webbrowser.open(URLS[k]))
         self.menu.add_command(label='표시 기준 / 도움말', command=self.help)
         self.menu.add_separator()
+        self.menu.add_command(label='바탕화면 바로가기 생성', command=self.make_desktop_shortcut)
         self.menu.add_command(label=f'버전 {APP_VERSION}', state='disabled')
         self.menu.add_command(label='종료', command=self.close)
         self.menu.bind('<Map>', lambda e: self._lift_menu())
@@ -1785,14 +1954,14 @@ class UsageWidget:
             '이 위젯은 OpenAI(ChatGPT·Codex)·Cursor와 제휴되지 않은 비공식 도구입니다.\n'
             '사용량 조회는 언제든 실패하거나 바뀔 수 있습니다.\n\n'
             'Codex: 5시간·주간 중 더 적게 남은 한도입니다.\n'
-            'Cursor: 전체 잔여와 자사 모델·API 잔여를 구분합니다.\n'
+            'Cursor: 전체 잔여와 자사 모델·API 잔여를 구분합니다. 막대 아래는 청구 주기 초기화입니다.\n'
             '기본 포함량 소진과 전체 한도 소진은 다를 수 있습니다.\n\n'
             '한 줄 칩 색이 임박·소진·이전 데이터를 나타냅니다.\n'
             '우클릭 → 표시할 서비스·로그인에서 Codex / Cursor를 고릅니다.\n'
             '계정 로그인은 각 서비스에서 하세요. 위젯은 읽기만 합니다.\n'
             'Codex는 ChatGPT 데스크톱 앱이 아니라 Codex CLI 로그인이 필요합니다.\n\n'
             '실행은 zip 푼 폴더의 AI Usage.exe 입니다. 한 번 실행한 뒤에는 실행 파일만 옮겨도 됩니다.\n'
-            '우클릭 → 바탕화면 바로가기로 바로가기를 만들 수 있습니다.\n\n'
+            '우클릭 → 바탕화면 바로가기 생성으로 바로가기를 만들 수 있습니다.\n\n'
             'F5 새로고침 · Ctrl+M 한 줄 모드\n'
             'Ctrl++ / Ctrl+- 크기 조절 · Ctrl+0 기본 크기\n'
             '제목 드래그로 이동 · 우클릭으로 설정\n\n'
@@ -2002,7 +2171,7 @@ class UsageWidget:
         visible = [k for k in FETCHERS if self.enabled[k].get()]
         for key,card in self.cards.items():
             if key not in visible:
-                self.mini_values[key].configure(text=TITLES[key]+' 꺼짐',fg=CHIP_FG,bg=CHIP_STALE,percent=0)
+                self.mini_values[key].configure(text=TITLES[key]+' 꺼짐',fg=CHIP_FG,bg=CHIP_STALE,percent=0,animate=False)
         body_h = m.p(6)+sum(self.cards[k].height for k in visible)+m.card_gap*max(0,len(visible)-1)+m.p(10)
         height = m.compact_h if self.compact else 2+m.header_h+body_h+m.footer_h
         layout = (self.compact, tuple(visible), height, tuple(self.cards[k].height for k in visible), m.scale)
@@ -2250,7 +2419,7 @@ class UsageWidget:
 
     def render(self, key):
         if not self.enabled[key].get():
-            self.mini_values[key].configure(text=TITLES[key] + ' 꺼짐', fg=MUTED, bg=CHIP_STALE, percent=0)
+            self.mini_values[key].configure(text=TITLES[key] + ' 꺼짐', fg=MUTED, bg=CHIP_STALE, percent=0, animate=False)
             self.apply_mode()
             return
         snap = self.snapshots[key]
