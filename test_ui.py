@@ -355,6 +355,37 @@ class UiTests(unittest.TestCase):
         self.assertIn('실패하거나 바뀔 수 있습니다', help_text)
         self.assertIn('AI Usage.exe', help_text)
 
+    def test_place_on_screen_center_uses_monitor_not_widget(self):
+        w=self.w
+        w.root.geometry('+16+24')
+        w.root.update_idletasks()
+        dialog=u.tk.Toplevel(w.root)
+        dialog.geometry('200x100+16+24')
+        dialog.update_idletasks()
+        width=max(dialog.winfo_reqwidth(),dialog.winfo_width(),1)
+        height=max(dialog.winfo_reqheight(),dialog.winfo_height(),1)
+        with patch.object(u,'work_area',return_value=(0,0,1000,800)):
+            expected=u.center_box(width,height,16,24)
+            u.place_on_screen_center(dialog,16,24)
+        dialog.update_idletasks()
+        self.assertTrue(dialog.geometry().endswith(f'+{expected[0]}+{expected[1]}'), dialog.geometry())
+        self.assertNotEqual((dialog.winfo_rootx(),dialog.winfo_rooty()),(16,24))
+        dialog.destroy()
+
+    def test_notify_parents_messagebox_to_screen_center_owner(self):
+        w=self.w
+        w.root.geometry('+16+24')
+        w.root.update_idletasks()
+        seen=[]
+        def fake_info(*args,**kwargs):
+            seen.append(kwargs.get('parent'))
+            return 'ok'
+        with patch.object(u,'work_area',return_value=(0,0,1000,800)),patch.object(u.messagebox,'showinfo',side_effect=fake_info):
+            w.notify(u.messagebox.showinfo,'업데이트','이미 최신입니다.',parent=w.root)
+        self.assertEqual(len(seen),1)
+        self.assertIs(seen[0],w._center_owner)
+        self.assertIsNot(seen[0],w.root)
+
     def test_menu_checkmark_is_white(self):
         self.assertEqual(str(self.w.menu.cget('selectcolor')).upper(), '#FFFFFF')
 

@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+## [3.2.18] - 2026-09-14
+
+### Changed
+- 도움말·로그인·업데이트 확인 같은 별도 창을 위젯 옆이 아니라 화면 중앙에 표시
+
 ## [3.2.17] - 2026-09-14
 
 ### Added
@@ -170,7 +175,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.17...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.18...HEAD
+[3.2.18]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.18
 [3.2.17]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.17
 [3.2.16]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.16
 [3.2.15]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.15

@@ -110,6 +110,10 @@ class WidgetTests(unittest.TestCase):
             {'chatgpt':True,'cursor':False},
         )
         work, monitor = (0, 0, 1920, 1040), (0, 0, 1920, 1080)
+        with patch.object(u, 'work_area', return_value=work):
+            self.assertEqual(u.center_box(400, 200, 10, 10), (760, 420))
+        with patch.object(u, 'work_area', return_value=(1920, 0, 3840, 1080)):
+            self.assertEqual(u.center_box(200, 100, 2000, 10), (2780, 490))
         self.assertEqual(u.clamp_position(100, 2000, 360, 44, work, monitor), (100, 1036))
         self.assertEqual(u.clamp_position(100, 990, 360, 44, work, monitor), (100, 996))
         self.assertEqual(u.clamp_position(-80, -20, 360, 44, work, monitor), (8, 8))

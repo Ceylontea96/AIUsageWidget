@@ -685,6 +685,32 @@ def geometry_at(x, y):
     return f'+{int(x)}+{int(y)}'
 
 
+def center_box(width, height, ref_x=0, ref_y=0):
+    """Top-left that centers a box on the monitor work area containing (ref_x, ref_y)."""
+    width = max(1, int(width))
+    height = max(1, int(height))
+    left, top, right, bottom = work_area(int(ref_x), int(ref_y))
+    x = left + max(0, (right - left - width) // 2)
+    y = top + max(0, (bottom - top - height) // 2)
+    return x, y
+
+
+def place_on_screen_center(win, ref_x=None, ref_y=None):
+    """Move a Toplevel to the monitor center. ref_* only picks the monitor, not an offset."""
+    try:
+        win.update_idletasks()
+        width = max(win.winfo_reqwidth(), win.winfo_width(), 1)
+        height = max(win.winfo_reqheight(), win.winfo_height(), 1)
+        if ref_x is None:
+            ref_x = win.master.winfo_rootx() if win.master else 0
+        if ref_y is None:
+            ref_y = win.master.winfo_rooty() if win.master else 0
+        x, y = center_box(width, height, ref_x, ref_y)
+        win.geometry(geometry_at(x, y))
+    except (tk.TclError, OSError, TypeError, ValueError):
+        pass
+
+
 def startup_path():
     return Path(os.environ.get('APPDATA', '')) / 'Microsoft/Windows/Start Menu/Programs/Startup/AIUsageWidget.vbs'
 
@@ -1872,11 +1898,41 @@ class UsageWidget:
             self.apply_topmost()
 
     def notify(self, fn, *args, **kwargs):
+        if kwargs.get('parent') is self.root:
+            kwargs['parent'] = self.screen_center_owner()
         self.push_overlay()
         try:
             return fn(*args, **kwargs)
         finally:
             self.pop_overlay()
+
+    def screen_center_owner(self):
+        """Hidden owner so Windows message boxes center on the monitor, not the widget."""
+        owner = getattr(self, '_center_owner', None)
+        try:
+            alive = owner is not None and owner.winfo_exists()
+        except tk.TclError:
+            alive = False
+        if not alive:
+            owner = tk.Toplevel(self.root)
+            owner.withdraw()
+            owner.overrideredirect(True)
+            try:
+                owner.attributes('-topmost', True)
+            except tk.TclError:
+                pass
+            self._center_owner = owner
+        try:
+            ref_x, ref_y = self.root.winfo_rootx(), self.root.winfo_rooty()
+        except tk.TclError:
+            ref_x, ref_y = 0, 0
+        x, y = center_box(1, 1, ref_x, ref_y)
+        try:
+            owner.geometry(f'1x1{geometry_at(x, y)}')
+            owner.update_idletasks()
+        except tk.TclError:
+            pass
+        return owner
 
     def _arm_overlay_raise(self):
         hwnd = self._widget_hwnd()
@@ -2083,7 +2139,11 @@ class UsageWidget:
         dialog.protocol('WM_DELETE_WINDOW', commit if first_run else cancel)
         dialog.bind('<Destroy>', lambda e: alive.update(on=False) if e.widget is dialog else None)
         dialog.update_idletasks()
-        dialog.geometry(f'+{self.root.winfo_rootx() + 24}+{self.root.winfo_rooty() + 48}')
+        try:
+            ref_x, ref_y = self.root.winfo_rootx(), self.root.winfo_rooty()
+        except tk.TclError:
+            ref_x, ref_y = 0, 0
+        place_on_screen_center(dialog, ref_x, ref_y)
         refresh_status()
         try:
             dialog.grab_set()
