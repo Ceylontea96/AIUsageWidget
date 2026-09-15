@@ -35,6 +35,7 @@ class QuotaBar:
     used_percent: float | None
     detail: str
     reset_text: str = ""
+    usage_scope: str = ""
 
 
 @dataclass
@@ -214,6 +215,7 @@ def snapshot_to_dict(snap: ProviderSnapshot) -> dict[str, Any]:
                 "used_percent": bar.used_percent,
                 "detail": bar.detail,
                 "reset_text": bar.reset_text,
+                "usage_scope": bar.usage_scope,
             }
             for bar in snap.bars
         ],
@@ -247,6 +249,7 @@ def snapshot_from_dict(data: dict[str, Any]) -> ProviderSnapshot:
                 used_percent=to_float(raw.get("used_percent")),
                 detail=str(raw.get("detail") or ""),
                 reset_text=str(raw.get("reset_text") or ""),
+                usage_scope=str(raw.get("usage_scope") or ""),
             )
         )
     info_rows = []
@@ -441,14 +444,15 @@ def fetch_cursor() -> ProviderSnapshot:
     api_used = to_float(plan_usage.get("apiPercentUsed"))
     total_used = to_float(plan_usage.get("totalPercentUsed"))
     reset_text = fmt_local(usage.get("billingCycleEnd"), "reset")
+    scope = json.dumps([usage.get("billingCycleEnd"), plan_usage.get("limit")])
     bars = []
     if auto_used is not None:
         bars.append(
-            QuotaBar("자사 모델", remaining_from_used(auto_used), auto_used, f"{auto_used:.0f}% 사용", reset_text)
+            QuotaBar("자사 모델", remaining_from_used(auto_used), auto_used, f"{auto_used:.0f}% 사용", reset_text, scope)
         )
     if api_used is not None:
         bars.append(
-            QuotaBar("API 사용량", remaining_from_used(api_used), api_used, f"{api_used:.0f}% 사용", reset_text)
+            QuotaBar("API 사용량", remaining_from_used(api_used), api_used, f"{api_used:.0f}% 사용", reset_text, scope)
         )
     bonus = to_float(plan_usage.get("bonusSpend")) or 0.0
     limit = to_float(plan_usage.get("limit"))
@@ -502,7 +506,8 @@ def _window_bar(label: str, window: dict[str, Any] | None) -> QuotaBar:
     reset = fmt_local(reset_at, "reset")
     remaining = remaining_from_used(used)
     detail = "잔여 --" if remaining is None else f"잔여 {remaining:.0f}%"
-    return QuotaBar(label, remaining, used, detail, reset)
+    scope = json.dumps([window.get("reset_at") or reset, window.get("limit_window_seconds")])
+    return QuotaBar(label, remaining, used, detail, reset, scope)
 
 
 def fetch_chatgpt() -> ProviderSnapshot:

@@ -1,1 +1,1 @@
-{"version":"3.2.19","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"잔여량이 줄면 1분 동안 이전 조회가 끝나는 즉시 다시 조회"}
+{"version":"3.2.21","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"사용량 증가가 감지된 막대에 한 번 지나가는 빛 효과 추가 / 잔여량이 작게 변하거나 연속으로 갱신되어도 막대 길이가 현재 위치에서 부드럽게 이어지도록 개선"}

@@ -406,9 +406,9 @@ def chip_fill_width(total, percent):
     return max(0.0, min(float(total), float(total) * max(0.0, min(100.0, value)) / 100.0))
 
 
-BAR_ANIM_MIN_MS = 400
+BAR_ANIM_MIN_MS = 650
 BAR_ANIM_MAX_MS = 2000
-BAR_ANIM_STEP = 32
+BAR_ANIM_STEP = 16
 
 
 def bar_display_percent(value):
@@ -422,14 +422,14 @@ def bar_display_percent(value):
 
 
 def should_tween(shown, target):
-    return abs(bar_display_percent(target) - bar_display_percent(shown)) > 0.25
+    return abs(bar_display_percent(target) - bar_display_percent(shown)) > 1e-9
 
 
 def bar_anim_ms(*pairs):
     delta = 0.0
     for shown, target in pairs:
         delta = max(delta, abs(bar_display_percent(target) - bar_display_percent(shown)))
-    if delta <= 0.25:
+    if delta <= 1e-9:
         return 0
     return min(BAR_ANIM_MAX_MS, max(BAR_ANIM_MIN_MS, int(delta / 100.0 * BAR_ANIM_MAX_MS)))
 
@@ -820,7 +820,7 @@ def _box_downsample(rows, samples, dst_w, dst_h):
     return dst_w, dst_h, out
 
 
-def progress_bar_rgba(width, height, radius, fill_width, track, fill, background, samples=1):
+def progress_bar_rgba(width, height, radius, fill_width, track, fill, background, samples=1, shimmer=None):
     """Track + clipped fill as opaque RGBA rows. Fill cannot paint outside the track."""
     samples = max(1, int(samples))
     width = max(1, int(round(width)))
@@ -829,17 +829,28 @@ def progress_bar_rgba(width, height, radius, fill_width, track, fill, background
     if samples > 1:
         src_w, src_h, rows = progress_bar_rgba(
             width * samples, height * samples, radius * samples, fill_width * samples,
-            track, fill, background, samples=1)
+            track, fill, background, samples=1, shimmer=shimmer)
         return _box_downsample(rows, samples, width, height)
     tr, tg, tb = _hex_rgb(track)
     fr, fg, fb = _hex_rgb(fill)
     br, bg_, bb = _hex_rgb(background)
+    colors = [(fr, fg, fb)] * width
+    if shimmer is not None and fill_width > 0 and 0.15 < shimmer < 0.75:
+        t = (shimmer - 0.15) / 0.60
+        t = t * t * (3.0 - 2.0 * t)
+        band = max(height * 2.0, fill_width * 0.30)
+        center = -band + (fill_width + 2.0 * band) * t
+        for x in range(min(width, int(math.ceil(fill_width)))):
+            weight = max(0.0, 1.0 - abs(x + 0.5 - center) / band)
+            glow = weight * weight * (3.0 - 2.0 * weight) * 0.38
+            colors[x] = (fr + (255 - fr) * glow, fg + (255 - fg) * glow, fb + (255 - fb) * glow)
     rows = []
     for y in range(height):
         py = y + 0.5
         row = bytearray()
         for x in range(width):
             px = x + 0.5
+            fr, fg, fb = colors[x]
             track_a = _cover_round_rect(px, py, width, height, radius)
             fill_a = _cover_round_rect(px, py, fill_width, height, radius) if fill_width > 0 else 0.0
             fill_a = min(fill_a, track_a)
@@ -859,13 +870,15 @@ def _png_rgba(width, height, rows):
     return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', ihdr) + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b'')
 
 
-def progress_bar_png(width, height, radius, fill_width, track, fill, background, samples=1):
-    w, h, rows = progress_bar_rgba(width, height, radius, fill_width, track, fill, background, samples=samples)
+def progress_bar_png(width, height, radius, fill_width, track, fill, background, samples=1, shimmer=None):
+    w, h, rows = progress_bar_rgba(width, height, radius, fill_width, track, fill, background,
+                                   samples=samples, shimmer=shimmer)
     return _png_rgba(w, h, rows)
 
 
-def progress_photo(width, height, radius, fill_width, track, fill, background, samples=1):
-    return tk.PhotoImage(data=progress_bar_png(width, height, radius, fill_width, track, fill, background, samples=samples), format='png')
+def progress_photo(width, height, radius, fill_width, track, fill, background, samples=1, shimmer=None):
+    return tk.PhotoImage(data=progress_bar_png(width, height, radius, fill_width, track, fill, background,
+                                               samples=samples, shimmer=shimmer), format='png')
 
 
 def round_photo(width, height, radius, fill, background, pad=1):
@@ -1442,7 +1455,104 @@ class UpdatePill(tk.Canvas):
         self.create_text(w / 2, h / 2, text=self.text, fill=fg, font=self.metrics.font(FONT_PILL))
 
 
-class Chip(tk.Canvas):
+def usage_changes(previous, current):
+    """Return comparable rows and rows whose usage increased."""
+    if (previous is None or not previous.ok or previous.stale or not current.ok or current.stale
+            or previous.key != current.key or previous.plan != current.plan
+            or [bar.label for bar in previous.bars] != [bar.label for bar in current.bars]):
+        return set(), set()
+    before = {bar.label: bar for bar in previous.bars}
+    comparable = set()
+    consumed = set()
+    for index, bar in enumerate(current.bars):
+        old = before.get(bar.label)
+        if old is None or (old.reset_text, old.usage_scope) != (bar.reset_text, bar.usage_scope):
+            continue
+        pairs = ((old.used_percent, bar.used_percent, 1),
+                 (old.remaining_percent, bar.remaining_percent, -1))
+        for old_value, new_value, direction in pairs:
+            if (old_value is None or new_value is None
+                    or not math.isfinite(old_value) or not math.isfinite(new_value)):
+                continue
+            delta = (new_value - old_value) * direction
+            if delta >= -1e-9:
+                comparable.add(index)
+                if delta > 1e-9:
+                    consumed.add(index)
+            break
+    return comparable, consumed
+
+
+class BarShimmer:
+    """Play one one-second light pass when a fresh sample detects usage."""
+
+    def _init_shimmer(self):
+        self._shimmer_after = None
+        self._shimmer_runs = {}
+        self.bind('<Unmap>', self._stop_shimmer, add='+')
+        self.bind('<Destroy>', self._stop_shimmer, add='+')
+
+    def _trigger_shimmer(self, indices):
+        if not self.animate or not self.winfo_ismapped():
+            return
+        now = time.monotonic()
+        for index in indices:
+            if index in self._shimmer_runs:
+                self._shimmer_runs[index][1] = True
+            else:
+                self._shimmer_runs[index] = [now, False]
+        self._start_shimmer()
+
+    def _start_shimmer(self):
+        if self._shimmer_runs and self._shimmer_after is None:
+            self._shimmer_after = self.after(32, self._shimmer_tick)
+
+    def _stop_shimmer(self, event=None):
+        if event is not None and event.widget is not self:
+            return
+        if self._shimmer_after is not None:
+            try:
+                self.after_cancel(self._shimmer_after)
+            except tk.TclError:
+                pass
+            self._shimmer_after = None
+        self._shimmer_runs.clear()
+        if event is None or event.type != tk.EventType.Destroy:
+            self._paint_shimmer()
+
+    def _retain_shimmer(self, indices):
+        self._shimmer_runs = {index: run for index, run in self._shimmer_runs.items() if index in indices}
+        if not self._shimmer_runs and self._shimmer_after is not None:
+            try:
+                self.after_cancel(self._shimmer_after)
+            except tk.TclError:
+                pass
+            self._shimmer_after = None
+
+    def _shimmer_phase_for(self, index):
+        run = self._shimmer_runs.get(index)
+        if run is None or not self.animate or not self._shimmer_ready():
+            return None
+        elapsed = max(0.0, min(1.0, time.monotonic() - run[0]))
+        return 0.15 + 0.60 * elapsed
+
+    def _shimmer_tick(self):
+        self._shimmer_after = None
+        if not self.winfo_ismapped() or not self.animate or not self._shimmer_ready():
+            self._stop_shimmer()
+            return
+        now = time.monotonic()
+        for index, (started, pending) in list(self._shimmer_runs.items()):
+            if now - started >= 1.0:
+                if pending:
+                    self._shimmer_runs[index] = [now, False]
+                else:
+                    del self._shimmer_runs[index]
+        self._paint_shimmer()
+        self._start_shimmer()
+
+
+class Chip(BarShimmer, tk.Canvas):
     """One progress pill: proportional fill and an independent text overlay."""
     animate = True
 
@@ -1452,10 +1562,12 @@ class Chip(tk.Canvas):
         self.text, self.fill, self.fg, self.percent = '—', CHIP_STALE, CHIP_FG, 0.0
         self._photo = None
         self._seeded = False
+        self._usage_snapshot = None
         self._anim_after = None
         self._anim_from = self._anim_to = self._anim_t0 = None
         self._anim_ms = BAR_ANIM_MAX_MS
         self.bind('<Destroy>', self._cancel_anim)
+        self._init_shimmer()
         self._redraw()
 
     def set_metrics(self, metrics):
@@ -1479,18 +1591,26 @@ class Chip(tk.Canvas):
         if percent is not None:
             value = chip_fill_width(100, percent)
             do_anim = self.animate if animate is None else animate
-            if do_anim and self._seeded and should_tween(self.percent, value):
-                self._anim_from = self.percent
-                self._anim_to = value
-                self._anim_ms = bar_anim_ms((self.percent, value))
-                self._anim_t0 = time.monotonic()
-                self._arm_anim()
+            if do_anim and self._anim_t0 is not None and value == self._anim_to:
+                pass
             else:
-                self._cancel_anim()
-                if value != self.percent:
-                    self.percent = value
+                now = time.monotonic()
+                if do_anim and self._anim_t0 is not None:
+                    t = (now - self._anim_t0) / (max(1, self._anim_ms) / 1000.0)
+                    self.percent = lerp(self._anim_from, self._anim_to, ease_out_cubic(t))
                     changed = True
-                self._seeded = True
+                if do_anim and self._seeded and should_tween(self.percent, value):
+                    self._anim_from = self.percent
+                    self._anim_to = value
+                    self._anim_ms = bar_anim_ms((self.percent, value))
+                    self._anim_t0 = now
+                    self._arm_anim()
+                else:
+                    self._cancel_anim()
+                    if value != self.percent:
+                        self.percent = value
+                        changed = True
+                    self._seeded = True
         self.fg = CHIP_FG
         if kwargs:
             super().configure(**kwargs)
@@ -1523,7 +1643,7 @@ class Chip(tk.Canvas):
         self.percent = self._anim_to if t >= 1 else lerp(self._anim_from, self._anim_to, ease_out_cubic(t))
         try:
             if self.winfo_exists():
-                self._redraw()
+                self._paint_shimmer()
         except tk.TclError:
             return
         if t < 1:
@@ -1531,17 +1651,37 @@ class Chip(tk.Canvas):
         else:
             self._anim_from = self._anim_to = self._anim_t0 = None
 
+    def observe_usage(self, snap):
+        comparable, consumed = usage_changes(self._usage_snapshot, snap)
+        self._usage_snapshot = snap
+        self._retain_shimmer({0} if comparable and len(comparable) == len(snap.bars) else set())
+        if consumed:
+            self._trigger_shimmer({0})
+        self._paint_shimmer()
+
+    def _shimmer_ready(self):
+        return self.fill != CHIP_STALE and self.percent > 0
+
+    def _paint_shimmer(self):
+        width, height = self.metrics.chip_w, self.metrics.chip_h
+        self.fill_width = chip_fill_width(width, self.percent)
+        self._photo = progress_photo(width, height, height / 2, self.fill_width,
+                                     CHIP_TRACK, self.fill, BG,
+                                     shimmer=self._shimmer_phase_for(0))
+        self.itemconfigure('track', image=self._photo)
+
     def _redraw(self):
         self.delete('all')
         width, height = self.metrics.chip_w, self.metrics.chip_h
         self.fill_width = chip_fill_width(width,self.percent)
         # Fill is clipped to the track so the leading cap cannot bulge outside.
-        self._photo = progress_photo(width, height, height / 2, self.fill_width, CHIP_TRACK, self.fill, BG)
+        self._photo = progress_photo(width, height, height / 2, self.fill_width, CHIP_TRACK, self.fill, BG,
+                                     shimmer=self._shimmer_phase_for(0))
         self.create_image(0, 0, image=self._photo, anchor='nw', tags='track')
         self.create_text(width/2,height/2,text=self.text,fill=CHIP_FG,font=self.metrics.font(FONT_CHIP),tags='label')
 
 
-class Card(tk.Frame):
+class Card(BarShimmer, tk.Frame):
     """Explicit pixel layout matching the supplied 334px-wide card references."""
     animate = True
 
@@ -1561,6 +1701,7 @@ class Card(tk.Frame):
         self.rows.pack()
         self.rows.bind('<Button-1>',lambda e:webbrowser.open(URLS[key]))
         self.bind('<Destroy>', self._cancel_anim)
+        self._init_shimmer()
 
     def set_metrics(self, metrics):
         if self.metrics.scale != metrics.scale:
@@ -1574,25 +1715,35 @@ class Card(tk.Frame):
         if signature == self.last_signature:
             return
         self.last_signature = signature
+        comparable, consumed = usage_changes(self._snap, snap)
+        self._retain_shimmer(comparable)
         self._snap = snap
         bars = list(snap.bars) if snap.ok else []
         targets = [bar_display_percent(bar.remaining_percent) for bar in bars]
+        now = time.monotonic()
+        same_target = self.animate and snap.ok and self._anim_t0 is not None and targets == self._anim_to
+        if self.animate and snap.ok and self._anim_t0 is not None and not same_target:
+            t = (now - self._anim_t0) / (max(1, self._anim_ms) / 1000.0)
+            self._shown_pcts = [lerp(a, b, ease_out_cubic(t)) for a, b in zip(self._anim_from, self._anim_to)]
         shown = self._shown_pcts
         animate = (
             self.animate and snap.ok and shown
             and len(shown) == len(targets)
             and any(should_tween(a, b) for a, b in zip(shown, targets))
         )
-        if animate:
+        if same_target:
+            pass
+        elif animate:
             self._anim_from = list(shown)
             self._anim_to = targets
             self._anim_ms = bar_anim_ms(*zip(shown, targets))
-            self._anim_t0 = time.monotonic()
+            self._anim_t0 = now
             self._arm_anim()
         else:
             self._cancel_anim()
             self._shown_pcts = targets
         self._paint(snap, self._shown_pcts)
+        self._trigger_shimmer(consumed)
 
     def _arm_anim(self):
         if self._anim_after is not None:
@@ -1629,9 +1780,25 @@ class Card(tk.Frame):
         if self._snap is not None:
             try:
                 if self.winfo_exists():
-                    self._paint(self._snap, self._shown_pcts)
+                    self._paint_shimmer()
             except tk.TclError:
                 return
+
+    def _shimmer_ready(self):
+        return (self._snap is not None and self._snap.ok and not self._snap.stale
+                and any(percent > 0 for percent in self._shown_pcts))
+
+    def _paint_shimmer(self):
+        if not self._bar_photos or self._snap is None:
+            return
+        m = self.metrics
+        track_w = m.card_w - m.p(36)
+        for index, shown in enumerate(self._shown_pcts):
+            photo = progress_photo(track_w, m.bar_h, 4 * m.scale, chip_fill_width(track_w, shown),
+                                   TRACK, bar_color(self.key, shown, self._snap.stale), CARD,
+                                   shimmer=self._shimmer_phase_for(index))
+            self.rows.itemconfigure('bar_' + str(index), image=photo)
+            self._bar_photos[index + 1] = photo
 
     def _paint(self,snap,percents):
         m = self.metrics
@@ -1661,7 +1828,8 @@ class Card(tk.Frame):
             shown = percents[index] if index < len(percents) else bar_display_percent(bar.remaining_percent)
             fill_w = chip_fill_width(track_w, shown)
             photos.append(progress_photo(track_w, m.bar_h, 4 * m.scale, fill_w, TRACK,
-                                         bar_color(self.key, shown, snap.stale), CARD))
+                                         bar_color(self.key, shown, snap.stale), CARD,
+                                         shimmer=self._shimmer_phase_for(index)))
         c = self.rows
         c.configure(width=m.card_w,height=self.height)
         self.configure(width=m.card_w,height=self.height)
@@ -1691,7 +1859,8 @@ class Card(tk.Frame):
             baseline_text(c,m.p(20),y,bar.label,m.font(FONT_ROW),MUTED)
             value = '—' if bar.remaining_percent is None else f'{bar.remaining_percent:.0f}%'
             baseline_text(c,m.card_w-m.p(16),y,value,m.font(FONT_VALUE),TEXT,right=True)
-            c.create_image(m.p(20), y+m.p(10), image=photos[index+1], anchor='nw')
+            c.create_image(m.p(20), y+m.p(10), image=photos[index+1], anchor='nw',
+                           tags='bar_' + str(index))
             if reset:
                 baseline_text(c,m.p(20),y+m.p(35),reset,m.font(FONT_META),DIM)
         self._bar_photos = [photos[0][0], *photos[1:]]
@@ -2525,6 +2694,7 @@ class UsageWidget:
         fill, fg = chip_style(key, snap)
         pct = 0 if snap.hero_percent is None else snap.hero_percent
         self.mini_values[key].configure(text=f'{TITLES[key]} {value}', fg=fg, bg=fill, percent=pct)
+        self.mini_values[key].observe_usage(snap)
 
     def set_footer(self, text, fg, dot):
         snaps = [self.snapshots[k] for k in FETCHERS if self.enabled[k].get() and k in self.snapshots]
