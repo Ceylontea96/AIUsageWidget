@@ -92,7 +92,7 @@ class UiTests(unittest.TestCase):
         card.render(ProviderSnapshot('chatgpt','Codex','Plus',True,80,'',bars=[QuotaBar('5시간',80,20,'','')]))
         self.assertLess(card._shown_pcts[0],80)
         self.assertGreaterEqual(card._shown_pcts[0],50)
-        self.assertLessEqual(card._anim_ms, u.BAR_ANIM_MAX_MS)
+        self.assertEqual(u.BAR_ANIM_SPEED, 8.0)
         u.Card.animate=False
         card.render(ProviderSnapshot('chatgpt','Codex','Plus',True,20,'',bars=[QuotaBar('5시간',20,80,'','')]))
         self.assertEqual(card._shown_pcts,[20])

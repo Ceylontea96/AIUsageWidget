@@ -1,4 +1,4 @@
-"""Small, read-only quota monitor. All Tk calls stay on the main thread."""
+﻿"""Small, read-only quota monitor. All Tk calls stay on the main thread."""
 from __future__ import annotations
 
 import ctypes
@@ -84,14 +84,14 @@ def instance_path():
 
 # Variant A: pixel dimensions from the supplied tokens.json.
 TOKENS = {'width': 360,
- 'radius': {'window': 12, 'card': 12, 'pill': 999, 'bar': 4},
+ 'radius': {'window': 12, 'card': 12, 'pill': 999, 'bar': 5},
  'strip': {'width': 3, 'inset_top': 12, 'inset_bottom': 12},
  'header_h': 40,
  'compact_h': 44,
  'footer_h': 28,
  'gap': {'cards': 10, 'rows': 12, 'label_bar': 6, 'window_pad_x': 12, 'window_pad_y': 10},
  'card': {'pad_x': 16, 'pad_y': 14, 'hairline': 1},
- 'bar': {'height': 8, 'track_radius': 4},
+ 'bar': {'height': 10, 'track_radius': 5},
  'chip': {'height': 24,
           'radius': 999,
           'pad_x': 10,
@@ -448,8 +448,8 @@ def chip_fill_width(total, percent):
     return max(0.0, min(float(total), float(total) * max(0.0, min(100.0, value)) / 100.0))
 
 
-BAR_ANIM_MIN_MS = 1000
-BAR_ANIM_MAX_MS = 3000
+BAR_ANIM_SPEED = 8.0
+BAR_ANIM_SNAP = 0.01  # Percentage points.
 BAR_ANIM_STEP = 16
 SHIMMER_GROW_S = 0.6
 SHIMMER_HOLD_S = 4.4
@@ -472,22 +472,11 @@ def should_tween(shown, target):
     return abs(bar_display_percent(target) - bar_display_percent(shown)) > 1e-9
 
 
-def bar_anim_ms(*pairs):
-    delta = 0.0
-    for shown, target in pairs:
-        delta = max(delta, abs(bar_display_percent(target) - bar_display_percent(shown)))
-    if delta <= 1e-9:
-        return 0
-    return min(BAR_ANIM_MAX_MS, max(BAR_ANIM_MIN_MS, int(delta / 100.0 * BAR_ANIM_MAX_MS)))
-
-
-def ease_out_cubic(t):
-    t = max(0.0, min(1.0, float(t)))
-    return 1.0 - (1.0 - t) ** 3
-
-
-def lerp(start, end, t):
-    return start + (end - start) * t
+def follow_bar(current, target, dt):
+    """Frame-rate-independent exponential following, in percentage points."""
+    alpha = -math.expm1(-BAR_ANIM_SPEED * max(0.0, dt))
+    value = current + (target - current) * alpha
+    return target if abs(target - value) <= BAR_ANIM_SNAP else value
 
 
 def shimmer_emphasis(elapsed):
@@ -1645,8 +1634,7 @@ class Chip(BarShimmer, tk.Canvas):
         self._seeded = False
         self._usage_snapshot = None
         self._anim_after = None
-        self._anim_from = self._anim_to = self._anim_t0 = None
-        self._anim_ms = BAR_ANIM_MAX_MS
+        self._anim_to = self._anim_t0 = None
         self.bind('<Destroy>', self._cancel_anim)
         self._init_shimmer()
         self._redraw()
@@ -1672,26 +1660,17 @@ class Chip(BarShimmer, tk.Canvas):
         if percent is not None:
             value = chip_fill_width(100, percent)
             do_anim = self.animate if animate is None else animate
-            if do_anim and self._anim_t0 is not None and value == self._anim_to:
-                pass
+            if do_anim and self._seeded:
+                self._anim_to = value
+                if self._anim_t0 is None:
+                    self._anim_t0 = time.monotonic()
+                self._arm_anim()
             else:
-                now = time.monotonic()
-                if do_anim and self._anim_t0 is not None:
-                    t = (now - self._anim_t0) / (max(1, self._anim_ms) / 1000.0)
-                    self.percent = lerp(self._anim_from, self._anim_to, ease_out_cubic(t))
+                self._cancel_anim()
+                if value != self.percent:
+                    self.percent = value
                     changed = True
-                if do_anim and self._seeded and should_tween(self.percent, value):
-                    self._anim_from = self.percent
-                    self._anim_to = value
-                    self._anim_ms = bar_anim_ms((self.percent, value))
-                    self._anim_t0 = now
-                    self._arm_anim()
-                else:
-                    self._cancel_anim()
-                    if value != self.percent:
-                        self.percent = value
-                        changed = True
-                    self._seeded = True
+                self._seeded = True
         self.fg = CHIP_FG
         if kwargs:
             super().configure(**kwargs)
@@ -1709,7 +1688,7 @@ class Chip(BarShimmer, tk.Canvas):
     def _cancel_anim(self, event=None):
         aid = self._anim_after
         self._anim_after = None
-        self._anim_from = self._anim_to = self._anim_t0 = None
+        self._anim_to = self._anim_t0 = None
         if aid is not None:
             try:
                 self.after_cancel(aid)
@@ -1718,19 +1697,20 @@ class Chip(BarShimmer, tk.Canvas):
 
     def _anim_tick(self):
         self._anim_after = None
-        if self._anim_from is None or self._anim_to is None or self._anim_t0 is None:
+        if self._anim_to is None or self._anim_t0 is None:
             return
-        t = (time.monotonic() - self._anim_t0) / (max(1, self._anim_ms) / 1000.0)
-        self.percent = self._anim_to if t >= 1 else lerp(self._anim_from, self._anim_to, ease_out_cubic(t))
+        now = time.monotonic()
+        self.percent = follow_bar(self.percent, self._anim_to, now - self._anim_t0)
+        self._anim_t0 = now
         try:
             if self.winfo_exists():
                 self._paint_shimmer()
         except tk.TclError:
             return
-        if t < 1:
+        if self.percent != self._anim_to:
             self._arm_anim()
         else:
-            self._anim_from = self._anim_to = self._anim_t0 = None
+            self._anim_to = self._anim_t0 = None
 
     def observe_usage(self, snap):
         comparable, consumed = usage_changes(self._usage_snapshot, snap)
@@ -1775,9 +1755,8 @@ class Card(BarShimmer, tk.Frame):
         self._bar_photos = []
         self._bar_origins = []
         self._shown_pcts = []
-        self._anim_from = self._anim_to = []
+        self._anim_to = []
         self._anim_t0 = None
-        self._anim_ms = BAR_ANIM_MAX_MS
         self._anim_after = None
         self._snap = None
         self.rows = tk.Canvas(self,width=m.card_w,height=self.height,bg=BG,bd=0,highlightthickness=0,cursor='hand2')
@@ -1804,24 +1783,10 @@ class Card(BarShimmer, tk.Frame):
         self._snap = snap
         bars = list(snap.bars) if snap.ok else []
         targets = [bar_display_percent(bar.remaining_percent) for bar in bars]
-        now = time.monotonic()
-        same_target = self.animate and snap.ok and self._anim_t0 is not None and targets == self._anim_to
-        if self.animate and snap.ok and self._anim_t0 is not None and not same_target:
-            t = (now - self._anim_t0) / (max(1, self._anim_ms) / 1000.0)
-            self._shown_pcts = [lerp(a, b, ease_out_cubic(t)) for a, b in zip(self._anim_from, self._anim_to)]
-        shown = self._shown_pcts
-        animate = (
-            self.animate and snap.ok and shown
-            and len(shown) == len(targets)
-            and any(should_tween(a, b) for a, b in zip(shown, targets))
-        )
-        if same_target:
-            pass
-        elif animate:
-            self._anim_from = list(shown)
+        if self.animate and snap.ok and self._shown_pcts and len(self._shown_pcts) == len(targets):
             self._anim_to = targets
-            self._anim_ms = bar_anim_ms(*zip(shown, targets))
-            self._anim_t0 = now
+            if self._anim_t0 is None:
+                self._anim_t0 = time.monotonic()
             self._arm_anim()
         else:
             self._cancel_anim()
@@ -1840,7 +1805,7 @@ class Card(BarShimmer, tk.Frame):
     def _cancel_anim(self, event=None):
         aid = self._anim_after
         self._anim_after = None
-        self._anim_from = self._anim_to = []
+        self._anim_to = []
         self._anim_t0 = None
         if aid is not None:
             try:
@@ -1850,16 +1815,16 @@ class Card(BarShimmer, tk.Frame):
 
     def _anim_tick(self):
         self._anim_after = None
-        if not self._anim_from or not self._anim_to or self._anim_t0 is None:
+        if not self._anim_to or self._anim_t0 is None:
             return
-        t = (time.monotonic() - self._anim_t0) / (max(1, self._anim_ms) / 1000.0)
-        if t >= 1:
-            self._shown_pcts = list(self._anim_to)
-            self._anim_from = self._anim_to = []
+        now = time.monotonic()
+        dt = now - self._anim_t0
+        self._anim_t0 = now
+        self._shown_pcts = [follow_bar(a, b, dt) for a, b in zip(self._shown_pcts, self._anim_to)]
+        if self._shown_pcts == self._anim_to:
+            self._anim_to = []
             self._anim_t0 = None
         else:
-            e = ease_out_cubic(t)
-            self._shown_pcts = [lerp(a, b, e) for a, b in zip(self._anim_from, self._anim_to)]
             self._arm_anim()
         if self._snap is not None:
             try:

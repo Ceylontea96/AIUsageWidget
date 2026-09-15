@@ -264,8 +264,8 @@ class ShimmerUiTests(unittest.TestCase):
         with patch.object(u.time, 'monotonic', return_value=10.3):
             card.render(replace(snapshot(59.9), footer='metadata changed'))
             chip.configure(percent=59.9)
-        self.assertEqual(card._anim_t0, 10)
-        self.assertEqual(chip._anim_t0, 10)
+        self.assertEqual(card._anim_t0, 10.25)
+        self.assertEqual(chip._anim_t0, 10.25)
         self.assertGreater(card._shown_pcts[0], 59.9)
         self.assertGreater(chip.percent, 59.9)
 
@@ -277,16 +277,24 @@ class ShimmerUiTests(unittest.TestCase):
             card.render(snapshot(40))
             chip.configure(percent=80)
             chip.configure(percent=40)
-        expected = u.lerp(80, 40, u.ease_out_cubic(0.2 / (card._anim_ms / 1000)))
-        with patch.object(u.time, 'monotonic', return_value=10.2):
-            card.render(snapshot(90))
-            chip.configure(percent=90)
-        self.assertAlmostEqual(card._anim_from[0], expected)
-        self.assertAlmostEqual(chip._anim_from, expected)
+        for control in (card, chip):
+            self.advance_length(control, 10.2)
+        expected = card._shown_pcts[0]
+        timer_ids = (card._anim_after, chip._anim_after)
+        with patch.object(u.time, 'monotonic', return_value=10.3), patch.object(card, 'after_cancel', side_effect=AssertionError('restart')), patch.object(chip, 'after_cancel', side_effect=AssertionError('restart')):
+            for target in (52, 51, 90):
+                card.render(snapshot(target))
+                chip.configure(percent=target)
+        self.assertEqual((card._anim_after, chip._anim_after), timer_ids)
+        self.assertAlmostEqual(card._shown_pcts[0], expected)
+        self.assertAlmostEqual(chip.percent, expected)
+        self.assertEqual(card._anim_t0, 10.2)
+        self.assertEqual(chip._anim_t0, 10.2)
         for control in (card, chip):
             self.advance_length(control, 10.4)
         self.assertGreater(card._shown_pcts[0], expected)
         self.assertGreater(chip.percent, expected)
+
 
 
 if __name__ == '__main__':
