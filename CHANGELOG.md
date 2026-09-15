@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [3.2.25] - 2026-09-15
+
+### Added
+- Cursor Agent transcript 활동으로 FAST 조회·바 굵기·shimmer를 시작하고, 마지막 활동 12초 후 일반 모드로 복귀
+
+### Changed
+- GPT 원형 라벨을 `5시간 창 · 남음`에서 `5시간 한도 · 남음`으로 바꿔 주간 한도와 표현을 맞춤
+
 ## [3.2.24] - 2026-09-15
 
 ### Changed
@@ -226,7 +234,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.24...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.25...HEAD
+[3.2.25]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.25
 [3.2.24]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.24
 [3.2.23]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.23
 [3.2.22]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.22

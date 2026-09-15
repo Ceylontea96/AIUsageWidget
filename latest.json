@@ -1,1 +1,1 @@
-{"version":"3.2.24","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"Refined v2 디자인 적용: 380px 창, 원형 잔여량, 상태 배지, 리셋 카운트다운, 서비스별 색상 / GPT 5시간 잔여량은 원형, 주간 한도는 보조 바로 표시; 기존 리셋권·크레딧 유지 / Cursor 보조 바도 잔여량으로 표시하고 보너스 사용액을 별도 강조"}
+{"version":"3.2.25","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"Cursor Agent transcript 활동으로 FAST 조회·바 굵기·shimmer를 시작하고, 마지막 활동 12초 후 일반 모드로 복귀 / GPT 원형 라벨을 `5시간 창 · 남음`에서 `5시간 한도 · 남음`으로 바꿔 주간 한도와 표현을 맞춤"}

@@ -26,6 +26,7 @@ from tkinter import messagebox, font as tkfont
 
 from providers import error_snapshot, snapshot_from_dict, snapshot_to_dict
 from codex_activity import CodexActivityMonitor, FAST_INTERVAL, LOG
+from cursor_activity import CursorActivityMonitor
 from runtime import AlertGate, AuthWatcher, PollRunner, ToastSender, limiting_quota, login_present, login_status, prepare_action, session_locked, start_tool_setup
 from updater import APP_VERSION, CHECK_EVERY, LAUNCHER_EXE, download_and_stage, fetch_latest, load_feed_url, start_apply, update_confirm_text
 
@@ -2038,7 +2039,7 @@ class Card(BarShimmer, tk.Frame):
             c.create_rectangle(0,0,m.card_w,m.p(2),fill=state,outline='',tags='strip')
         c.create_image(m.p(16),m.p(54),anchor='nw',tags='ring')
         c.create_text(m.p(58),m.p(96),text='',font=m.font(FONT_HERO),tags='hero')
-        text(114,64,'5시간 창 · 남음' if self.key=='chatgpt' else '월간 크레딧 · 남음',FONT_SERVICE)
+        text(114,64,'5시간 한도 · 남음' if self.key=='chatgpt' else '월간 크레딧 · 남음',FONT_SERVICE)
         text(114,88,'다음 리셋',FONT_META,MUTED)
         text(172,85,'', (FACE_SEMI,-15),TEXT,tags='countdown')
         text(114,112,reset_stamp(reset) if self.key=='chatgpt' else dated_reset_stamp(reset),FONT_META,DIM)
@@ -2112,6 +2113,7 @@ class UsageWidget:
         self.runner = PollRunner()
         self.watcher = AuthWatcher()
         self.codex_activity = CodexActivityMonitor()
+        self.cursor_activity = CursorActivityMonitor()
         self.codex_last_request = float('-inf')
         self.request_started = dict.fromkeys(FETCHERS, float('-inf'))
         self._ui_active = dict.fromkeys(FETCHERS, False)
@@ -2903,8 +2905,9 @@ class UsageWidget:
             self._schedule_poll(key, snap, now, active=fast)
             LOG.debug('[Usage] quota raw/display remaining: %s', [(bar.label, bar.used_percent, bar.remaining_percent, round(bar.remaining_percent) if bar.remaining_percent is not None else None) for bar in snap.bars])
         else:
-            active = bool(snap.ok) and until.get(key, 0) > now and not self.failures[key]
-            self._schedule_poll(key, snap, now, active=active)
+            monitor = getattr(self, 'cursor_activity', None)
+            fast = ((monitor is not None and monitor.fast(now)) or until.get(key, 0) > now) and not self.failures[key]
+            self._schedule_poll(key, snap, now, active=fast)
         self.render(key)
         self._sync_activity_ui(now)
         if not self.preview:
@@ -2942,7 +2945,8 @@ class UsageWidget:
                       and getattr(self, 'codex_activity', None) is not None
                       and self.codex_activity.fast(now))
         cursor_active = (self.enabled['cursor'].get()
-                         and getattr(self, 'usage_until', {}).get('cursor', 0) > now)
+                         and ((getattr(self, 'cursor_activity', None) is not None and self.cursor_activity.fast(now))
+                              or getattr(self, 'usage_until', {}).get('cursor', 0) > now))
         states = {'chatgpt': gpt_active, 'cursor': cursor_active}
         ui_active = getattr(self, '_ui_active', None)
         if ui_active is None:
@@ -3035,7 +3039,9 @@ class UsageWidget:
         self.environment(now)
         if not self.preview:
             was_fast = self.codex_activity.was_fast
+            was_cursor = self.cursor_activity.was_fast
             activity, quota_event = self.codex_activity.poll(now)
+            cursor_hit = self.cursor_activity.poll(now) if self.enabled['cursor'].get() else False
             if not self.locked and self.enabled['chatgpt'].get():
                 fast = self.codex_activity.fast(now)
                 if (activity or quota_event) and not self.failures['chatgpt']:
@@ -3043,6 +3049,13 @@ class UsageWidget:
                     self.due['chatgpt'] = min(self.due['chatgpt'], next_fast_due(started, now))
                 if was_fast and not fast and not self.failures['chatgpt']:
                     self.due['chatgpt'] = now + next_interval(self.snapshots.get('chatgpt'), active=False)
+            if not self.locked and self.enabled['cursor'].get() and not self.failures['cursor']:
+                cursor_fast = self.cursor_activity.fast(now) or getattr(self, 'usage_until', {}).get('cursor', 0) > now
+                if cursor_hit or cursor_fast:
+                    started = self.request_started.get('cursor', float('-inf'))
+                    self.due['cursor'] = min(self.due['cursor'], next_fast_due(started, now))
+                if was_cursor and not self.cursor_activity.fast(now) and getattr(self, 'usage_until', {}).get('cursor', 0) <= now:
+                    self.due['cursor'] = now + next_interval(self.snapshots.get('cursor'), active=False)
             self._sync_activity_ui(now)
         for key, snap, error in self.runner.poll(now):
             if not self.locked and self.enabled[key].get():
@@ -3081,6 +3094,8 @@ class UsageWidget:
             self.set_footer('자동 감지', MUTED, CODEX)
         heat = any(until > now for until in getattr(self, 'usage_until', {}).values())
         if getattr(self, 'codex_activity', None) is not None and self.codex_activity.fast(now):
+            heat = True
+        if getattr(self, 'cursor_activity', None) is not None and self.cursor_activity.fast(now):
             heat = True
         self.timer = self.root.after(200 if active or heat else 1000, self.tick)
 

@@ -62,7 +62,7 @@ if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -F
 New-Item -ItemType Directory -Path (Join-Path $stage 'assets\icons') -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $stage 'assets\fonts') -Force | Out-Null
 $copy = @(
-    'usage_widget.py', 'providers.py', 'runtime.py', 'codex_activity.py', 'poll_worker.py', 'updater.py',
+    'usage_widget.py', 'providers.py', 'runtime.py', 'codex_activity.py', 'cursor_activity.py', 'poll_worker.py', 'updater.py',
     'setup_and_run.ps1', 'setup_login.ps1', 'create_shortcut.ps1',
     'start_usage_widget.vbs', 'start_usage_widget.bat',
     'toast.ps1', 'register_notifications.ps1', 'feed_url.txt', 'CHANGELOG.md', 'LICENSE', 'CODEX_ACTIVITY.md'

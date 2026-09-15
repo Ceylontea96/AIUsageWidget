@@ -27,6 +27,7 @@ class RefinedTests(unittest.TestCase):
             snap=ProviderSnapshot('chatgpt','GPT','Plus',True,4,'',bars=[QuotaBar('5시간',91,9,''),QuotaBar('주간',4,96,'')])
             card.render(snap)
             self.assertEqual(card.rows.itemcget('hero','text'),'91%')
+            self.assertIn('5시간 한도 · 남음',[card.rows.itemcget(i,'text') for i in card.rows.find_all() if card.rows.type(i)=='text'])
             self.assertEqual(card.rows.itemcget('severity','text'),'곧 한도')
             self.assertFalse(card.rows.find_withtag('bar_0'))
             self.assertTrue(card.rows.find_withtag('bar_1'))

@@ -207,6 +207,18 @@ class WidgetTests(unittest.TestCase):
         self.assertGreater(w.usage_until['cursor'], time.monotonic())
         self.assertAlmostEqual(w.due['cursor'], started + 2, delta=0.1)
 
+    def test_cursor_transcript_fast_without_usage_change(self):
+        snap = replace(codex(), key='cursor')
+        w=u.UsageWidget.__new__(u.UsageWidget)
+        w.failures={'cursor':0};w.snapshots={};w.due={};w.usage_until={};w.preview=True;w.render=lambda k:None
+        w.request_started={'cursor':100.0}
+        w.cursor_activity=u.CursorActivityMonitor()
+        w.cursor_activity.last_activity_time=100.0
+        with patch.object(time,'monotonic',return_value=100.5):
+            w.accept('cursor', snap)
+        self.assertEqual(w.due['cursor'], 102.0)
+        self.assertLessEqual(w.usage_until.get('cursor', 0), 100.5)
+
     def test_fast_poll_is_start_to_start_and_skips_running_worker(self):
         snap = codex()
         w=u.UsageWidget.__new__(u.UsageWidget)
@@ -254,6 +266,29 @@ class WidgetTests(unittest.TestCase):
         gpt_card.set_activity.assert_called_with(False)
         self.assertTrue(any('GPT bar NORMAL' in line for line in logged.output))
         self.assertTrue(any('GPT shimmer STOP' in line for line in logged.output))
+
+    def test_activity_ui_follows_cursor_fast_state(self):
+        w=u.UsageWidget.__new__(u.UsageWidget)
+        w.preview=False
+        w.enabled={'chatgpt': Mock(get=lambda: False), 'cursor': Mock(get=lambda: True)}
+        card, chip = Mock(), Mock()
+        w.cards={'chatgpt': Mock(), 'cursor': card}
+        w.mini_values={'chatgpt': Mock(), 'cursor': chip}
+        w.codex_activity=u.CodexActivityMonitor()
+        w.cursor_activity=u.CursorActivityMonitor()
+        w.cursor_activity.last_activity_time=time.monotonic()
+        w.usage_until={}
+        w._ui_active={}
+        with self.assertLogs('ai_usage.activity', level='DEBUG') as logged:
+            w._sync_activity_ui()
+        card.set_activity.assert_called_with(True)
+        chip.set_activity.assert_called_with(True)
+        self.assertTrue(any('Cursor bar ACTIVE' in line for line in logged.output))
+        w.cursor_activity.last_activity_time=float('-inf')
+        with self.assertLogs('ai_usage.activity', level='DEBUG') as logged:
+            w._sync_activity_ui()
+        card.set_activity.assert_called_with(False)
+        self.assertTrue(any('Cursor bar NORMAL' in line for line in logged.output))
 
     def test_install_root_round_trip(self):
         with tempfile.TemporaryDirectory() as directory:

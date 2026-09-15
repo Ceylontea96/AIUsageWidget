@@ -13,7 +13,9 @@ Token activity detects Codex use; the rate-limit API supplies plan quota. There 
 
 `CodexActivityMonitor` checks local session append data at most once per second. A fresh cumulative token increase or `task_complete` enters FAST mode. Repeated identical token totals do not prolong it. FAST requests wait until two seconds after the previous request start, with one worker per provider. A slow response does not queue a second worker; the next start happens at max(now, start + 2s).
 
-After 12 seconds without activity, NORMAL resumes: existing 20/30-second scheduling, 300 seconds for exhausted quota, and existing error backoff. Quota changes never extend GPT FAST mode. A new rate-limit event can independently request a refresh without entering FAST mode. Cursor usage drops still enter a 60-second FAST window, but polling is also 2 seconds start-to-start instead of immediate.
+After 12 seconds without activity, NORMAL resumes: existing 20/30-second scheduling, 300 seconds for exhausted quota, and existing error backoff. Quota changes never extend GPT FAST mode. A new rate-limit event can independently request a refresh without entering FAST mode.
+
+Cursor FAST follows the same 2-second start-to-start rule. Local Agent JSONL appends under `%USERPROFILE%\\.cursor\\projects\\*\\agent-transcripts` (including `subagents\\`) enter FAST immediately. `turn_ended` is logged but does not drop ACTIVE until 12 seconds of silence, so a quiet main transcript cannot hide a busy subagent. If transcripts are missing, Cursor still uses the previous usage-drop 60-second FAST window as fallback.
 
 The first scan seeds existing files without triggering effects. Discovery covers today/yesterday and up to 64 recently modified tracked sessions, with reads limited to 64 KiB per file per scan. Older untracked sessions and remote/cloud sessions are not guaranteed to be detected; periodic quota polling remains the fallback. Malformed JSON, partial writes, truncated files, and inaccessible files do not interrupt quota polling. Only event metadata and token totals are retained, never conversation text.
 
