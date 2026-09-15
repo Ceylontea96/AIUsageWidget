@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import ctypes
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 import math
 import os
 import queue
@@ -21,6 +23,7 @@ from pathlib import Path
 from tkinter import messagebox, font as tkfont
 
 from providers import error_snapshot, snapshot_from_dict, snapshot_to_dict
+from codex_activity import CodexActivityMonitor, FAST_INTERVAL, LOG
 from runtime import AlertGate, AuthWatcher, PollRunner, ToastSender, limiting_quota, login_present, login_status, prepare_action, session_locked, start_tool_setup
 from updater import APP_VERSION, CHECK_EVERY, LAUNCHER_EXE, download_and_stage, fetch_latest, load_feed_url, start_apply, update_confirm_text
 
@@ -30,7 +33,46 @@ CACHE_PATH = APP_DIR / 'last_snapshot.json'
 ALERT_PATH = APP_DIR / 'alerts.json'
 INSTALL_PATH = APP_DIR / 'install.json'
 ICON_DIR = Path(__file__).resolve().parent / 'assets' / 'icons'
+FONT_DIR = Path(__file__).resolve().parent / 'assets' / 'fonts'
 SHORTCUT_NAME = 'AI Usage.lnk'
+_FONTS_REGISTERED = None
+PRETENDARD_FILES = (
+    'Pretendard-Regular.ttf',
+    'Pretendard-Medium.ttf',
+    'Pretendard-SemiBold.ttf',
+)
+
+
+def register_bundled_fonts():
+    """Load Pretendard for this process only. Returns True if UI can use it."""
+    global _FONTS_REGISTERED
+    if _FONTS_REGISTERED is not None:
+        return _FONTS_REGISTERED
+    _FONTS_REGISTERED = False
+    if sys.platform != 'win32':
+        return False
+    try:
+        add = ctypes.windll.gdi32.AddFontResourceExW
+    except AttributeError:
+        return False
+    add.argtypes = [ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_void_p]
+    add.restype = ctypes.c_int
+    loaded = 0
+    for name in PRETENDARD_FILES:
+        path = FONT_DIR / name
+        try:
+            if path.is_file() and add(str(path), 0x10, None):
+                loaded += 1
+        except (OSError, OverflowError, TypeError, ValueError):
+            continue
+    _FONTS_REGISTERED = loaded >= 2
+    return _FONTS_REGISTERED
+
+
+def ui_faces():
+    if register_bundled_fonts():
+        return 'Pretendard', 'Pretendard Medium', 'Pretendard SemiBold'
+    return 'Malgun Gothic', 'Malgun Gothic', 'Segoe UI Semibold'
 
 
 def lock_path():
@@ -58,9 +100,9 @@ TOKENS = {'width': 360,
           'font_weight': 'semibold',
           'fg_on_fill': '#F2FFFB',
           'fg_on_fill_stale': '#8A92A6'},
- 'fonts': {'family_latin': 'Segoe UI Semibold',
-           'family_hangul': 'Malgun Gothic',
-           'css_stack': '"Segoe UI Semibold", "Malgun Gothic", "맑은 고딕", sans-serif',
+ 'fonts': {'family_latin': 'Pretendard SemiBold',
+           'family_hangul': 'Pretendard',
+           'css_stack': '"Pretendard SemiBold", "Pretendard Medium", "Pretendard", "Malgun Gothic", sans-serif',
            'size': {'title': 13,
                     'hero_num': 44,
                     'hero_sub': 12,
@@ -71,8 +113,7 @@ TOKENS = {'width': 360,
                     'pill': 11,
                     'footer': 11,
                     'chip': 12},
-           'weight_note': 'Segoe UI Semibold for latin/digits; Malgun Gothic auto-fallback for '
-                          'hangul'},
+           'weight_note': 'Bundled Pretendard for hangul and latin; Malgun Gothic / Segoe UI if files missing'},
  'color': {'bg_window': '#12141A',
            'bg_card': '#1A1D26',
            'hairline': '#262A36',
@@ -98,8 +139,8 @@ TOKENS = {'width': 360,
  'rules': {'hero_shows': 'remaining_percent',
            'bar_color_is_per_row': True,
            'stale_grays_strip_and_hero_only': True,
-           'reset_caption_only_on_codex_5h_bar': True,
-           'reset_caption_format': 'HH:MM 재설정',
+           'reset_caption_on_gpt_bars': True,
+           'reset_caption_format': {'5시간': 'HH:MM 재설정', '주간': 'M월 D일 HH:MM 재설정'},
            'compact_pill_format': '{service} {pct}%',
            'chip_fills_are_own_palette': 'do not reuse detail bar hex (#4FE0B0/#B39AF7) on chip '
                                          'fills; white text needs darker fill',
@@ -107,7 +148,7 @@ TOKENS = {'width': 360,
            'title_is_one_line': True,
            'no_badges': ['이전', '제한']},
  'labels': {'title': 'AI Usage',
-            'codex': 'Codex',
+            'codex': 'GPT',
             'cursor': 'Cursor',
             'codex_hero_sub': '5시간 기준 잔여',
             'cursor_hero_sub': '전체 잔여',
@@ -134,7 +175,7 @@ CHIP_FG, CHIP_TRACK = '#F2FFFB', '#2A3142'
 GREEN, AMBER, RED, LINE = CODEX, WARN, DANGER, HAIR
 ACCENTS = {'chatgpt': CODEX, 'cursor': CURSOR}
 CHIP_OK = {'chatgpt': CHIP_CODEX, 'cursor': CHIP_CURSOR}
-TITLES = {'chatgpt': 'Codex', 'cursor': 'Cursor'}
+TITLES = {'chatgpt': 'GPT', 'cursor': 'Cursor'}
 ICON_HINTS = {
     'refresh': '새로고침 (F5)',
     'minus': '한 줄로 접기',
@@ -149,18 +190,19 @@ WINDOW_W, HEADER_H, COMPACT_H, FOOTER_H = (TOKENS[k] for k in ('width','header_h
 BAR_H, STRIP_W, CHIP_H = TOKENS['bar']['height'], TOKENS['strip']['width'], TOKENS['chip']['height']
 CARD_W, CARD_RADIUS, CARD_GAP = WINDOW_W - 26, TOKENS['radius']['card'], TOKENS['gap']['cards']
 # Negative Tk font sizes are pixels, avoiding point/DPI-driven layout inflation.
-FONT_TITLE = ('Segoe UI Semibold', -13)
-FONT_SERVICE = ('Segoe UI Semibold', -14)
-FONT_HERO = ('Segoe UI Semibold', -44)
-FONT_SUB = ('Malgun Gothic', -12)
-FONT_PLAN = ('Segoe UI Semibold', -11)
-FONT_ROW = ('Malgun Gothic', -12)
-FONT_VALUE = ('Segoe UI Semibold', -12)
-FONT_META = ('Malgun Gothic', -11)
-FONT_CHIP = ('Segoe UI Semibold', -12)
-FONT_PILL = ('Malgun Gothic', -11, 'bold')
-FONT_FOOT = ('Malgun Gothic', -11)
-FONT_BADGE = ('Malgun Gothic', -11)
+FACE, FACE_MED, FACE_SEMI = ui_faces()
+FONT_TITLE = (FACE_SEMI, -13)
+FONT_SERVICE = (FACE_SEMI, -14)
+FONT_HERO = (FACE_SEMI, -44)
+FONT_SUB = (FACE_MED, -12)
+FONT_PLAN = (FACE_SEMI, -11)
+FONT_ROW = (FACE_MED, -12)
+FONT_VALUE = (FACE_SEMI, -12)
+FONT_META = (FACE, -11)
+FONT_CHIP = (FACE_SEMI, -12)
+FONT_PILL = (FACE_SEMI, -11)
+FONT_FOOT = (FACE, -11)
+FONT_BADGE = (FACE_MED, -11)
 SCALE_MIN, SCALE_MAX, SCALE_STEP, DEFAULT_SCALE = 0.75, 1.5, 0.15, 1.0
 
 
@@ -406,9 +448,14 @@ def chip_fill_width(total, percent):
     return max(0.0, min(float(total), float(total) * max(0.0, min(100.0, value)) / 100.0))
 
 
-BAR_ANIM_MIN_MS = 650
-BAR_ANIM_MAX_MS = 2000
+BAR_ANIM_MIN_MS = 1000
+BAR_ANIM_MAX_MS = 3000
 BAR_ANIM_STEP = 16
+SHIMMER_GROW_S = 0.6
+SHIMMER_HOLD_S = 4.4
+SHIMMER_SHRINK_S = 1.0
+SHIMMER_DURATION_S = SHIMMER_GROW_S + SHIMMER_HOLD_S + SHIMMER_SHRINK_S
+SHIMMER_GLOW = 0.65
 
 
 def bar_display_percent(value):
@@ -443,11 +490,27 @@ def lerp(start, end, t):
     return start + (end - start) * t
 
 
+def shimmer_emphasis(elapsed):
+    elapsed = max(0.0, float(elapsed))
+    if elapsed < SHIMMER_GROW_S:
+        t = elapsed / SHIMMER_GROW_S
+        return t * t * (3.0 - 2.0 * t)
+    if elapsed < SHIMMER_GROW_S + SHIMMER_HOLD_S:
+        return 1.0
+    t = min(1.0, (elapsed - SHIMMER_GROW_S - SHIMMER_HOLD_S) / SHIMMER_SHRINK_S)
+    return 1.0 - t * t * (3.0 - 2.0 * t)
+
+
 def reset_stamp(text):
     if not text:
         return ''
     found = re.search(r'(\d{1,2}:\d{2})', text)
     return f'{found.group(1)} 재설정' if found else ''
+
+
+def dated_reset_stamp(text):
+    clean = str(text or '').replace(' 초기화', '').replace(' 재설정', '').strip()
+    return f'{clean} 재설정' if clean else ''
 
 
 def cursor_reset(text):
@@ -761,6 +824,18 @@ def load_icon(name, scale):
     return tk.PhotoImage(data=path.read_bytes(), format='png') if path.is_file() else None
 
 
+def load_service_icon(key, scale):
+    name = {'chatgpt': 'service_gpt', 'cursor': 'service_cursor'}.get(key)
+    if not name:
+        return None
+    suffix = '@2x' if scale >= 1.5 else ''
+    path = ICON_DIR / f'{name}{suffix}.png'
+    try:
+        return tk.PhotoImage(data=path.read_bytes(), format='png') if path.is_file() else None
+    except (OSError, tk.TclError):
+        return None
+
+
 def round_rect(canvas, x1, y1, x2, y2, radius, fill, tags=()):
     if x2 <= x1 or y2 <= y1:
         return
@@ -820,16 +895,17 @@ def _box_downsample(rows, samples, dst_w, dst_h):
     return dst_w, dst_h, out
 
 
-def progress_bar_rgba(width, height, radius, fill_width, track, fill, background, samples=1, shimmer=None):
+def progress_bar_rgba(width, height, radius, fill_width, track, fill, background, samples=1, shimmer=None, shape_height=None):
     """Track + clipped fill as opaque RGBA rows. Fill cannot paint outside the track."""
     samples = max(1, int(samples))
     width = max(1, int(round(width)))
     height = max(1, int(round(height)))
+    shape_height = float(height) if shape_height is None else max(0.0, min(height, float(shape_height)))
     fill_width = max(0.0, min(float(width), float(fill_width)))
     if samples > 1:
         src_w, src_h, rows = progress_bar_rgba(
             width * samples, height * samples, radius * samples, fill_width * samples,
-            track, fill, background, samples=1, shimmer=shimmer)
+            track, fill, background, samples=1, shimmer=shimmer, shape_height=shape_height * samples)
         return _box_downsample(rows, samples, width, height)
     tr, tg, tb = _hex_rgb(track)
     fr, fg, fb = _hex_rgb(fill)
@@ -838,21 +914,26 @@ def progress_bar_rgba(width, height, radius, fill_width, track, fill, background
     if shimmer is not None and fill_width > 0 and 0.15 < shimmer < 0.75:
         t = (shimmer - 0.15) / 0.60
         t = t * t * (3.0 - 2.0 * t)
-        band = max(height * 2.0, fill_width * 0.30)
+        pulse = math.sin(math.pi * t) * 0.12
+        fr += (255 - fr) * pulse
+        fg += (255 - fg) * pulse
+        fb += (255 - fb) * pulse
+        colors = [(fr, fg, fb)] * width
+        band = max(height * 1.5, fill_width * 0.20)
         center = -band + (fill_width + 2.0 * band) * t
         for x in range(min(width, int(math.ceil(fill_width)))):
             weight = max(0.0, 1.0 - abs(x + 0.5 - center) / band)
-            glow = weight * weight * (3.0 - 2.0 * weight) * 0.38
+            glow = weight * weight * (3.0 - 2.0 * weight) * SHIMMER_GLOW
             colors[x] = (fr + (255 - fr) * glow, fg + (255 - fg) * glow, fb + (255 - fb) * glow)
     rows = []
     for y in range(height):
-        py = y + 0.5
+        py = y + 0.5 - (height - shape_height) / 2
         row = bytearray()
         for x in range(width):
             px = x + 0.5
             fr, fg, fb = colors[x]
-            track_a = _cover_round_rect(px, py, width, height, radius)
-            fill_a = _cover_round_rect(px, py, fill_width, height, radius) if fill_width > 0 else 0.0
+            track_a = _cover_round_rect(px, py, width, shape_height, radius)
+            fill_a = _cover_round_rect(px, py, fill_width, shape_height, radius) if fill_width > 0 else 0.0
             fill_a = min(fill_a, track_a)
             r = fr * fill_a + tr * (track_a - fill_a) + br * (1.0 - track_a)
             g = fg * fill_a + tg * (track_a - fill_a) + bg_ * (1.0 - track_a)
@@ -870,15 +951,15 @@ def _png_rgba(width, height, rows):
     return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', ihdr) + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b'')
 
 
-def progress_bar_png(width, height, radius, fill_width, track, fill, background, samples=1, shimmer=None):
+def progress_bar_png(width, height, radius, fill_width, track, fill, background, samples=1, shimmer=None, shape_height=None):
     w, h, rows = progress_bar_rgba(width, height, radius, fill_width, track, fill, background,
-                                   samples=samples, shimmer=shimmer)
+                                   samples=samples, shimmer=shimmer, shape_height=shape_height)
     return _png_rgba(w, h, rows)
 
 
-def progress_photo(width, height, radius, fill_width, track, fill, background, samples=1, shimmer=None):
+def progress_photo(width, height, radius, fill_width, track, fill, background, samples=1, shimmer=None, shape_height=None):
     return tk.PhotoImage(data=progress_bar_png(width, height, radius, fill_width, track, fill, background,
-                                               samples=samples, shimmer=shimmer), format='png')
+                                               samples=samples, shimmer=shimmer, shape_height=shape_height), format='png')
 
 
 def round_photo(width, height, radius, fill, background, pad=1):
@@ -1484,7 +1565,7 @@ def usage_changes(previous, current):
 
 
 class BarShimmer:
-    """Play one one-second light pass when a fresh sample detects usage."""
+    """Play one visible light pass when a fresh sample detects usage."""
 
     def _init_shimmer(self):
         self._shimmer_after = None
@@ -1505,7 +1586,7 @@ class BarShimmer:
 
     def _start_shimmer(self):
         if self._shimmer_runs and self._shimmer_after is None:
-            self._shimmer_after = self.after(32, self._shimmer_tick)
+            self._shimmer_after = self.after(16, self._shimmer_tick)
 
     def _stop_shimmer(self, event=None):
         if event is not None and event.widget is not self:
@@ -1533,8 +1614,8 @@ class BarShimmer:
         run = self._shimmer_runs.get(index)
         if run is None or not self.animate or not self._shimmer_ready():
             return None
-        elapsed = max(0.0, min(1.0, time.monotonic() - run[0]))
-        return 0.15 + 0.60 * elapsed
+        progress = max(0.0, min(1.0, (time.monotonic() - run[0]) / SHIMMER_DURATION_S))
+        return 0.15 + 0.60 * progress
 
     def _shimmer_tick(self):
         self._shimmer_after = None
@@ -1543,7 +1624,7 @@ class BarShimmer:
             return
         now = time.monotonic()
         for index, (started, pending) in list(self._shimmer_runs.items()):
-            if now - started >= 1.0:
+            if now - started >= SHIMMER_DURATION_S:
                 if pending:
                     self._shimmer_runs[index] = [now, False]
                 else:
@@ -1690,7 +1771,9 @@ class Card(BarShimmer, tk.Frame):
         m = self.metrics
         super().__init__(parent,width=m.card_w,height=m.p(120),bg=BG)
         self.key, self.height, self.last_signature = key,m.p(120),None
+        self._service_icon = load_service_icon(key, m.scale)
         self._bar_photos = []
+        self._bar_origins = []
         self._shown_pcts = []
         self._anim_from = self._anim_to = []
         self._anim_t0 = None
@@ -1706,6 +1789,7 @@ class Card(BarShimmer, tk.Frame):
     def set_metrics(self, metrics):
         if self.metrics.scale != metrics.scale:
             self.last_signature = None
+            self._service_icon = load_service_icon(self.key, metrics.scale)
         self.metrics = metrics
 
     def render(self,snap):
@@ -1788,16 +1872,29 @@ class Card(BarShimmer, tk.Frame):
         return (self._snap is not None and self._snap.ok and not self._snap.stale
                 and any(percent > 0 for percent in self._shown_pcts))
 
+    def _bar_height_for(self, index):
+        run = self._shimmer_runs.get(index)
+        base = self.metrics.bar_h
+        if run is None or not self.animate or not self._shimmer_ready():
+            return base
+        emphasis = shimmer_emphasis(time.monotonic() - run[0])
+        return base + self.metrics.p(4) * emphasis
+
     def _paint_shimmer(self):
         if not self._bar_photos or self._snap is None:
             return
         m = self.metrics
         track_w = m.card_w - m.p(36)
         for index, shown in enumerate(self._shown_pcts):
-            photo = progress_photo(track_w, m.bar_h, 4 * m.scale, chip_fill_width(track_w, shown),
+            bar_h = self._bar_height_for(index)
+            raster_h = m.bar_h + m.p(4) + 2
+            photo = progress_photo(track_w, raster_h, bar_h / 2, chip_fill_width(track_w, shown),
                                    TRACK, bar_color(self.key, shown, self._snap.stale), CARD,
-                                   shimmer=self._shimmer_phase_for(index))
+                                   shimmer=self._shimmer_phase_for(index), shape_height=bar_h)
             self.rows.itemconfigure('bar_' + str(index), image=photo)
+            if index < len(self._bar_origins):
+                x, y = self._bar_origins[index]
+                self.rows.coords('bar_' + str(index), x, y - (raster_h - m.bar_h) / 2)
             self._bar_photos[index + 1] = photo
 
     def _paint(self,snap,percents):
@@ -1806,8 +1903,8 @@ class Card(BarShimmer, tk.Frame):
         label_y = m.p(108)
         bars = list(snap.bars) if snap.ok else []
         for index, bar in enumerate(bars):
-            if self.key == 'chatgpt' and bar.label == '5시간':
-                reset = reset_stamp(bar.reset_text)
+            if self.key == 'chatgpt':
+                reset = dated_reset_stamp(bar.reset_text) if bar.label == '주간' else reset_stamp(bar.reset_text)
             elif self.key == 'cursor' and index == len(bars) - 1:
                 reset = cursor_reset(bar.reset_text)
             else:
@@ -1823,13 +1920,17 @@ class Card(BarShimmer, tk.Frame):
         state = strip_color(self.key,snap)
         strip_h = max(1, self.height - m.p(24))
         photos = [round_photo(m.strip_w, strip_h, m.strip_w / 2, state, CARD)]
+        bar_heights = []
         track_w = m.card_w - m.p(36)
         for index,(bar,_,_) in enumerate(positions):
             shown = percents[index] if index < len(percents) else bar_display_percent(bar.remaining_percent)
             fill_w = chip_fill_width(track_w, shown)
-            photos.append(progress_photo(track_w, m.bar_h, 4 * m.scale, fill_w, TRACK,
+            bar_h = self._bar_height_for(index)
+            raster_h = m.bar_h + m.p(4) + 2
+            bar_heights.append(raster_h)
+            photos.append(progress_photo(track_w, raster_h, bar_h / 2, fill_w, TRACK,
                                          bar_color(self.key, shown, snap.stale), CARD,
-                                         shimmer=self._shimmer_phase_for(index)))
+                                         shimmer=self._shimmer_phase_for(index), shape_height=bar_h))
         c = self.rows
         c.configure(width=m.card_w,height=self.height)
         self.configure(width=m.card_w,height=self.height)
@@ -1838,8 +1939,13 @@ class Card(BarShimmer, tk.Frame):
         round_rect(c,0,0,m.card_w,self.height,m.card_radius,HAIR)
         round_rect(c,1,1,m.card_w-1,self.height-1,max(1, m.card_radius-1),CARD)
         c.create_image(1 - strip_pad, m.p(12) - strip_pad, image=strip, anchor='nw', tags='strip')
-        c.create_oval(m.p(21),m.p(21),m.p(29),m.p(29),fill=state,outline='')
-        baseline_text(c,m.p(36),m.p(30),TITLES[self.key],m.font(FONT_SERVICE),TEXT)
+        title_x = m.p(36)
+        if self._service_icon is not None:
+            c.create_image(m.p(30), m.p(25), image=self._service_icon, anchor='center', tags='service_icon')
+            title_x = m.p(47)
+        else:
+            c.create_oval(m.p(21),m.p(21),m.p(29),m.p(29),fill=state,outline='',tags='service_icon_fallback')
+        baseline_text(c,title_x,m.p(30),TITLES[self.key],m.font(FONT_SERVICE),TEXT)
         credit = reset_credit(snap) if self.key == 'chatgpt' and snap.ok else ''
         plan_right = m.card_w-m.p(16)
         if credit:
@@ -1855,11 +1961,15 @@ class Card(BarShimmer, tk.Frame):
         hero_box = c.bbox(hero_id)
         subtitle = HERO_SUB[self.key] if snap.ok else '조회 실패'
         baseline_text(c,hero_box[2]+m.p(8),m.p(80),subtitle,m.font(FONT_SUB),MUTED)
+        self._bar_origins = []
         for index,(bar,y,reset) in enumerate(positions):
             baseline_text(c,m.p(20),y,bar.label,m.font(FONT_ROW),MUTED)
             value = '—' if bar.remaining_percent is None else f'{bar.remaining_percent:.0f}%'
             baseline_text(c,m.card_w-m.p(16),y,value,m.font(FONT_VALUE),TEXT,right=True)
-            c.create_image(m.p(20), y+m.p(10), image=photos[index+1], anchor='nw',
+            bar_y = y + m.p(10)
+            self._bar_origins.append((m.p(20), bar_y))
+            c.create_image(m.p(20), bar_y - (bar_heights[index] - m.bar_h) / 2,
+                           image=photos[index+1], anchor='nw',
                            tags='bar_' + str(index))
             if reset:
                 baseline_text(c,m.p(20),y+m.p(35),reset,m.font(FONT_META),DIM)
@@ -1893,6 +2003,17 @@ class UsageWidget:
         self.closing = False
         self.runner = PollRunner()
         self.watcher = AuthWatcher()
+        self.codex_activity = CodexActivityMonitor()
+        self.codex_last_request = float('-inf')
+        if not preview and not LOG.handlers:
+            try:
+                APP_DIR.mkdir(parents=True, exist_ok=True)
+                handler = RotatingFileHandler(APP_DIR / 'activity-debug.log', maxBytes=262144, backupCount=1, encoding='utf-8')
+                handler.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
+                LOG.addHandler(handler)
+                LOG.setLevel(logging.DEBUG)
+            except OSError:
+                pass
         self.alerts = AlertGate(read_json(ALERT_PATH))
         self.notifications = tk.BooleanVar(value=bool(self.settings.get('notifications', True)))
         enabled = default_enabled(self.settings, self.preview)
@@ -1968,7 +2089,7 @@ class UsageWidget:
         if image is None:
             fallback = {'refresh': '↻', 'minus': '−', 'close': '×', 'expand': '＋', 'plus': '＋'}
             button = tk.Label(parent, text=fallback.get(name, '·'), bg=parent.cget('bg'), fg=MUTED,
-                              font=('Segoe UI', max(8, int(round(11 * self.metrics.scale)))), cursor='hand2')
+                              font=(FACE, max(8, int(round(11 * self.metrics.scale)))), cursor='hand2')
             button.tip_text = hint
             button.bind('<Button-1>', lambda e: (self.tip.hide(), command()))
             if hint:
@@ -2204,15 +2325,15 @@ class UsageWidget:
     def help_text(self):
         return (
             f'현재 버전 {APP_VERSION}\n\n'
-            '이 위젯은 OpenAI(ChatGPT·Codex)·Cursor와 제휴되지 않은 비공식 도구입니다.\n'
+            '이 위젯은 OpenAI(ChatGPT)·Cursor와 제휴되지 않은 비공식 도구입니다.\n'
             '사용량 조회는 언제든 실패하거나 바뀔 수 있습니다.\n\n'
-            'Codex: 5시간·주간 중 더 적게 남은 한도입니다.\n'
+            'GPT: 5시간·주간 중 더 적게 남은 한도입니다.\n'
             'Cursor: 전체 잔여와 자사 모델·API 잔여를 구분합니다. 막대 아래는 청구 주기 초기화입니다.\n'
             '기본 포함량 소진과 전체 한도 소진은 다를 수 있습니다.\n\n'
             '한 줄 칩 색이 임박·소진·이전 데이터를 나타냅니다.\n'
-            '우클릭 → 표시할 서비스·로그인에서 Codex / Cursor를 고릅니다.\n'
+            '우클릭 → 표시할 서비스·로그인에서 GPT / Cursor를 고릅니다.\n'
             '계정 로그인은 각 서비스에서 하세요. 위젯은 읽기만 합니다.\n'
-            'Codex는 ChatGPT 데스크톱 앱이 아니라 Codex CLI 로그인이 필요합니다.\n\n'
+            'GPT 사용량은 ChatGPT 데스크톱 앱이 아니라 Codex CLI 로그인이 필요합니다.\n\n'
             '실행은 zip 푼 폴더의 AI Usage.exe 입니다. 한 번 실행한 뒤에는 실행 파일만 옮겨도 됩니다.\n'
             '우클릭 → 바탕화면 바로가기 생성으로 바로가기를 만들 수 있습니다.\n\n'
             'F5 새로고침 · Ctrl+M 한 줄 모드\n'
@@ -2247,7 +2368,7 @@ class UsageWidget:
         tk.Label(dialog, text='이 PC에서 볼 서비스를 고르세요.', bg=BG, fg=TEXT, font=FONT_TITLE).pack(anchor='w', padx=16, pady=(14, 6))
         tk.Label(
             dialog,
-            text='ChatGPT 데스크톱 앱만 있으면 Codex는 연동되지 않습니다. Codex CLI와 Cursor 앱 로그인이 필요합니다.',
+            text='GPT 사용량은 ChatGPT 데스크톱 앱만으로 연동되지 않습니다. Codex CLI와 Cursor 앱 로그인이 필요합니다.',
             bg=BG, fg=MUTED, font=FONT_FOOT, wraplength=340, justify='left',
         ).pack(anchor='w', padx=16)
         notes = {}
@@ -2300,7 +2421,7 @@ class UsageWidget:
                 return
             lines = ['선택한 서비스의 로그인이 없습니다. 지금 설치하고 로그인할까요?']
             if need_codex:
-                lines.append('Codex: ChatGPT 데스크톱이 아니라 Codex CLI가 필요합니다.')
+                lines.append('GPT: ChatGPT 데스크톱이 아니라 Codex CLI가 필요합니다.')
             if need_cursor:
                 lines.append('Cursor: Cursor 앱에서 로그인해야 합니다.')
             if self.notify(messagebox.askyesno, '로그인 준비', '\n'.join(lines), parent=self.root):
@@ -2362,7 +2483,7 @@ class UsageWidget:
         self.mini.configure(height=max(1, m.compact_h - 2))
         self.body.configure(padx=m.p(12))
         self.title.place(x=m.p(12), y=0, height=m.header_h)
-        fallback_font = ('Segoe UI', max(8, int(round(11 * m.scale))))
+        fallback_font = (FACE, max(8, int(round(11 * m.scale))))
         for index, btn in enumerate(self.header_buttons):
             if isinstance(btn, IconButton):
                 btn.set_size(m.icon)
@@ -2580,7 +2701,9 @@ class UsageWidget:
 
     def start_job(self, key):
         try:
-            self.runner.start(key, time.monotonic())
+            now = time.monotonic()
+            if self.runner.start(key, now) and key == 'chatgpt':
+                self.codex_last_request = now
         except OSError:
             self.accept(key, error_snapshot(key, TITLES[key], '조회 프로세스를 시작하지 못했습니다.', URLS[key]))
 
@@ -2646,11 +2769,17 @@ class UsageWidget:
         if until is None:
             until = {}
             self.usage_until = until
-        if snap.ok and usage_dropped(previous, snap):
+        if key != 'chatgpt' and snap.ok and usage_dropped(previous, snap):
             until[key] = now + ACTIVE_HOLD
         self.snapshots[key] = snap
         active = bool(snap.ok) and until.get(key, 0) > now
         self.due[key] = now + next_interval(snap, self.failures[key], active)
+        if key == 'chatgpt':
+            monitor = getattr(self, 'codex_activity', None)
+            fast = monitor is not None and monitor.fast(now)
+            interval = FAST_INTERVAL if fast and not self.failures[key] else next_interval(snap, self.failures[key], False)
+            self.due[key] = now + interval
+            LOG.debug('[Usage] quota raw/display remaining: %s', [(bar.label, bar.used_percent, bar.remaining_percent, round(bar.remaining_percent) if bar.remaining_percent is not None else None) for bar in snap.bars])
         self.render(key)
         if not self.preview:
             self.save_cache()
@@ -2722,6 +2851,18 @@ class UsageWidget:
         self.drain_update_queue()
         now = time.monotonic()
         self.environment(now)
+        if not self.preview:
+            was_fast = self.codex_activity.was_fast
+            activity, quota_event = self.codex_activity.poll(now)
+            if not self.locked and self.enabled['chatgpt'].get():
+                if (activity or quota_event) and not self.failures['chatgpt']:
+                    self.due['chatgpt'] = min(self.due['chatgpt'], max(now, self.codex_last_request + FAST_INTERVAL))
+                if activity:
+                    card = self.cards['chatgpt']
+                    card._trigger_shimmer(range(len(card._shown_pcts)))
+                    self.mini_values['chatgpt']._trigger_shimmer([0])
+                if was_fast and not self.codex_activity.fast(now) and not self.failures['chatgpt']:
+                    self.due['chatgpt'] = now + next_interval(self.snapshots.get('chatgpt'), active=False)
         for key, snap, error in self.runner.poll(now):
             if not self.locked and self.enabled[key].get():
                 self.accept(key, snap or error_snapshot(key, TITLES[key], error, URLS[key]))

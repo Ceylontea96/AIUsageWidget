@@ -127,7 +127,7 @@ class ShimmerUiTests(unittest.TestCase):
             self.assertEqual(set(card._shimmer_runs), {0})
             card.render(snapshot(59.999))
             self.assertFalse(card._shimmer_runs[0][1])
-        with patch.object(card, 'winfo_ismapped', return_value=True), patch.object(u.time, 'monotonic', return_value=11.1):
+        with patch.object(card, 'winfo_ismapped', return_value=True), patch.object(u.time, 'monotonic', return_value=16.1):
             card.after_cancel(card._shimmer_after)
             card._shimmer_tick()
         self.assertFalse(card._shimmer_runs)
@@ -141,12 +141,49 @@ class ShimmerUiTests(unittest.TestCase):
             card.render(snapshot(59.8))
             card.render(snapshot(59.7))
             self.assertEqual(card._shimmer_runs, {0: [10, True]})
-        for now, running in ((11.1, True), (12.2, False)):
+        for now, running in ((16.1, True), (22.2, False)):
             with patch.object(card, 'winfo_ismapped', return_value=True), patch.object(u.time, 'monotonic', return_value=now):
                 card.after_cancel(card._shimmer_after)
                 card._shimmer_tick()
                 self.assertEqual(bool(card._shimmer_runs), running)
         self.assertIsNone(card._shimmer_after)
+
+    def test_active_bar_thickens_smoothly_then_returns_to_base_height(self):
+        card = u.Card(self.root, 'chatgpt')
+        with patch.object(card, 'winfo_ismapped', return_value=True), patch.object(u.time, 'monotonic', return_value=10):
+            card.render(snapshot())
+            card.render(snapshot(59.9))
+        base_y = card._bar_origins[0][1]
+        heights = []
+        offsets = []
+        for now in (10.0, 10.3, 10.6, 15.0, 15.5):
+            with patch.object(card, 'winfo_ismapped', return_value=True), patch.object(u.time, 'monotonic', return_value=now):
+                if card._shimmer_after is not None:
+                    card.after_cancel(card._shimmer_after)
+                card._shimmer_tick()
+                heights.append(card._bar_height_for(0))
+                offsets.append(card.rows.coords('bar_0')[1])
+        self.assertEqual(heights[0], card.metrics.bar_h)
+        self.assertGreater(heights[1], heights[0])
+        self.assertGreaterEqual(heights[2], heights[1])
+        self.assertEqual(heights[3], heights[2])
+        self.assertLess(heights[4], heights[3])
+        self.assertEqual(len(set(offsets)), 1)
+        with patch.object(card, 'winfo_ismapped', return_value=True), patch.object(u.time, 'monotonic', return_value=16.1):
+            card.after_cancel(card._shimmer_after)
+            card._shimmer_tick()
+        self.assertEqual(card._bar_height_for(0), card.metrics.bar_h)
+        self.assertEqual(card.rows.coords('bar_0')[1], offsets[0])
+        self.assertFalse(card._shimmer_runs)
+
+    def test_fractional_thickness_changes_pixels_without_moving_image(self):
+        frames = []
+        for height in (8.0, 8.1, 8.2, 8.3):
+            w, h, rows = u.progress_bar_rgba(40, 14, height / 2, 30, u.TRACK, u.CODEX, u.CARD, shape_height=height)
+            self.assertEqual((w, h), (40, 14))
+            self.assertEqual(rows, list(reversed(rows)))
+            frames.append(b''.join(rows))
+        self.assertEqual(len(set(frames)), 4)
 
     def test_error_and_recovery_cancel_and_do_not_replay(self):
         card = u.Card(self.root, 'chatgpt')

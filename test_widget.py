@@ -41,10 +41,22 @@ class WidgetTests(unittest.TestCase):
         self.assertEqual(u.step_scale(1.0, -1), 0.85)
         self.assertEqual(u.step_scale(0.85, -1), 0.75)
         self.assertEqual(u.step_scale(1.45, 1), 1.5)
-        self.assertEqual(u.scaled_font(('Segoe UI Semibold', -13), 1.0), ('Segoe UI Semibold', -13))
-        self.assertEqual(u.scaled_font(('Segoe UI Semibold', -13), 1.3), ('Segoe UI Semibold', -17))
+        self.assertEqual(u.scaled_font(u.FONT_TITLE, 1.0), u.FONT_TITLE)
+        self.assertEqual(u.scaled_font(u.FONT_TITLE, 1.3), (u.FONT_TITLE[0], -17))
         self.assertEqual(u.Metrics(1.15).window_w, 414)
         self.assertEqual(u.Metrics(1.15).header_h, 46)
+
+    def test_pretendard_faces_when_bundled(self):
+        files = [u.FONT_DIR / name for name in u.PRETENDARD_FILES]
+        if not all(path.is_file() for path in files):
+            self.skipTest('Pretendard files are not bundled')
+        self.assertTrue(u.register_bundled_fonts())
+        for spec in (u.FONT_TITLE, u.FONT_HERO, u.FONT_SERVICE, u.FONT_CHIP, u.FONT_VALUE, u.FONT_PILL):
+            self.assertEqual(spec[0], 'Pretendard SemiBold')
+        for spec in (u.FONT_SUB, u.FONT_ROW, u.FONT_BADGE):
+            self.assertEqual(spec[0], 'Pretendard Medium')
+        for spec in (u.FONT_META, u.FONT_FOOT):
+            self.assertEqual(spec[0], 'Pretendard')
 
     def test_weekly_exhaustion(self):
         s=codex(10,100,True)
@@ -82,6 +94,8 @@ class WidgetTests(unittest.TestCase):
     def test_reset_stamp_and_bar_colors(self):
         self.assertEqual(u.reset_stamp('9월 10일 19:52'),'19:52 재설정')
         self.assertEqual(u.reset_stamp(''),'')
+        self.assertEqual(u.dated_reset_stamp('9월 17일 08:30'),'9월 17일 08:30 재설정')
+        self.assertEqual(u.dated_reset_stamp(''),'')
         self.assertEqual(u.cursor_reset('9월 14일 09:00'),'9월 14일 09:00 초기화')
         self.assertEqual(u.cursor_reset('9월 14일 09:00 초기화'),'9월 14일 09:00 초기화')
         self.assertEqual(u.cursor_reset(''),'')
@@ -92,6 +106,10 @@ class WidgetTests(unittest.TestCase):
         self.assertTrue(u.should_tween(80,50))
         self.assertTrue(u.should_tween(50,80))
         self.assertFalse(u.should_tween(50,50))
+        self.assertEqual(u.shimmer_emphasis(0),0)
+        self.assertEqual(u.shimmer_emphasis(0.6),1)
+        self.assertEqual(u.shimmer_emphasis(5.0),1)
+        self.assertEqual(u.shimmer_emphasis(6.0),0)
         self.assertEqual(u.bar_anim_ms((0,100)), u.BAR_ANIM_MAX_MS)
         self.assertEqual(u.bar_anim_ms((50,50)), 0)
         self.assertLessEqual(u.bar_anim_ms((80,50)), u.BAR_ANIM_MAX_MS)
@@ -167,8 +185,15 @@ class WidgetTests(unittest.TestCase):
         w.accept('chatgpt', first)
         self.assertLessEqual(w.usage_until.get('chatgpt', 0), time.monotonic())
         w.accept('chatgpt', second)
-        self.assertGreater(w.usage_until['chatgpt'], time.monotonic())
-        self.assertLessEqual(w.due['chatgpt'] - time.monotonic(), 0.05)
+        self.assertFalse(w.usage_until.get('chatgpt', 0))
+        self.assertGreater(w.due['chatgpt'] - time.monotonic(), 29)
+        w.codex_activity = u.CodexActivityMonitor()
+        w.codex_activity.last_activity_time = time.monotonic()
+        w.accept('chatgpt', second)
+        self.assertAlmostEqual(w.due['chatgpt'] - time.monotonic(), 2, delta=0.1)
+        w.codex_activity.last_activity_time -= 13
+        w.accept('chatgpt', second)
+        self.assertGreater(w.due['chatgpt'] - time.monotonic(), 29)
 
     def test_install_root_round_trip(self):
         with tempfile.TemporaryDirectory() as directory:

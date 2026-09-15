@@ -2,6 +2,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from tkinter import font as tkfont
 from unittest.mock import Mock, patch
 import usage_widget as u
 from providers import ProviderSnapshot,QuotaBar,error_snapshot
@@ -48,6 +49,33 @@ class UiTests(unittest.TestCase):
         w.cards['cursor'].last_signature=None
         w.render('cursor')
         self.assertGreater(with_reset,w.cards['cursor'].height)
+
+    def test_gpt_title_and_both_reset_captions(self):
+        card=self.w.cards['chatgpt']
+        bars=[QuotaBar('5시간',80,20,'','9월 15일 14:00'),QuotaBar('주간',70,30,'','9월 20일 09:30')]
+        card.render(ProviderSnapshot('chatgpt','GPT','Plus',True,70,'',bars=bars))
+        texts=[card.rows.itemcget(item,'text') for item in card.rows.find_all() if card.rows.type(item)=='text']
+        self.assertIn('GPT',texts)
+        self.assertNotIn('Codex',texts)
+        self.assertIn('14:00 재설정',texts)
+        self.assertIn('9월 20일 09:30 재설정',texts)
+
+    def test_widget_fonts_are_pretendard(self):
+        if not u.register_bundled_fonts():
+            self.skipTest('Pretendard is not available')
+        title = tkfont.Font(root=self.w.root, font=self.w.title['font'])
+        self.assertEqual(title.actual('family'), 'Pretendard SemiBold')
+        families = set(tkfont.families(self.w.root))
+        self.assertIn('Pretendard', families)
+        self.assertIn('Pretendard Medium', families)
+        self.assertIn('Pretendard SemiBold', families)
+
+    def test_service_icons_replace_status_dots(self):
+        for key in ('chatgpt','cursor'):
+            card=self.w.cards[key]
+            card.render(ProviderSnapshot(key,'', '-',True,80,'',bars=[]))
+            self.assertEqual(card.rows.type(card.rows.find_withtag('service_icon')[0]),'image')
+            self.assertFalse(card.rows.find_withtag('service_icon_fallback'))
 
     def test_card_eases_bar_when_remaining_drops(self):
         w=self.w

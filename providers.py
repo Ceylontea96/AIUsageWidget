@@ -378,11 +378,11 @@ class ChatGptAuth:
     def ensure_fresh(self) -> None:
         token = self.access_token()
         if not token:
-            raise RuntimeError("Codex에 로그인한 뒤 새로고침하세요.")
+            raise RuntimeError("GPT 사용량 조회를 위해 Codex CLI에 로그인한 뒤 새로고침하세요.")
         exp = jwt_exp(token)
         if exp is not None and exp <= time.time():
             _CHATGPT_MEM.clear()
-            raise RuntimeError("Codex 로그인을 갱신한 뒤 새로고침하세요.")
+            raise RuntimeError("Codex CLI 로그인을 갱신한 뒤 새로고침하세요.")
 
 
 def _cursor_plan_name(headers: dict[str, str], fallback: str) -> str:
@@ -565,7 +565,7 @@ def fetch_chatgpt() -> ProviderSnapshot:
         info_rows.append(InfoRow("추가", " · ".join(extras)))
     return ProviderSnapshot(
         key="chatgpt",
-        title="Codex",
+        title="GPT",
         plan="ChatGPT " + plan,
         ok=True,
         hero_percent=tightest.remaining_percent,
