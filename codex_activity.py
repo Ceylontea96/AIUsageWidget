@@ -92,6 +92,11 @@ class CodexActivityMonitor:
             self.last_activity_time = now
         fast = self.fast(now)
         if fast != self.was_fast:
-            LOG.debug('[Usage] mode %s -> %s; inactivity %.1fs', 'FAST' if self.was_fast else 'NORMAL', 'FAST' if fast else 'NORMAL', now - self.last_activity_time)
+            if fast:
+                LOG.debug('[Codex] active=True')
+            else:
+                LOG.debug('[Codex] inactivity %.1fs', now - self.last_activity_time)
+                LOG.debug('[Codex] active=False')
+            LOG.debug('[Usage] GPT mode %s -> %s', 'FAST' if self.was_fast else 'NORMAL', 'FAST' if fast else 'NORMAL')
         self.was_fast = fast
         return activity, quota

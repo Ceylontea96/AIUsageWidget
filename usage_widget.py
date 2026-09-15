@@ -1,6 +1,8 @@
-﻿"""Small, read-only quota monitor. All Tk calls stay on the main thread."""
+"""Small, read-only quota monitor. All Tk calls stay on the main thread."""
 from __future__ import annotations
 
+from datetime import datetime
+from functools import lru_cache
 import ctypes
 import json
 import logging
@@ -83,13 +85,13 @@ def instance_path():
     return APP_DIR / 'widget.instance'
 
 # Variant A: pixel dimensions from the supplied tokens.json.
-TOKENS = {'width': 360,
- 'radius': {'window': 12, 'card': 12, 'pill': 999, 'bar': 5},
+TOKENS = {'width': 380,
+ 'radius': {'window': 14, 'card': 12, 'pill': 999, 'bar': 5},
  'strip': {'width': 3, 'inset_top': 12, 'inset_bottom': 12},
- 'header_h': 40,
+ 'header_h': 38,
  'compact_h': 44,
- 'footer_h': 28,
- 'gap': {'cards': 10, 'rows': 12, 'label_bar': 6, 'window_pad_x': 12, 'window_pad_y': 10},
+ 'footer_h': 36,
+ 'gap': {'cards': 0, 'rows': 12, 'label_bar': 6, 'window_pad_x': 12, 'window_pad_y': 10},
  'card': {'pad_x': 16, 'pad_y': 14, 'hairline': 1},
  'bar': {'height': 10, 'track_radius': 5},
  'chip': {'height': 24,
@@ -99,7 +101,7 @@ TOKENS = {'width': 360,
           'font_size': 12,
           'font_weight': 'semibold',
           'fg_on_fill': '#F2FFFB',
-          'fg_on_fill_stale': '#8A92A6'},
+          'fg_on_fill_stale': '#8B8F99'},
  'fonts': {'family_latin': 'Pretendard SemiBold',
            'family_hangul': 'Pretendard',
            'css_stack': '"Pretendard SemiBold", "Pretendard Medium", "Pretendard", "Malgun Gothic", sans-serif',
@@ -114,24 +116,24 @@ TOKENS = {'width': 360,
                     'footer': 11,
                     'chip': 12},
            'weight_note': 'Bundled Pretendard for hangul and latin; Malgun Gothic / Segoe UI if files missing'},
- 'color': {'bg_window': '#12141A',
-           'bg_card': '#1A1D26',
-           'hairline': '#262A36',
-           'track': '#262A36',
-           'fg': '#E6E8EE',
-           'fg_muted': '#8A92A6',
-           'fg_dim': '#5B6478',
-           'codex': '#4FE0B0',
-           'cursor': '#B39AF7',
-           'warn': '#F6B44A',
-           'danger': '#F26D6D',
+ 'color': {'bg_window': '#0F1013',
+           'bg_card': '#101316',
+           'hairline': '#202327',
+           'track': '#202327',
+           'fg': '#E7E8EC',
+           'fg_muted': '#8B8F99',
+           'fg_dim': '#5B6069',
+           'codex': '#10A37F',
+           'cursor': '#F0883E',
+           'warn': '#F5B544',
+           'danger': '#EF4444',
            'stale_strip': '#4A5060',
-           'stale_hero': '#8A92A6',
+           'stale_hero': '#8B8F99',
            'icon': '#B4BAC8',
-           'icon_hover': '#E6E8EE',
+           'icon_hover': '#E7E8EC',
            'close_hover_bg': '#3A2020',
            'chip_codex_fill': '#1F6B5A',
-           'chip_cursor_fill': '#4E3F7A',
+           'chip_cursor_fill': '#75411F',
            'chip_warn_fill': '#C48A22',
            'chip_danger_fill': '#B44545',
            'chip_stale_fill': '#3A4252'},
@@ -142,7 +144,7 @@ TOKENS = {'width': 360,
            'reset_caption_on_gpt_bars': True,
            'reset_caption_format': {'5시간': 'HH:MM 재설정', '주간': 'M월 D일 HH:MM 재설정'},
            'compact_pill_format': '{service} {pct}%',
-           'chip_fills_are_own_palette': 'do not reuse detail bar hex (#4FE0B0/#B39AF7) on chip '
+           'chip_fills_are_own_palette': 'do not reuse detail bar hex (#10A37F/#F0883E) on chip '
                                          'fills; white text needs darker fill',
            'card_dot_no_halo': True,
            'title_is_one_line': True,
@@ -188,12 +190,12 @@ FETCHERS = ('chatgpt', 'cursor')
 WARN_AT, DANGER_AT = 30, 15
 WINDOW_W, HEADER_H, COMPACT_H, FOOTER_H = (TOKENS[k] for k in ('width','header_h','compact_h','footer_h'))
 BAR_H, STRIP_W, CHIP_H = TOKENS['bar']['height'], TOKENS['strip']['width'], TOKENS['chip']['height']
-CARD_W, CARD_RADIUS, CARD_GAP = WINDOW_W - 26, TOKENS['radius']['card'], TOKENS['gap']['cards']
+CARD_W, CARD_RADIUS, CARD_GAP = WINDOW_W - 2, TOKENS['radius']['card'], TOKENS['gap']['cards']
 # Negative Tk font sizes are pixels, avoiding point/DPI-driven layout inflation.
 FACE, FACE_MED, FACE_SEMI = ui_faces()
 FONT_TITLE = (FACE_SEMI, -13)
 FONT_SERVICE = (FACE_SEMI, -14)
-FONT_HERO = (FACE_SEMI, -44)
+FONT_HERO = (FACE_SEMI, -21)
 FONT_SUB = (FACE_MED, -12)
 FONT_PLAN = (FACE_SEMI, -11)
 FONT_ROW = (FACE_MED, -12)
@@ -451,10 +453,9 @@ def chip_fill_width(total, percent):
 BAR_ANIM_SPEED = 8.0
 BAR_ANIM_SNAP = 0.01  # Percentage points.
 BAR_ANIM_STEP = 16
-SHIMMER_GROW_S = 0.6
-SHIMMER_HOLD_S = 4.4
-SHIMMER_SHRINK_S = 1.0
-SHIMMER_DURATION_S = SHIMMER_GROW_S + SHIMMER_HOLD_S + SHIMMER_SHRINK_S
+SHIMMER_GROW_S = 0.4
+SHIMMER_SHRINK_S = 0.85
+SHIMMER_SWEEP_S = 1.2
 SHIMMER_GLOW = 0.65
 
 
@@ -479,27 +480,28 @@ def follow_bar(current, target, dt):
     return target if abs(target - value) <= BAR_ANIM_SNAP else value
 
 
-def shimmer_emphasis(elapsed):
-    elapsed = max(0.0, float(elapsed))
-    if elapsed < SHIMMER_GROW_S:
-        t = elapsed / SHIMMER_GROW_S
-        return t * t * (3.0 - 2.0 * t)
-    if elapsed < SHIMMER_GROW_S + SHIMMER_HOLD_S:
-        return 1.0
-    t = min(1.0, (elapsed - SHIMMER_GROW_S - SHIMMER_HOLD_S) / SHIMMER_SHRINK_S)
-    return 1.0 - t * t * (3.0 - 2.0 * t)
+def follow_emphasis(current, target, dt, grow=SHIMMER_GROW_S, shrink=SHIMMER_SHRINK_S):
+    """Move 0–1 thickness toward the activity target without restarting."""
+    goal = 1.0 if target else 0.0
+    if current < goal:
+        value = min(goal, current + max(0.0, dt) / grow)
+    elif current > goal:
+        value = max(goal, current - max(0.0, dt) / shrink)
+    else:
+        return current
+    return goal if abs(value - goal) <= 1e-9 else value
 
 
 def reset_stamp(text):
     if not text:
         return ''
     found = re.search(r'(\d{1,2}:\d{2})', text)
-    return f'{found.group(1)} 재설정' if found else ''
+    return f'{found.group(1)} 리셋' if found else ''
 
 
 def dated_reset_stamp(text):
-    clean = str(text or '').replace(' 초기화', '').replace(' 재설정', '').strip()
-    return f'{clean} 재설정' if clean else ''
+    clean = str(text or '').replace(' 초기화', '').replace(' 재설정', '').replace(' 리셋', '').strip()
+    return f'{clean} 리셋' if clean else ''
 
 
 def cursor_reset(text):
@@ -532,7 +534,6 @@ def bonus_line(snap):
     return ''
 
 
-ACTIVE_POLL = 0
 ACTIVE_HOLD = 60
 
 
@@ -554,6 +555,10 @@ def usage_dropped(previous, current):
     return any(old - new > 0.25 for old, new in zip(before, after))
 
 
+def next_fast_due(started, now, interval=FAST_INTERVAL):
+    return max(now, started + interval)
+
+
 def next_interval(snap, failures=0, active=False):
     if failures:
         return min(900, 30 * (2 ** min(failures - 1, 5)))
@@ -562,7 +567,7 @@ def next_interval(snap, failures=0, active=False):
     if snap.blocked or snap.hero_percent == 0:
         return 300
     if active:
-        return ACTIVE_POLL
+        return FAST_INTERVAL
     if snap.hero_percent is not None and snap.hero_percent <= 35:
         return 20
     return 30
@@ -817,10 +822,13 @@ def load_service_icon(key, scale):
     name = {'chatgpt': 'service_gpt', 'cursor': 'service_cursor'}.get(key)
     if not name:
         return None
-    suffix = '@2x' if scale >= 1.5 else ''
+    suffix = '@2x'
     path = ICON_DIR / f'{name}{suffix}.png'
     try:
-        return tk.PhotoImage(data=path.read_bytes(), format='png') if path.is_file() else None
+        if not path.is_file():
+            return None
+        source = tk.PhotoImage(data=path.read_bytes(), format='png')
+        return source.zoom(max(1,round(24*scale))).subsample(source.width())
     except (OSError, tk.TclError):
         return None
 
@@ -1554,28 +1562,39 @@ def usage_changes(previous, current):
 
 
 class BarShimmer:
-    """Play one visible light pass when a fresh sample detects usage."""
+    """Thickness and sweep follow activity state, not a fixed hold timer."""
 
     def _init_shimmer(self):
         self._shimmer_after = None
-        self._shimmer_runs = {}
+        self._active = False
+        self._emphasis = 0.0
+        self._emphasis_t0 = None
+        self._sweep_t0 = None
         self.bind('<Unmap>', self._stop_shimmer, add='+')
         self.bind('<Destroy>', self._stop_shimmer, add='+')
 
-    def _trigger_shimmer(self, indices):
-        if not self.animate or not self.winfo_ismapped():
+    def set_activity(self, active):
+        if not self.animate:
             return
-        now = time.monotonic()
-        for index in indices:
-            if index in self._shimmer_runs:
-                self._shimmer_runs[index][1] = True
-            else:
-                self._shimmer_runs[index] = [now, False]
+        try:
+            if not self.winfo_ismapped():
+                return
+        except tk.TclError:
+            return
+        self._active = bool(active)
+        if self._active and self._sweep_t0 is None:
+            self._sweep_t0 = time.monotonic()
         self._start_shimmer()
 
+    def _fx_needed(self):
+        return self._active or self._emphasis > 1e-4 or self._sweep_t0 is not None
+
     def _start_shimmer(self):
-        if self._shimmer_runs and self._shimmer_after is None:
-            self._shimmer_after = self.after(16, self._shimmer_tick)
+        if self._fx_needed() and self._shimmer_after is None:
+            try:
+                self._shimmer_after = self.after(16, self._shimmer_tick)
+            except tk.TclError:
+                self._shimmer_after = None
 
     def _stop_shimmer(self, event=None):
         if event is not None and event.widget is not self:
@@ -1586,24 +1605,17 @@ class BarShimmer:
             except tk.TclError:
                 pass
             self._shimmer_after = None
-        self._shimmer_runs.clear()
+        self._active = False
+        self._emphasis = 0.0
+        self._emphasis_t0 = None
+        self._sweep_t0 = None
         if event is None or event.type != tk.EventType.Destroy:
             self._paint_shimmer()
 
-    def _retain_shimmer(self, indices):
-        self._shimmer_runs = {index: run for index, run in self._shimmer_runs.items() if index in indices}
-        if not self._shimmer_runs and self._shimmer_after is not None:
-            try:
-                self.after_cancel(self._shimmer_after)
-            except tk.TclError:
-                pass
-            self._shimmer_after = None
-
     def _shimmer_phase_for(self, index):
-        run = self._shimmer_runs.get(index)
-        if run is None or not self.animate or not self._shimmer_ready():
+        if self._sweep_t0 is None or not self.animate or not self._shimmer_ready():
             return None
-        progress = max(0.0, min(1.0, (time.monotonic() - run[0]) / SHIMMER_DURATION_S))
+        progress = max(0.0, min(1.0, (time.monotonic() - self._sweep_t0) / SHIMMER_SWEEP_S))
         return 0.15 + 0.60 * progress
 
     def _shimmer_tick(self):
@@ -1612,12 +1624,17 @@ class BarShimmer:
             self._stop_shimmer()
             return
         now = time.monotonic()
-        for index, (started, pending) in list(self._shimmer_runs.items()):
-            if now - started >= SHIMMER_DURATION_S:
-                if pending:
-                    self._shimmer_runs[index] = [now, False]
-                else:
-                    del self._shimmer_runs[index]
+        dt = 0.0 if self._emphasis_t0 is None else now - self._emphasis_t0
+        self._emphasis_t0 = now
+        self._emphasis = follow_emphasis(self._emphasis, self._active, dt)
+        if self._active:
+            if self._sweep_t0 is None:
+                self._sweep_t0 = now
+            elapsed = now - self._sweep_t0
+            if elapsed >= SHIMMER_SWEEP_S:
+                self._sweep_t0 += SHIMMER_SWEEP_S * max(1, int(elapsed // SHIMMER_SWEEP_S))
+        elif self._sweep_t0 is not None and now - self._sweep_t0 >= SHIMMER_SWEEP_S:
+            self._sweep_t0 = None
         self._paint_shimmer()
         self._start_shimmer()
 
@@ -1713,12 +1730,7 @@ class Chip(BarShimmer, tk.Canvas):
             self._anim_to = self._anim_t0 = None
 
     def observe_usage(self, snap):
-        comparable, consumed = usage_changes(self._usage_snapshot, snap)
         self._usage_snapshot = snap
-        self._retain_shimmer({0} if comparable and len(comparable) == len(snap.bars) else set())
-        if consumed:
-            self._trigger_shimmer({0})
-        self._paint_shimmer()
 
     def _shimmer_ready(self):
         return self.fill != CHIP_STALE and self.percent > 0
@@ -1742,6 +1754,90 @@ class Chip(BarShimmer, tk.Canvas):
         self.create_text(width/2,height/2,text=self.text,fill=CHIP_FG,font=self.metrics.font(FONT_CHIP),tags='label')
 
 
+def design_severity(value, stale=False, blocked=False):
+    if stale or value is None:
+        return 'stale', '이전 데이터' if stale else '확인 중', MUTED
+    if blocked or value < 5:
+        return 'critical', '한도 제한' if blocked else '곧 한도', '#DC2626'
+    if value < 20:
+        return 'danger', '임박', DANGER
+    if value < 50:
+        return 'warn', '주의', WARN
+    return 'ok', '여유', None
+
+
+def reset_epoch(text, reference=None):
+    # Provider reset captions omit the year. Resolve relative to the snapshot,
+    # not today's date, so cached expired resets never jump to next year.
+    found = re.search(r'(\d+)월 (\d+)일 (\d+):(\d+)', text or '')
+    if not found:
+        return None
+    ref = datetime.fromtimestamp(reference or time.time())
+    month, day, hour, minute = map(int, found.groups())
+    candidates = []
+    for year in (ref.year - 1, ref.year, ref.year + 1):
+        try:
+            candidates.append(datetime(year, month, day, hour, minute).timestamp())
+        except ValueError:
+            pass
+    return min(candidates, key=lambda t: abs(t - ref.timestamp())) if candidates else None
+
+
+def reset_countdown(reset, now=None, monthly=False):
+    if reset is None:
+        return '정보 없음'
+    seconds = max(0, int(reset - (time.time() if now is None else now)))
+    if seconds == 0:
+        return '곧'
+    days, hours = seconds // 86400, seconds // 3600
+    if monthly and days:
+        return f'{days}일 후'
+    if hours:
+        return f'{hours}시간 {seconds % 3600 // 60}분'
+    return f'{seconds // 60}분 {seconds % 60:02d}초'
+
+
+@lru_cache(maxsize=12)
+def ring_geometry(size):
+    radius, center = size * 35 / 84, size / 2
+    points = []
+    for y in range(size):
+        for x in range(size):
+            dx,dy=x+.5-center,y+.5-center
+            distance=abs(math.hypot(dx,dy)-radius)
+            if distance < size * .075:
+                points.append((y,x*4,distance,(math.atan2(dy,dx)+math.pi/2)%math.tau,dx,dy))
+    return points
+
+
+def ring_photo(size, percent, color, thickness, background=CARD):
+    size = max(1,int(size))
+    radius, half = size*35/84, thickness/2
+    fraction = max(0,min(100,percent))/100
+    end = fraction*math.tau
+    ex,ey=math.sin(end)*radius,-math.cos(end)*radius
+    bg,track,fg=_hex_rgb(background),_hex_rgb(TRACK),_hex_rgb(color)
+    track_palette=[bytes([round(b+(t-b)*i/255) for b,t in zip(bg,track)]+[255]) for i in range(256)]
+    fill_palette=[bytes([round(b+(f-b)*i/255) for b,f in zip(bg,fg)]+[255]) for i in range(256)]
+    rows=[bytearray(bytes(bg)+b'\xff')*size for _ in range(size)]
+    for y,x,distance,angle,dx,dy in ring_geometry(size):
+        cov=max(0,min(255,int((half+.5-distance)*255)))
+        if not cov:
+            continue
+        if fraction>=1 or 0<fraction and angle<=end:
+            pixel=fill_palette[cov]
+        else:
+            cap=min(math.hypot(dx,dy+radius),math.hypot(dx-ex,dy-ey)) if fraction>0 else size
+            arc=max(0,min(255,int((half+.5-cap)*255)))
+            if arc:
+                base=track_palette[cov]
+                pixel=bytes([round(base[i]+(fg[i]-base[i])*arc/255) for i in range(3)]+[255])
+            else:
+                pixel=track_palette[cov]
+        rows[y][x:x+4]=pixel
+    return tk.PhotoImage(data=_png_rgba(size,size,rows),format='png')
+
+
 class Card(BarShimmer, tk.Frame):
     """Explicit pixel layout matching the supplied 334px-wide card references."""
     animate = True
@@ -1754,6 +1850,9 @@ class Card(BarShimmer, tk.Frame):
         self._service_icon = load_service_icon(key, m.scale)
         self._bar_photos = []
         self._bar_origins = []
+        self._ring_photo = None
+        self._hero_shown = self._hero_target = 0.0
+        self._clock_second = None
         self._shown_pcts = []
         self._anim_to = []
         self._anim_t0 = None
@@ -1778,11 +1877,10 @@ class Card(BarShimmer, tk.Frame):
         if signature == self.last_signature:
             return
         self.last_signature = signature
-        comparable, consumed = usage_changes(self._snap, snap)
-        self._retain_shimmer(comparable)
         self._snap = snap
         bars = list(snap.bars) if snap.ok else []
         targets = [bar_display_percent(bar.remaining_percent) for bar in bars]
+        self._hero_target = bar_display_percent(snap.hero_percent)
         if self.animate and snap.ok and self._shown_pcts and len(self._shown_pcts) == len(targets):
             self._anim_to = targets
             if self._anim_t0 is None:
@@ -1791,8 +1889,8 @@ class Card(BarShimmer, tk.Frame):
         else:
             self._cancel_anim()
             self._shown_pcts = targets
+            self._hero_shown = self._hero_target
         self._paint(snap, self._shown_pcts)
-        self._trigger_shimmer(consumed)
 
     def _arm_anim(self):
         if self._anim_after is not None:
@@ -1821,7 +1919,8 @@ class Card(BarShimmer, tk.Frame):
         dt = now - self._anim_t0
         self._anim_t0 = now
         self._shown_pcts = [follow_bar(a, b, dt) for a, b in zip(self._shown_pcts, self._anim_to)]
-        if self._shown_pcts == self._anim_to:
+        self._hero_shown = follow_bar(self._hero_shown, self._hero_target, dt)
+        if self._shown_pcts == self._anim_to and self._hero_shown == self._hero_target:
             self._anim_to = []
             self._anim_t0 = None
         else:
@@ -1838,114 +1937,158 @@ class Card(BarShimmer, tk.Frame):
                 and any(percent > 0 for percent in self._shown_pcts))
 
     def _bar_height_for(self, index):
-        run = self._shimmer_runs.get(index)
         base = self.metrics.bar_h
-        if run is None or not self.animate or not self._shimmer_ready():
+        if not self.animate or not self._shimmer_ready():
             return base
-        emphasis = shimmer_emphasis(time.monotonic() - run[0])
-        return base + self.metrics.p(4) * emphasis
+        return base + self.metrics.p(4) * self._emphasis
+
+    def _hero_value(self):
+        if self.key == 'chatgpt':
+            for index, bar in enumerate(self._snap.bars):
+                if bar.label == '5시간':
+                    return self._shown_pcts[index], index, bar.remaining_percent
+            return 0, None, None
+        return self._hero_shown, None, self._snap.hero_percent
+
+    def _paint_ring(self):
+        snap, m = self._snap, self.metrics
+        shown, _, actual = self._hero_value()
+        _, _, color = design_severity(actual, snap.stale or not snap.ok, snap.blocked)
+        color = color or ACCENTS[self.key]
+        emphasis = self._emphasis if self.animate and self._shimmer_ready() else 0.0
+        thickness = round((m.p(7) + m.p(2) * emphasis) * 2) / 2
+        color = blend(color, '#FFFFFF', .24 * emphasis)
+        ring_pct = 0 if actual is None else round(shown * 2) / 2
+        signature = (m.p(84), ring_pct, color, thickness)
+        if getattr(self,'_ring_signature',None) != signature:
+            self._ring_photo = ring_photo(*signature)
+            self._ring_signature = signature
+        self.rows.itemconfigure('ring', image=self._ring_photo)
+        self.rows.itemconfigure('hero',text='—' if actual is None else f'{shown:.0f}%',fill=color)
 
     def _paint_shimmer(self):
-        if not self._bar_photos or self._snap is None:
+        if self._snap is None or not self.rows.find_withtag('ring'):
             return
+        self._paint_ring()
         m = self.metrics
-        track_w = m.card_w - m.p(36)
-        for index, shown in enumerate(self._shown_pcts):
-            bar_h = self._bar_height_for(index)
-            raster_h = m.bar_h + m.p(4) + 2
-            photo = progress_photo(track_w, raster_h, bar_h / 2, chip_fill_width(track_w, shown),
-                                   TRACK, bar_color(self.key, shown, self._snap.stale), CARD,
-                                   shimmer=self._shimmer_phase_for(index), shape_height=bar_h)
-            self.rows.itemconfigure('bar_' + str(index), image=photo)
-            if index < len(self._bar_origins):
-                x, y = self._bar_origins[index]
-                self.rows.coords('bar_' + str(index), x, y - (raster_h - m.bar_h) / 2)
-            self._bar_photos[index + 1] = photo
+        for index, origin in enumerate(self._bar_origins):
+            if origin is None:
+                continue
+            bar = self._snap.bars[index]
+            shown = self._shown_pcts[index]
+            _, _, color = design_severity(bar.remaining_percent, self._snap.stale)
+            color = ACCENTS[self.key] if self.key == 'cursor' else color or ACCENTS[self.key]
+            if self._snap.stale:
+                color = MUTED
+            if self.key == 'cursor' and index > 0:
+                color = blend(CARD,color,.7)
+            height = self._bar_height_for(index)
+            raster = m.bar_h + m.p(4) + 2
+            photo = progress_photo(m.card_w-m.p(32),raster,height/2,
+                chip_fill_width(m.card_w-m.p(32),shown),TRACK,color,CARD,
+                shimmer=self._shimmer_phase_for(index),shape_height=height)
+            self.rows.itemconfigure('bar_'+str(index),image=photo)
+            self._bar_photos[index+1] = photo
+
+    def refresh_clock(self, now=None):
+        now = time.time() if now is None else now
+        if self._snap is None or int(now) == self._clock_second:
+            return
+        self._clock_second = int(now)
+        self.rows.itemconfigure('countdown',text=reset_countdown(self._reset_epoch,now,self.key=='cursor'))
+        if self._week_epoch is not None:
+            days = max(0,int((self._week_epoch-now)//86400))
+            self.rows.itemconfigure('week_remaining',text=f'{days}일 남음' if days else reset_countdown(self._week_epoch,now))
 
     def _paint(self,snap,percents):
-        m = self.metrics
-        positions = []
-        label_y = m.p(108)
+        m, c = self.metrics, self.rows
+        c.delete('all')
         bars = list(snap.bars) if snap.ok else []
-        for index, bar in enumerate(bars):
-            if self.key == 'chatgpt':
-                reset = dated_reset_stamp(bar.reset_text) if bar.label == '주간' else reset_stamp(bar.reset_text)
-            elif self.key == 'cursor' and index == len(bars) - 1:
-                reset = cursor_reset(bar.reset_text)
-            else:
-                reset = ''
-            positions.append((bar,label_y,reset))
-            label_y += m.p(42) + (m.p(20) if reset else 0)
-        last_bottom = positions[-1][1] + m.p(18) + (m.p(20) if positions[-1][2] else 0) if positions else m.p(92)
-        amount = included_amount(snap) if self.key == 'cursor' and snap.ok else ''
-        extra = bonus_line(snap) if self.key == 'cursor' and snap.ok else ''
-        bill_y = last_bottom+m.p(27)
-        bonus_y = bill_y+m.p(30) if amount else last_bottom+m.p(27)
-        self.height = (bonus_y+m.p(19) if extra else bill_y+m.p(19) if amount else last_bottom+m.p(16)) if snap.ok else m.p(138)
-        state = strip_color(self.key,snap)
-        strip_h = max(1, self.height - m.p(24))
-        photos = [round_photo(m.strip_w, strip_h, m.strip_w / 2, state, CARD)]
-        bar_heights = []
-        track_w = m.card_w - m.p(36)
-        for index,(bar,_,_) in enumerate(positions):
-            shown = percents[index] if index < len(percents) else bar_display_percent(bar.remaining_percent)
-            fill_w = chip_fill_width(track_w, shown)
-            bar_h = self._bar_height_for(index)
-            raster_h = m.bar_h + m.p(4) + 2
-            bar_heights.append(raster_h)
-            photos.append(progress_photo(track_w, raster_h, bar_h / 2, fill_w, TRACK,
-                                         bar_color(self.key, shown, snap.stale), CARD,
-                                         shimmer=self._shimmer_phase_for(index), shape_height=bar_h))
-        c = self.rows
+        self._bar_origins = [None] * len(bars)
+        self._bar_photos = [None] * (len(bars)+1)
+        self._week_epoch = None
+        primary = next((b for b in bars if b.label == '5시간'),None) if self.key=='chatgpt' else next(iter(bars),None)
+        reset = primary.reset_text if primary else ''
+        if not reset and self.key == 'cursor':
+            reset = snap.footer.split('·')[0].strip()
+        self._reset_epoch = reset_epoch(reset,snap.fetched_at)
+        _, label, state = design_severity(snap.hero_percent,snap.stale or not snap.ok,snap.blocked)
+        state = state or ACCENTS[self.key]
+        def text(x,y,value,font=FONT_ROW,color=TEXT,anchor='nw',tags=()):
+            return c.create_text(m.p(x),m.p(y),text=value,font=m.font(font),fill=color,anchor=anchor,tags=tags)
+        # A flat, divided surface matches the reference; keep all data-driven rows.
+        self.height = m.p(170)
+        c.configure(bg=CARD)
+        if self._service_icon is not None:
+            c.create_image(m.p(27),m.p(27),image=self._service_icon,tags='service_icon')
+        text(46,18,TITLES[self.key],FONT_SERVICE)
+        plan = '' if snap.plan=='-' else snap.plan.upper()
+        font = tkfont.Font(root=c,font=m.font(FONT_PLAN))
+        plan_w = font.measure(plan)+m.p(14) if plan else 0
+        right = m.card_w-m.p(16)
+        if plan:
+            round_rect(c,right-plan_w,m.p(16),right,m.p(38),m.p(4),TRACK)
+            c.create_text(right-plan_w/2,m.p(27),text=plan,font=m.font(FONT_PLAN),fill=MUTED)
+        badge_w = tkfont.Font(root=c,font=m.font(FONT_BADGE)).measure(label)+m.p(25)
+        right -= plan_w+m.p(8)
+        round_rect(c,right-badge_w,m.p(16),right,m.p(38),m.p(11),blend(CARD,state,.15))
+        c.create_oval(right-badge_w+m.p(8),m.p(25),right-badge_w+m.p(13),m.p(30),fill=state,outline='')
+        c.create_text(right-badge_w+m.p(18),m.p(27),text=label,anchor='w',font=m.font(FONT_BADGE),fill=blend(state,TEXT,.4),tags='severity')
+        if snap.blocked or (snap.hero_percent is not None and snap.hero_percent<20 and not snap.stale):
+            c.create_rectangle(0,0,m.card_w,m.p(2),fill=state,outline='',tags='strip')
+        c.create_image(m.p(16),m.p(54),anchor='nw',tags='ring')
+        c.create_text(m.p(58),m.p(96),text='',font=m.font(FONT_HERO),tags='hero')
+        text(114,64,'5시간 창 · 남음' if self.key=='chatgpt' else '월간 크레딧 · 남음',FONT_SERVICE)
+        text(114,88,'다음 리셋',FONT_META,MUTED)
+        text(172,85,'', (FACE_SEMI,-15),TEXT,tags='countdown')
+        text(114,112,reset_stamp(reset) if self.key=='chatgpt' else dated_reset_stamp(reset),FONT_META,DIM)
+        y = 156
+        for index,bar in enumerate(bars):
+            if self.key=='chatgpt' and bar.label=='5시간':
+                continue
+            text(16,y,'주간 한도' if bar.label=='주간' else bar.label,FONT_ROW,MUTED)
+            value = bar.remaining_percent
+            c.create_text(m.card_w-m.p(16),m.p(y),text='—' if value is None else f'{value:.0f}%',font=m.font(FONT_VALUE),fill=TEXT,anchor='ne',tags='bar_value_'+str(index))
+            bar_y = m.p(y+23)
+            raster = m.bar_h+m.p(4)+2
+            self._bar_origins[index] = (m.p(16),bar_y)
+            c.create_image(m.p(16),bar_y-(raster-m.bar_h)/2,anchor='nw',tags='bar_'+str(index))
+            y += 42
+            if self.key=='chatgpt' and bar.reset_text:
+                text(16,y,'주간 리셋 ' + dated_reset_stamp(bar.reset_text).removesuffix(' 리셋'),FONT_META,DIM)
+                self._week_epoch = reset_epoch(bar.reset_text,snap.fetched_at)
+                c.create_text(m.card_w-m.p(16),m.p(y),text='',font=m.font(FONT_META),fill=DIM,anchor='ne',tags='week_remaining')
+                y += 22
+        extra_rows = []
+        if snap.ok and self.key=='chatgpt':
+            extra_rows = [row for row in snap.info_rows if row.label=='추가']
+        for row in extra_rows:
+            text(16,y,row.value,FONT_META,MUTED)
+            y += 24
+        amount = included_amount(snap) if self.key=='cursor' and snap.ok else ''
+        bonus = bonus_line(snap) if self.key=='cursor' and snap.ok else ''
+        if amount or bonus:
+            c.create_line(m.p(16),m.p(y),m.card_w-m.p(16),m.p(y),fill=HAIR,dash=(3,3))
+            y += 14
+        if bonus:
+            round_rect(c,m.p(16),m.p(y),m.card_w-m.p(16),m.p(y+38),m.p(8),'#2C271D')
+            text(26,y+11,'◇ 보너스 사용액',FONT_ROW,'#FFD27A')
+            c.create_text(m.card_w-m.p(26),m.p(y+11),text=bonus.removeprefix('보너스').strip(),anchor='ne',fill='#FFD27A',font=m.font(FONT_VALUE))
+            y += 50
+        if amount:
+            text(16,y,'기본 포함량',FONT_ROW,MUTED)
+            c.create_text(m.card_w-m.p(16),m.p(y),text=amount,anchor='ne',fill=TEXT,font=m.font(FONT_VALUE))
+            y += 24
+        if not snap.ok:
+            c.create_text(m.p(16),m.p(150),text=snap.error or '조회 중',font=m.font(FONT_META),fill=MUTED,anchor='nw',width=m.card_w-m.p(32))
+            y=178
+        self.height=m.p(y+16)
         c.configure(width=m.card_w,height=self.height)
         self.configure(width=m.card_w,height=self.height)
-        c.delete('all')
-        strip, strip_pad = photos[0]
-        round_rect(c,0,0,m.card_w,self.height,m.card_radius,HAIR)
-        round_rect(c,1,1,m.card_w-1,self.height-1,max(1, m.card_radius-1),CARD)
-        c.create_image(1 - strip_pad, m.p(12) - strip_pad, image=strip, anchor='nw', tags='strip')
-        title_x = m.p(36)
-        if self._service_icon is not None:
-            c.create_image(m.p(30), m.p(25), image=self._service_icon, anchor='center', tags='service_icon')
-            title_x = m.p(47)
-        else:
-            c.create_oval(m.p(21),m.p(21),m.p(29),m.p(29),fill=state,outline='',tags='service_icon_fallback')
-        baseline_text(c,title_x,m.p(30),TITLES[self.key],m.font(FONT_SERVICE),TEXT)
-        credit = reset_credit(snap) if self.key == 'chatgpt' and snap.ok else ''
-        plan_right = m.card_w-m.p(16)
-        if credit:
-            font = tkfont.Font(root=c,font=m.font(FONT_BADGE))
-            pill_w = font.measure(credit)+m.p(16)
-            round_rect(c,plan_right-pill_w,m.p(16),plan_right,m.p(34),m.p(9),'#295346')
-            round_rect(c,plan_right-pill_w+1,m.p(17),plan_right-1,m.p(33),m.p(8),'#20302F')
-            c.create_text(plan_right-pill_w/2,m.p(25),text=credit,font=m.font(FONT_BADGE),fill=CODEX)
-            plan_right -= pill_w+m.p(8)
-        baseline_text(c,plan_right,m.p(30),'' if snap.plan == '-' else snap.plan,m.font(FONT_PLAN),MUTED,right=True)
-        value = '—' if snap.hero_percent is None else f'{snap.hero_percent:.0f}%'
-        hero_id = baseline_text(c,m.p(20),m.p(81),value,m.font(FONT_HERO),color_for(snap),tags='hero')
-        hero_box = c.bbox(hero_id)
-        subtitle = HERO_SUB[self.key] if snap.ok else '조회 실패'
-        baseline_text(c,hero_box[2]+m.p(8),m.p(80),subtitle,m.font(FONT_SUB),MUTED)
-        self._bar_origins = []
-        for index,(bar,y,reset) in enumerate(positions):
-            baseline_text(c,m.p(20),y,bar.label,m.font(FONT_ROW),MUTED)
-            value = '—' if bar.remaining_percent is None else f'{bar.remaining_percent:.0f}%'
-            baseline_text(c,m.card_w-m.p(16),y,value,m.font(FONT_VALUE),TEXT,right=True)
-            bar_y = y + m.p(10)
-            self._bar_origins.append((m.p(20), bar_y))
-            c.create_image(m.p(20), bar_y - (bar_heights[index] - m.bar_h) / 2,
-                           image=photos[index+1], anchor='nw',
-                           tags='bar_' + str(index))
-            if reset:
-                baseline_text(c,m.p(20),y+m.p(35),reset,m.font(FONT_META),DIM)
-        self._bar_photos = [photos[0][0], *photos[1:]]
-        if amount:
-            baseline_text(c,m.p(20),bill_y,'기본 포함량',m.font(FONT_ROW),MUTED)
-            baseline_text(c,m.card_w-m.p(16),bill_y,amount,m.font(FONT_VALUE),TEXT,right=True)
-        if extra:
-            baseline_text(c,m.p(20),bonus_y,extra,m.font(FONT_META),DIM)
-        if not snap.ok:
-            c.create_text(m.p(20),m.p(99),text=snap.error or '조회 실패',font=m.font(FONT_META),fill=DANGER,anchor='nw',width=m.card_w-m.p(36))
+        c.create_line(0,self.height-1,m.card_w,self.height-1,fill=HAIR)
+        self._paint_shimmer()
+        self._clock_second=None
+        self.refresh_clock()
 
 
 class UsageWidget:
@@ -1970,6 +2113,8 @@ class UsageWidget:
         self.watcher = AuthWatcher()
         self.codex_activity = CodexActivityMonitor()
         self.codex_last_request = float('-inf')
+        self.request_started = dict.fromkeys(FETCHERS, float('-inf'))
+        self._ui_active = dict.fromkeys(FETCHERS, False)
         if not preview and not LOG.handlers:
             try:
                 APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -2070,11 +2215,13 @@ class UsageWidget:
         self.shell.pack_propagate(False)
         self.header = tk.Frame(self.shell,bg=BG,height=m.header_h)
         self.title = tk.Label(self.header,text='AI Usage',bg=BG,fg=TEXT,font=m.font(FONT_TITLE),bd=0,padx=0,pady=0)
+        self.updated_label = tk.Label(self.header,text='',bg=BG,fg=DIM,bd=0)
+        self.live_dot = tk.Canvas(self.header,width=6,height=6,bg=BG,bd=0,highlightthickness=0)
         self.update_pill = UpdatePill(self.header, self.install_update, m, tip=self.tip)
         self.header_buttons = []
         for name,callback in (('refresh',self.refresh),('minus',self.toggle),('close',self.close)):
             self.header_buttons.append(self.icon_button(self.header,name,callback,CLOSE_HOVER if name == 'close' else HOVER))
-        self.body = tk.Frame(self.shell,bg=BG,padx=m.p(12))
+        self.body = tk.Frame(self.shell,bg=BG,padx=0)
         self.cards = {k:Card(self.body,k,m) for k in FETCHERS}
         self.footer = tk.Frame(self.shell,bg=BG,height=m.footer_h)
         tk.Frame(self.footer,bg=HAIR,height=1).place(x=0,y=0,relwidth=1,height=1)
@@ -2082,6 +2229,10 @@ class UsageWidget:
         self.footer_text = tk.Label(self.footer,bg=BG,fg=MUTED,font=m.font(FONT_FOOT),bd=0,padx=0,pady=0)
         self.footer_sep = tk.Label(self.footer,text='·',bg=BG,fg=DIM,font=m.font(FONT_FOOT),bd=0,padx=0,pady=0)
         self.footer_hint = tk.Label(self.footer,text='F5 새로고침',bg=BG,fg=DIM,font=m.font(FONT_FOOT),bd=0,padx=0,pady=0)
+        self.footer_hint.bind('<Button-1>',lambda e:self.refresh())
+        self.footer_hint.configure(cursor='hand2')
+        self.footer_text.bind('<Enter>', lambda e: self.tip.show(self.footer_text, self._poll_hint()))
+        self.footer_text.bind('<Leave>', lambda e: self.tip.hide())
         self.status = self.footer_text
         self.mini = tk.Frame(self.shell,bg=BG,height=max(1, m.compact_h-2))
         self.mini_title = tk.Label(self.mini,text='AI Usage',bg=BG,fg=TEXT,font=m.font(FONT_TITLE),bd=0,padx=0,pady=0)
@@ -2095,7 +2246,7 @@ class UsageWidget:
         for name,callback in (('refresh',self.refresh),('expand',self.toggle),('close',self.close)):
             self.mini_buttons.append(self.icon_button(self.mini,name,callback,CLOSE_HOVER if name == 'close' else HOVER))
         self.apply_metrics()
-        for widget in (self.title,self.header,self.mini_title,self.mini):
+        for widget in (self.title,self.header,self.updated_label,self.mini_title,self.mini):
             self.bind_drag(widget)
         self.menu = tk.Menu(self.root, tearoff=False, bg=CARD, fg=TEXT, activebackground=HAIR, activeforeground=TEXT, disabledforeground=DIM, selectcolor='#FFFFFF')
         self.menu.add_command(label='새로고침    F5', command=self.refresh)
@@ -2446,22 +2597,25 @@ class UsageWidget:
         self.header.configure(height=m.header_h)
         self.footer.configure(height=m.footer_h)
         self.mini.configure(height=max(1, m.compact_h - 2))
-        self.body.configure(padx=m.p(12))
-        self.title.place(x=m.p(12), y=0, height=m.header_h)
+        self.body.configure(padx=0)
+        self.title.place(x=m.p(28), y=0, height=m.header_h)
+        self.live_dot.place(x=m.p(14),y=m.p(16),width=m.p(6),height=m.p(6))
+        self.updated_label.configure(font=m.font((FACE,-10)))
+        self.updated_label.place(x=m.p(94),y=0,height=m.header_h)
         fallback_font = (FACE, max(8, int(round(11 * m.scale))))
         for index, btn in enumerate(self.header_buttons):
             if isinstance(btn, IconButton):
                 btn.set_size(m.icon)
             else:
                 btn.configure(font=fallback_font)
-            btn.place(x=m.p(270) + m.p(26) * index, y=m.p(8), width=m.icon, height=m.icon)
+            btn.place(x=m.window_w-m.p(90) + m.p(28) * index, y=m.p(8), width=m.icon, height=m.icon)
         self.mini_title.place(x=m.p(12), y=0, height=max(1, m.compact_h - 2))
         for index, btn in enumerate(self.mini_buttons):
             if isinstance(btn, IconButton):
                 btn.set_size(m.icon)
             else:
                 btn.configure(font=fallback_font)
-            btn.place(x=m.p(270) + m.p(26) * index, y=m.p(9), width=m.icon, height=m.icon)
+            btn.place(x=m.window_w-m.p(90) + m.p(28) * index, y=m.p(9), width=m.icon, height=m.icon)
         self.footer_dot.configure(width=m.p(6), height=m.p(6))
         self.footer_dot.place(x=m.p(14), y=m.p(12))
         self.footer_text.place(x=m.p(30), y=m.p(1), height=m.p(27))
@@ -2515,7 +2669,7 @@ class UsageWidget:
         for key,card in self.cards.items():
             if key not in visible:
                 self.mini_values[key].configure(text=TITLES[key]+' 꺼짐',fg=CHIP_FG,bg=CHIP_STALE,percent=0,animate=False)
-        body_h = m.p(6)+sum(self.cards[k].height for k in visible)+m.card_gap*max(0,len(visible)-1)+m.p(10)
+        body_h = sum(self.cards[k].height for k in visible)+m.card_gap*max(0,len(visible)-1)
         height = m.compact_h if self.compact else 2+m.header_h+body_h+m.footer_h
         layout = (self.compact, tuple(visible), height, tuple(self.cards[k].height for k in visible), m.scale)
         if layout == self._layout:
@@ -2527,7 +2681,7 @@ class UsageWidget:
             card.pack_forget()
             if key in visible:
                 index = visible.index(key)
-                card.pack(fill='x',pady=(m.p(6) if index == 0 else m.card_gap,0))
+                card.pack(fill='x',pady=(0,0))
         shown = 0
         for key in FETCHERS:
             chip = self.mini_values[key]
@@ -2551,7 +2705,7 @@ class UsageWidget:
                 gdi = ctypes.windll.gdi32
                 gdi.CreateRoundRectRgn.restype = ctypes.c_void_p
                 hwnd = ctypes.c_void_p(int(self.root.wm_frame(),16))
-                region = gdi.CreateRoundRectRgn(0,0,m.window_w+1,height+1,m.p(24),m.p(24))
+                region = gdi.CreateRoundRectRgn(0,0,m.window_w+1,height+1,m.p(28),m.p(28))
                 if ctypes.windll.user32.SetWindowRgn(hwnd,ctypes.c_void_p(region),True):
                     self._region_h = height
                 else:
@@ -2667,8 +2821,14 @@ class UsageWidget:
     def start_job(self, key):
         try:
             now = time.monotonic()
-            if self.runner.start(key, now) and key == 'chatgpt':
-                self.codex_last_request = now
+            previous = self.request_started.get(key, float('-inf'))
+            if self.runner.start(key, now):
+                self.request_started[key] = now
+                if key == 'chatgpt':
+                    self.codex_last_request = now
+                LOG.debug('[Usage] %s request started', TITLES[key])
+                if math.isfinite(previous):
+                    LOG.debug('[Usage] %s request interval=%.2fs', TITLES[key], now - previous)
         except OSError:
             self.accept(key, error_snapshot(key, TITLES[key], '조회 프로세스를 시작하지 못했습니다.', URLS[key]))
 
@@ -2737,15 +2897,16 @@ class UsageWidget:
         if key != 'chatgpt' and snap.ok and usage_dropped(previous, snap):
             until[key] = now + ACTIVE_HOLD
         self.snapshots[key] = snap
-        active = bool(snap.ok) and until.get(key, 0) > now
-        self.due[key] = now + next_interval(snap, self.failures[key], active)
         if key == 'chatgpt':
             monitor = getattr(self, 'codex_activity', None)
-            fast = monitor is not None and monitor.fast(now)
-            interval = FAST_INTERVAL if fast and not self.failures[key] else next_interval(snap, self.failures[key], False)
-            self.due[key] = now + interval
+            fast = monitor is not None and monitor.fast(now) and not self.failures[key]
+            self._schedule_poll(key, snap, now, active=fast)
             LOG.debug('[Usage] quota raw/display remaining: %s', [(bar.label, bar.used_percent, bar.remaining_percent, round(bar.remaining_percent) if bar.remaining_percent is not None else None) for bar in snap.bars])
+        else:
+            active = bool(snap.ok) and until.get(key, 0) > now and not self.failures[key]
+            self._schedule_poll(key, snap, now, active=active)
         self.render(key)
+        self._sync_activity_ui(now)
         if not self.preview:
             self.save_cache()
             if self.notifications.get() and not self.locked and self.enabled[key].get():
@@ -2760,6 +2921,47 @@ class UsageWidget:
                     title = TITLES[key] + (' 한도 소진·제한' if severity == 2 else ' 한도 임박')
                     remaining, label = limiting_quota(snap)
                     self.toast.send(key, title, f'{label} · 잔여 {remaining:.0f}%')
+
+    def _schedule_poll(self, key, snap, now, *, active):
+        if self.failures[key]:
+            self.due[key] = now + next_interval(snap, self.failures[key], False)
+            return
+        if active:
+            started = getattr(self, 'request_started', {}).get(key, float('-inf'))
+            self.due[key] = next_fast_due(started, now)
+            return
+        self.due[key] = now + next_interval(snap, 0, False)
+
+    def _sync_activity_ui(self, now=None):
+        cards = getattr(self, 'cards', None)
+        chips = getattr(self, 'mini_values', None)
+        if not cards:
+            return
+        now = time.monotonic() if now is None else now
+        gpt_active = (not self.preview and self.enabled['chatgpt'].get()
+                      and getattr(self, 'codex_activity', None) is not None
+                      and self.codex_activity.fast(now))
+        cursor_active = (self.enabled['cursor'].get()
+                         and getattr(self, 'usage_until', {}).get('cursor', 0) > now)
+        states = {'chatgpt': gpt_active, 'cursor': cursor_active}
+        ui_active = getattr(self, '_ui_active', None)
+        if ui_active is None:
+            ui_active = {}
+            self._ui_active = ui_active
+        for key, active in states.items():
+            if ui_active.get(key) != active:
+                ui_active[key] = active
+                name = TITLES[key]
+                if active:
+                    LOG.debug('[UI] %s bar ACTIVE', name)
+                    LOG.debug('[UI] %s shimmer ACTIVE', name)
+                else:
+                    LOG.debug('[UI] %s bar NORMAL', name)
+                    LOG.debug('[UI] %s shimmer STOP', name)
+            if key in cards:
+                cards[key].set_activity(active)
+            if chips and key in chips:
+                chips[key].set_activity(active)
 
     def save_cache(self):
         payload = {k: snapshot_to_dict(v) for k, v in self.snapshots.items() if v.ok and not v.stale}
@@ -2790,14 +2992,26 @@ class UsageWidget:
         self.mini_values[key].configure(text=f'{TITLES[key]} {value}', fg=fg, bg=fill, percent=pct)
         self.mini_values[key].observe_usage(snap)
 
+    def _poll_hint(self):
+        now = time.monotonic()
+        return '\n'.join(f'{TITLES[k]} · 다음 조회 {max(0,int(self.due[k]-now))}초 후' for k in FETCHERS if self.enabled[k].get())
+
+    def refresh_design_status(self):
+        snaps=[s for k,s in self.snapshots.items() if self.enabled[k].get()]
+        stamp=max((s.fetched_at for s in snaps if s.ok),default=0)
+        age=max(0,int(time.time()-stamp)) if stamp else None
+        text='갱신 대기' if age is None else '방금 업데이트' if age<5 else f'{age}초 전 업데이트' if age<60 else f'{age//60}분 전 업데이트'
+        self.updated_label.configure(text='' if self.update_info or self._update_busy else '· '+text)
+        color=MUTED if age is None or age>60 or any(s.stale for s in snaps) else '#22C55E'
+        if any(not s.ok for s in snaps): color=DANGER
+        self.live_dot.delete('all')
+        d=self.metrics.p(6)
+        self.live_dot.create_oval(0,0,d,d,fill=color,outline='')
+
     def set_footer(self, text, fg, dot):
         snaps = [self.snapshots[k] for k in FETCHERS if self.enabled[k].get() and k in self.snapshots]
-        if any(not s.stale and visual_state(s) == 'danger' for s in snaps):
-            text,dot = '사용량 소진',DANGER
-        elif any(s.stale for s in snaps):
-            text,dot = '일부 데이터 이전 기준',STALE_STRIP
-        else:
-            text,dot = '자동 감지',CODEX
+        if not text or text == '자동 감지':
+            text,dot = '자동 감지 중','#22C55E'
         state = (text, dot)
         if state == self._footer_state:
             return
@@ -2805,7 +3019,7 @@ class UsageWidget:
         self.footer_text.configure(text=text,fg=MUTED)
         m = self.metrics
         width = tkfont.Font(root=self.root,font=m.font(FONT_FOOT)).measure(text)
-        self.footer_sep.place(x=m.p(30)+width+m.p(10),y=m.p(1),height=m.p(27))
+        self.footer_sep.place_forget()
         self.footer_dot.delete('all')
         d = m.p(6)
         self.footer_dot.create_oval(0,0,d,d,fill=dot,outline='')
@@ -2814,20 +3028,22 @@ class UsageWidget:
         if self.closing:
             return
         self.drain_update_queue()
+        for card in self.cards.values():
+            card.refresh_clock()
+        self.refresh_design_status()
         now = time.monotonic()
         self.environment(now)
         if not self.preview:
             was_fast = self.codex_activity.was_fast
             activity, quota_event = self.codex_activity.poll(now)
             if not self.locked and self.enabled['chatgpt'].get():
+                fast = self.codex_activity.fast(now)
                 if (activity or quota_event) and not self.failures['chatgpt']:
-                    self.due['chatgpt'] = min(self.due['chatgpt'], max(now, self.codex_last_request + FAST_INTERVAL))
-                if activity:
-                    card = self.cards['chatgpt']
-                    card._trigger_shimmer(range(len(card._shown_pcts)))
-                    self.mini_values['chatgpt']._trigger_shimmer([0])
-                if was_fast and not self.codex_activity.fast(now) and not self.failures['chatgpt']:
+                    started = self.request_started.get('chatgpt', float('-inf'))
+                    self.due['chatgpt'] = min(self.due['chatgpt'], next_fast_due(started, now))
+                if was_fast and not fast and not self.failures['chatgpt']:
                     self.due['chatgpt'] = now + next_interval(self.snapshots.get('chatgpt'), active=False)
+            self._sync_activity_ui(now)
         for key, snap, error in self.runner.poll(now):
             if not self.locked and self.enabled[key].get():
                 self.accept(key, snap or error_snapshot(key, TITLES[key], error, URLS[key]))
@@ -2864,6 +3080,8 @@ class UsageWidget:
         else:
             self.set_footer('자동 감지', MUTED, CODEX)
         heat = any(until > now for until in getattr(self, 'usage_until', {}).values())
+        if getattr(self, 'codex_activity', None) is not None and self.codex_activity.fast(now):
+            heat = True
         self.timer = self.root.after(200 if active or heat else 1000, self.tick)
 
     def set_update_chrome(self):
@@ -2881,7 +3099,7 @@ class UsageWidget:
             hint = f'업데이트 {version}' if ready else ''
         # Detail header: a filled pill right after the title, hidden when nothing is pending.
         if pending and not self.compact:
-            x = m.p(84)
+            x = m.p(96)
             width = self.update_pill.show(header_labels, ready, m.p(270) - m.p(10) - x, hint)
             self.update_pill.place(x=x, y=(m.header_h - m.pill_h) // 2, width=width, height=m.pill_h)
         else:

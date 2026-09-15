@@ -4,8 +4,9 @@ import os
 import tempfile
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import providers as p
 import usage_widget as u
@@ -43,8 +44,8 @@ class WidgetTests(unittest.TestCase):
         self.assertEqual(u.step_scale(1.45, 1), 1.5)
         self.assertEqual(u.scaled_font(u.FONT_TITLE, 1.0), u.FONT_TITLE)
         self.assertEqual(u.scaled_font(u.FONT_TITLE, 1.3), (u.FONT_TITLE[0], -17))
-        self.assertEqual(u.Metrics(1.15).window_w, 414)
-        self.assertEqual(u.Metrics(1.15).header_h, 46)
+        self.assertEqual(u.Metrics(1.15).window_w, 437)
+        self.assertEqual(u.Metrics(1.15).header_h, 44)
 
     def test_pretendard_faces_when_bundled(self):
         files = [u.FONT_DIR / name for name in u.PRETENDARD_FILES]
@@ -92,9 +93,9 @@ class WidgetTests(unittest.TestCase):
         self.assertNotIn('후',p._window_bar('test',{'reset_after_seconds':3600}).reset_text)
 
     def test_reset_stamp_and_bar_colors(self):
-        self.assertEqual(u.reset_stamp('9월 10일 19:52'),'19:52 재설정')
+        self.assertEqual(u.reset_stamp('9월 10일 19:52'),'19:52 리셋')
         self.assertEqual(u.reset_stamp(''),'')
-        self.assertEqual(u.dated_reset_stamp('9월 17일 08:30'),'9월 17일 08:30 재설정')
+        self.assertEqual(u.dated_reset_stamp('9월 17일 08:30'),'9월 17일 08:30 리셋')
         self.assertEqual(u.dated_reset_stamp(''),'')
         self.assertEqual(u.cursor_reset('9월 14일 09:00'),'9월 14일 09:00 초기화')
         self.assertEqual(u.cursor_reset('9월 14일 09:00 초기화'),'9월 14일 09:00 초기화')
@@ -106,10 +107,13 @@ class WidgetTests(unittest.TestCase):
         self.assertTrue(u.should_tween(80,50))
         self.assertTrue(u.should_tween(50,80))
         self.assertFalse(u.should_tween(50,50))
-        self.assertEqual(u.shimmer_emphasis(0),0)
-        self.assertEqual(u.shimmer_emphasis(0.6),1)
-        self.assertEqual(u.shimmer_emphasis(5.0),1)
-        self.assertEqual(u.shimmer_emphasis(6.0),0)
+        self.assertEqual(u.follow_emphasis(0, True, 0), 0)
+        self.assertEqual(u.follow_emphasis(0, True, 0.4), 1)
+        self.assertAlmostEqual(u.follow_emphasis(0, True, 0.2), 0.5)
+        self.assertEqual(u.follow_emphasis(1, True, 10), 1)
+        self.assertEqual(u.follow_emphasis(1, False, 0.85), 0)
+        self.assertAlmostEqual(u.next_fast_due(100, 100.8), 102)
+        self.assertEqual(u.next_fast_due(100, 103), 103)
         self.assertAlmostEqual(u.follow_bar(0, 100, 0.1), 55.0671035883)
         self.assertEqual(u.follow_bar(50, 50, 1), 50)
         self.assertEqual(u.follow_bar(50, 49, 0.6), 49)
@@ -176,23 +180,80 @@ class WidgetTests(unittest.TestCase):
         self.assertTrue(u.usage_dropped(first, second))
         self.assertFalse(u.usage_dropped(second, second))
         self.assertFalse(u.usage_dropped(second, first))
-        self.assertEqual(u.next_interval(second, active=True), 0)
+        self.assertEqual(u.next_interval(second, active=True), 2)
         self.assertEqual(u.next_interval(second, active=False), 30)
         self.assertEqual(u.next_interval(codex(100,20), active=True), 300)
         w=u.UsageWidget.__new__(u.UsageWidget)
-        w.failures={'chatgpt':0};w.snapshots={};w.due={};w.usage_until={};w.preview=True;w.render=lambda k:None
+        w.failures={'chatgpt':0,'cursor':0};w.snapshots={};w.due={};w.usage_until={};w.preview=True;w.render=lambda k:None
+        w.request_started={'chatgpt':float('-inf'),'cursor':float('-inf')}
         w.accept('chatgpt', first)
         self.assertLessEqual(w.usage_until.get('chatgpt', 0), time.monotonic())
         w.accept('chatgpt', second)
         self.assertFalse(w.usage_until.get('chatgpt', 0))
         self.assertGreater(w.due['chatgpt'] - time.monotonic(), 29)
         w.codex_activity = u.CodexActivityMonitor()
-        w.codex_activity.last_activity_time = time.monotonic()
+        started = time.monotonic()
+        w.request_started['chatgpt'] = started
+        w.codex_activity.last_activity_time = started
         w.accept('chatgpt', second)
-        self.assertAlmostEqual(w.due['chatgpt'] - time.monotonic(), 2, delta=0.1)
+        self.assertAlmostEqual(w.due['chatgpt'], started + 2, delta=0.1)
         w.codex_activity.last_activity_time -= 13
         w.accept('chatgpt', second)
         self.assertGreater(w.due['chatgpt'] - time.monotonic(), 29)
+        cursor_first, cursor_second = replace(first, key='cursor'), replace(second, key='cursor')
+        w.request_started['cursor'] = started
+        w.accept('cursor', cursor_first)
+        w.accept('cursor', cursor_second)
+        self.assertGreater(w.usage_until['cursor'], time.monotonic())
+        self.assertAlmostEqual(w.due['cursor'], started + 2, delta=0.1)
+
+    def test_fast_poll_is_start_to_start_and_skips_running_worker(self):
+        snap = codex()
+        w=u.UsageWidget.__new__(u.UsageWidget)
+        w.failures={'chatgpt':0};w.snapshots={};w.due={};w.usage_until={};w.preview=True;w.render=lambda k:None
+        w.request_started={'chatgpt':100.0}
+        w.codex_activity=u.CodexActivityMonitor()
+        w.codex_activity.last_activity_time=100.0
+        with patch.object(time,'monotonic',return_value=100.8):
+            w.accept('chatgpt', snap)
+        self.assertEqual(w.due['chatgpt'], 102.0)
+        with patch.object(time,'monotonic',return_value=103.0):
+            w.accept('chatgpt', snap)
+        self.assertEqual(w.due['chatgpt'], 103.0)
+        w.runner=Mock()
+        w.runner.start.return_value=False
+        w.codex_last_request=100.0
+        w.start_job('chatgpt')
+        self.assertEqual(w.request_started['chatgpt'], 100.0)
+        w.runner.start.return_value=True
+        with patch.object(time,'monotonic',return_value=104.0):
+            w.start_job('chatgpt')
+        self.assertEqual(w.request_started['chatgpt'], 104.0)
+        self.assertEqual(w.codex_last_request, 104.0)
+
+    def test_activity_ui_follows_codex_fast_state(self):
+        w=u.UsageWidget.__new__(u.UsageWidget)
+        w.preview=False
+        w.enabled={'chatgpt': Mock(get=lambda: True), 'cursor': Mock(get=lambda: False)}
+        gpt_card, gpt_chip = Mock(), Mock()
+        w.cards={'chatgpt': gpt_card, 'cursor': Mock()}
+        w.mini_values={'chatgpt': gpt_chip, 'cursor': Mock()}
+        w.codex_activity=u.CodexActivityMonitor()
+        w.codex_activity.last_activity_time=time.monotonic()
+        w.usage_until={}
+        w._ui_active={}
+        with self.assertLogs('ai_usage.activity', level='DEBUG') as logged:
+            w._sync_activity_ui()
+        gpt_card.set_activity.assert_called_with(True)
+        gpt_chip.set_activity.assert_called_with(True)
+        self.assertTrue(any('GPT bar ACTIVE' in line for line in logged.output))
+        self.assertTrue(any('GPT shimmer ACTIVE' in line for line in logged.output))
+        w.codex_activity.last_activity_time=float('-inf')
+        with self.assertLogs('ai_usage.activity', level='DEBUG') as logged:
+            w._sync_activity_ui()
+        gpt_card.set_activity.assert_called_with(False)
+        self.assertTrue(any('GPT bar NORMAL' in line for line in logged.output))
+        self.assertTrue(any('GPT shimmer STOP' in line for line in logged.output))
 
     def test_install_root_round_trip(self):
         with tempfile.TemporaryDirectory() as directory:

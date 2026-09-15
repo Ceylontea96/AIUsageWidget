@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [3.2.24] - 2026-09-15
+
+### Changed
+- Refined v2 디자인 적용: 380px 창, 원형 잔여량, 상태 배지, 리셋 카운트다운, 서비스별 색상
+- GPT 5시간 잔여량은 원형, 주간 한도는 보조 바로 표시; 기존 리셋권·크레딧 유지
+- Cursor 보조 바도 잔여량으로 표시하고 보너스 사용액을 별도 강조
+- 기존 10px 바·연속 추종 길이 애니메이션 유지
+- 사용 중 바 굵기와 shimmer를 고정 6초 사이클이 아니라 Codex/Cursor activity 상태에 연결
+- GPT FAST 조회를 요청 시작 시각 기준 2초 간격으로 맞추고, Cursor 즉시 재조회(ACTIVE_POLL=0)를 2초로 제한
+
 ## [3.2.23] - 2026-09-15
 
 ### Changed
@@ -216,7 +226,12 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.19...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.24...HEAD
+[3.2.24]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.24
+[3.2.23]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.23
+[3.2.22]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.22
+[3.2.21]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.21
+[3.2.20]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.20
 [3.2.19]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.19
 [3.2.18]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.18
 [3.2.17]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.17

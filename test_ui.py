@@ -36,7 +36,7 @@ class UiTests(unittest.TestCase):
         w.snapshots['chatgpt']=s;w.render('chatgpt');w.root.update_idletasks()
         before=w.cards['chatgpt'].rows.winfo_reqheight()
         w.snapshots['chatgpt']=error_snapshot('chatgpt','Codex','조회 실패','');w.render('chatgpt');w.root.update_idletasks()
-        self.assertLess(w.cards['chatgpt'].rows.winfo_reqheight(),before)
+        self.assertTrue(any(w.cards['chatgpt'].rows.itemcget(i,'text')=='조회 실패' for i in w.cards['chatgpt'].rows.find_all() if w.cards['chatgpt'].rows.type(i)=='text'))
         mode=w.compact;w.toggle();self.assertNotEqual(w.compact,mode);w.toggle();self.assertEqual(w.compact,mode)
 
     def test_cursor_card_shows_billing_reset(self):
@@ -45,10 +45,12 @@ class UiTests(unittest.TestCase):
         w.snapshots['cursor']=ProviderSnapshot('cursor','Cursor','Pro',True,80,'',bars=bars)
         w.render('cursor')
         with_reset=w.cards['cursor'].height
+        self.assertIsNotNone(w.cards['cursor']._reset_epoch)
         w.snapshots['cursor']=ProviderSnapshot('cursor','Cursor','Pro',True,80,'',bars=[QuotaBar('자사 모델',80,20,'',''),QuotaBar('API 사용량',70,30,'','')])
         w.cards['cursor'].last_signature=None
         w.render('cursor')
-        self.assertGreater(with_reset,w.cards['cursor'].height)
+        self.assertEqual(with_reset,w.cards['cursor'].height)
+        self.assertIsNone(w.cards['cursor']._reset_epoch)
 
     def test_gpt_title_and_both_reset_captions(self):
         card=self.w.cards['chatgpt']
@@ -57,8 +59,8 @@ class UiTests(unittest.TestCase):
         texts=[card.rows.itemcget(item,'text') for item in card.rows.find_all() if card.rows.type(item)=='text']
         self.assertIn('GPT',texts)
         self.assertNotIn('Codex',texts)
-        self.assertIn('14:00 재설정',texts)
-        self.assertIn('9월 20일 09:30 재설정',texts)
+        self.assertIn('14:00 리셋',texts)
+        self.assertIn('주간 리셋 9월 20일 09:30',texts)
 
     def test_widget_fonts_are_pretendard(self):
         if not u.register_bundled_fonts():
@@ -171,7 +173,7 @@ class UiTests(unittest.TestCase):
         chip_w=int(w.mini_values['chatgpt'].cget('width'))
         w.set_scale(1.3)
         self.assertEqual(w.scale, 1.3)
-        self.assertEqual(int(w.shell.cget('width')), u.px(360, 1.3))
+        self.assertEqual(int(w.shell.cget('width')), u.px(380, 1.3))
         self.assertGreater(int(w.shell.cget('width')), base)
         self.assertGreater(w.cards['chatgpt'].height, card_h)
         self.assertGreater(int(w.mini_values['chatgpt'].cget('width')), chip_w)
@@ -205,7 +207,7 @@ class UiTests(unittest.TestCase):
         self.w=u.UsageWidget(preview=True)
         self.w.root.withdraw()
         self.assertEqual(self.w.scale, 1.3)
-        self.assertEqual(int(self.w.shell.cget('width')), u.px(360, 1.3))
+        self.assertEqual(int(self.w.shell.cget('width')), u.px(380, 1.3))
 
     def test_environment_keeps_widget_while_overlay(self):
         w=self.prepare()

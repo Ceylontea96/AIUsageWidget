@@ -11,15 +11,15 @@ Token activity detects Codex use; the rate-limit API supplies plan quota. There 
 
 ## Scheduling
 
-`CodexActivityMonitor` checks local session append data at most once per second. A fresh cumulative token increase or `task_complete` enters FAST mode. Repeated identical token totals do not prolong it. FAST requests wait two seconds after the previous result, with a two-second minimum between activity-triggered starts. There is still only one worker per provider.
+`CodexActivityMonitor` checks local session append data at most once per second. A fresh cumulative token increase or `task_complete` enters FAST mode. Repeated identical token totals do not prolong it. FAST requests wait until two seconds after the previous request start, with one worker per provider. A slow response does not queue a second worker; the next start happens at max(now, start + 2s).
 
-After 12 seconds without activity, NORMAL resumes: existing 20/30-second scheduling, 300 seconds for exhausted quota, and existing error backoff. Quota changes never extend GPT FAST mode. A new rate-limit event can independently request a refresh without entering FAST mode. Cursor scheduling is unchanged.
+After 12 seconds without activity, NORMAL resumes: existing 20/30-second scheduling, 300 seconds for exhausted quota, and existing error backoff. Quota changes never extend GPT FAST mode. A new rate-limit event can independently request a refresh without entering FAST mode. Cursor usage drops still enter a 60-second FAST window, but polling is also 2 seconds start-to-start instead of immediate.
 
 The first scan seeds existing files without triggering effects. Discovery covers today/yesterday and up to 64 recently modified tracked sessions, with reads limited to 64 KiB per file per scan. Older untracked sessions and remote/cloud sessions are not guaranteed to be detected; periodic quota polling remains the fallback. Malformed JSON, partial writes, truncated files, and inaccessible files do not interrupt quota polling. Only event metadata and token totals are retained, never conversation text.
 
 ## UI and diagnostics
 
-Fresh activity triggers the existing six-second effect even when the returned quota is unchanged. Bar width continues to interpolate actual raw quota changes only. Activity does not synthesize or decrement quota.
+Fresh activity keeps the GPT bar thick and the shimmer looping until 12 seconds of inactivity. Bar width continues to interpolate actual raw quota changes only. Activity does not synthesize or decrement quota.
 
 `%APPDATA%/AiUsageWidget/activity-debug.log` records activity, total changes, FAST/NORMAL transitions, and raw/display quota values. Rotation limits each file to 256 KiB plus one backup. No credentials, paths, prompts, or replies are logged.
 
