@@ -1141,9 +1141,14 @@ def fetch_chatgpt() -> ProviderSnapshot:
 
 
 CLAUDE_DASHBOARD_URL = "https://claude.ai/settings/usage"
+# The CLI needs a few seconds for a control request. Stay under the 15s worker
+# deadline so a slow answer reports itself instead of being killed as a timeout.
+CLAUDE_CLI_TIMEOUT = 12.0
 
 
-def _claude_quota_item(raw_id: str, window: dict[str, Any], now: float) -> QuotaItem | None:
+def _claude_quota_item(
+    raw_id: str, window: dict[str, Any], now: float, source: str = "claude_statusline"
+) -> QuotaItem | None:
     from claude_bridge import KNOWN_WINDOWS, window_expired
 
     spec = KNOWN_WINDOWS.get(raw_id)
@@ -1160,7 +1165,7 @@ def _claude_quota_item(raw_id: str, window: dict[str, Any], now: float) -> Quota
         return None
     return QuotaItem(
         quota_id=f"claude:{raw_id}",
-        source="claude_statusline",
+        source=source,
         category=str(spec["category"]),
         display_name=str(spec["display_name"]),
         raw_identifier=raw_id,
@@ -1171,6 +1176,227 @@ def _claude_quota_item(raw_id: str, window: dict[str, Any], now: float) -> Quota
         reset_at=reset,
         scope="global",
     )
+
+
+def _claude_items(windows: dict[str, Any], now: float, source: str) -> list[QuotaItem]:
+    from claude_bridge import WINDOW_KEYS
+
+    items = []
+    for key in WINDOW_KEYS:
+        raw = windows.get(key)
+        if isinstance(raw, dict):
+            item = _claude_quota_item(key, raw, now, source=source)
+            if item is not None:
+                items.append(item)
+    return items
+
+
+def _claude_snapshot(
+    items: list[QuotaItem],
+    *,
+    observed: float,
+    stale: bool,
+    footer: str,
+    source: str,
+    internal: dict[str, Any] | None = None,
+) -> ProviderSnapshot:
+    """Shared card shape for both Claude sources, so hero and captions match."""
+    meta = {"quota_observed_at": observed, "source": source}
+    meta.update(internal or {})
+    five = next((item for item in items if item.raw_identifier == "five_hour"), None)
+    week = next((item for item in items if item.raw_identifier == "seven_day"), None)
+    hero = five or week
+    if hero is None:
+        return ProviderSnapshot(
+            key="claude",
+            title="Claude",
+            plan="Claude",
+            ok=False,
+            hero_percent=None,
+            hero_caption="사용량 없음",
+            error="사용량 창을 기다리는 중",
+            dashboard_url=CLAUDE_DASHBOARD_URL,
+            fetched_at=observed,
+            stale=stale,
+            footer="Claude Code가 다음 응답 후 한도를 다시 제공합니다.",
+            internal=meta,
+        )
+    remaining = hero.remaining_percent
+    caption = (
+        f"{hero.display_name} 소진"
+        if remaining is not None and remaining <= 0
+        else f"{hero.display_name} 기준 잔여"
+    )
+    return ProviderSnapshot(
+        key="claude",
+        title="Claude",
+        plan="Claude",
+        ok=True,
+        hero_percent=remaining,
+        hero_caption=caption,
+        main_limits=items,
+        blocked=remaining is not None and remaining <= 0,
+        stale=stale,
+        footer=footer,
+        dashboard_url=CLAUDE_DASHBOARD_URL,
+        fetched_at=observed,
+        internal=meta,
+    )
+
+
+def parse_iso_epoch(value: Any) -> float | None:
+    """Parse the CLI's ISO 8601 reset stamps. statusLine sends unix seconds."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.astimezone()
+    return parsed.timestamp()
+
+
+def claude_windows_from_rate_limits(rate_limits: Any) -> dict[str, dict[str, Any]]:
+    """Map the CLI's utilization/ISO reset rows onto the statusLine window shape."""
+    from claude_bridge import WINDOW_KEYS
+
+    if not isinstance(rate_limits, dict):
+        return {}
+    windows: dict[str, dict[str, Any]] = {}
+    for key in WINDOW_KEYS:
+        raw = rate_limits.get(key)
+        if not isinstance(raw, dict):
+            continue
+        used = to_float(raw.get("utilization"))
+        reset = parse_iso_epoch(raw.get("resets_at"))
+        if used is None and reset is None:
+            continue
+        window: dict[str, Any] = {}
+        if used is not None:
+            window["used_percent"] = used
+            window["remaining_percent"] = remaining_from_used(used)
+        if reset is not None:
+            window["resets_at"] = reset
+        windows[key] = window
+    return windows
+
+
+def claude_usage_from_control_output(raw_text: str, now: float | None = None) -> ProviderSnapshot:
+    """Read one `get_usage` control_response. Pure, so the CLI call stays testable."""
+    current = time.time() if now is None else float(now)
+    body: dict[str, Any] | None = None
+    for line in str(raw_text).splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(record, dict) or record.get("type") != "control_response":
+            continue
+        response = record.get("response")
+        if not isinstance(response, dict) or response.get("subtype") != "success":
+            continue
+        inner = response.get("response")
+        if isinstance(inner, dict):
+            body = inner
+    if body is None:
+        return error_snapshot(
+            "claude",
+            "Claude",
+            "Claude Code가 사용량을 돌려주지 않았습니다. 자동 재시도합니다.",
+            CLAUDE_DASHBOARD_URL,
+        )
+    if not body.get("rate_limits_available", True):
+        return error_snapshot(
+            "claude",
+            "Claude",
+            "이 계정에서는 플랜 한도를 제공하지 않습니다.",
+            CLAUDE_DASHBOARD_URL,
+        )
+    windows = claude_windows_from_rate_limits(body.get("rate_limits"))
+    items = _claude_items(windows, current, "claude_cli")
+    return _claude_snapshot(
+        items,
+        observed=current,
+        stale=False,
+        footer="",
+        source="claude_cli",
+        internal={"subscription_type": str(body.get("subscription_type") or "")},
+    )
+
+
+def _claude_cli_executable() -> Path | None:
+    from claude_integration import resolve_claude_executable
+
+    found = resolve_claude_executable()
+    if found is not None:
+        return found
+    roaming = os.environ.get("APPDATA")
+    if roaming:
+        builds = sorted((Path(roaming) / "Claude" / "claude-code").glob("*/claude.exe"))
+        if builds:
+            return builds[-1]
+    return None
+
+
+def fetch_claude_cli(now: float | None = None) -> ProviderSnapshot:
+    """Ask the installed Claude Code for plan usage. No prompt, so no token spend."""
+    import subprocess
+
+    current = time.time() if now is None else float(now)
+    executable = _claude_cli_executable()
+    if executable is None:
+        return error_snapshot(
+            "claude",
+            "Claude",
+            "Claude Code를 찾지 못했습니다. 설치 후 다시 시도하세요.",
+            CLAUDE_DASHBOARD_URL,
+        )
+    request = json.dumps(
+        {
+            "type": "control_request",
+            "request_id": "usage",
+            "request": {"subtype": "get_usage", "skip_behaviors": True},
+        },
+        ensure_ascii=True,
+    )
+    try:
+        completed = subprocess.run(
+            [
+                str(executable),
+                "-p",
+                "--output-format", "stream-json",
+                "--input-format", "stream-json",
+                "--verbose",
+            ],
+            input=(request + "\n").encode("utf-8"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=CLAUDE_CLI_TIMEOUT,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except subprocess.TimeoutExpired:
+        return error_snapshot(
+            "claude",
+            "Claude",
+            "Claude Code 조회가 시간을 초과했습니다. 자동 재시도합니다.",
+            CLAUDE_DASHBOARD_URL,
+        )
+    except OSError:
+        return error_snapshot(
+            "claude",
+            "Claude",
+            "Claude Code를 실행하지 못했습니다. 로그인 상태를 확인하세요.",
+            CLAUDE_DASHBOARD_URL,
+        )
+    text = (completed.stdout or b"").decode("utf-8", "replace")
+    return claude_usage_from_control_output(text, current)
 
 
 def fetch_claude(now: float | None = None) -> ProviderSnapshot:
@@ -1196,49 +1422,18 @@ def fetch_claude(now: float | None = None) -> ProviderSnapshot:
         return error_snapshot("claude", "Claude", detail, CLAUDE_DASHBOARD_URL)
     selected = select_session_cache(list_session_caches(current), current)
     if selected is None:
+        # statusLine only runs in terminal Claude Code, so the widget asks the
+        # CLI itself. That answer arrives through the worker, not from here.
         return error_snapshot(
             "claude",
             "Claude",
-            "대화형 Claude Code를 실행하면 사용량이 나타납니다. claude -p만으로는 추적되지 않습니다.",
+            "Claude Code에서 사용량을 가져오는 중입니다.",
             CLAUDE_DASHBOARD_URL,
         )
-    items = []
-    for key in WINDOW_KEYS:
-        raw = selected.get(key)
-        if isinstance(raw, dict):
-            item = _claude_quota_item(key, raw, current)
-            if item is not None:
-                items.append(item)
+    windows = {key: selected.get(key) for key in WINDOW_KEYS}
+    items = _claude_items(windows, current, "claude_statusline")
     stale = quota_stale(selected, current)
     observed = to_float(selected.get("quota_observed_at")) or current
-    five = next((item for item in items if item.raw_identifier == "five_hour"), None)
-    week = next((item for item in items if item.raw_identifier == "seven_day"), None)
-    hero = five or week
-    if hero is None:
-        return ProviderSnapshot(
-            key="claude",
-            title="Claude",
-            plan="Claude",
-            ok=False,
-            hero_percent=None,
-            hero_caption="사용량 없음",
-            error="사용량 창을 기다리는 중",
-            dashboard_url=CLAUDE_DASHBOARD_URL,
-            fetched_at=observed,
-            stale=stale,
-            footer="Claude Code가 다음 응답 후 한도를 다시 제공합니다.",
-            internal={
-                "quota_observed_at": observed,
-                "bridge_seen_at": selected.get("bridge_seen_at"),
-                "source": "claude_statusline",
-            },
-        )
-    remaining = hero.remaining_percent
-    caption = (
-        f"{hero.display_name} 소진"
-        if remaining is not None and remaining <= 0
-        else f"{hero.display_name} 기준 잔여"
-    )
     footer = ""
     if stale:
         footer = (
@@ -1246,24 +1441,13 @@ def fetch_claude(now: float | None = None) -> ProviderSnapshot:
             if session_inactive(selected, current)
             else "이전 데이터"
         )
-    return ProviderSnapshot(
-        key="claude",
-        title="Claude",
-        plan="Claude",
-        ok=True,
-        hero_percent=remaining,
-        hero_caption=caption,
-        main_limits=items,
-        blocked=remaining is not None and remaining <= 0,
+    return _claude_snapshot(
+        items,
+        observed=observed,
         stale=stale,
         footer=footer,
-        dashboard_url=CLAUDE_DASHBOARD_URL,
-        fetched_at=observed,
-        internal={
-            "quota_observed_at": observed,
-            "bridge_seen_at": selected.get("bridge_seen_at"),
-            "source": "claude_statusline",
-        },
+        source="claude_statusline",
+        internal={"bridge_seen_at": selected.get("bridge_seen_at")},
     )
 
 

@@ -617,6 +617,10 @@ def quota_window_title(label):
 
 
 ACTIVE_HOLD = 60
+# statusLine only runs in terminal Claude Code. When it is silent the widget
+# asks the CLI itself; that costs a process, not tokens, so keep it infrequent.
+CLAUDE_CLI_INTERVAL = 60.0
+CLAUDE_CLI_STALE = 300.0
 
 
 def remaining_marks(snap):
@@ -665,6 +669,11 @@ def should_setup(settings, preview=False):
     if settings.get('version') and isinstance(settings.get('enabled'), dict):
         return False
     return True
+
+
+def claude_menu_label(action_label=None):
+    text = str(action_label if action_label is not None else prepare_action('claude')[0])
+    return text if text.endswith('...') else text + '...'
 
 
 def default_enabled(settings, preview=False, present=None):
@@ -2293,6 +2302,9 @@ class UsageWidget:
         self.dragging = False
         self.last_area = None
         self.snapshots = {}
+        self.claude_cli_snapshot = None
+        self.claude_cli_at = float('-inf')
+        self.claude_cli_due = 0.0
         self.additional_open = None
         self.failures = dict.fromkeys(FETCHERS, 0)
         self.due = dict.fromkeys(FETCHERS, 0.0)
@@ -2430,6 +2442,9 @@ class UsageWidget:
         self.menu.add_command(label='업데이트 확인', command=self.check_update_now)
         self.menu.add_separator()
         self.menu.add_command(label='표시할 서비스·로그인...', command=self.pick_services)
+        self.menu.add_command(label=claude_menu_label(), command=self._run_claude_menu_action)
+        self._claude_menu = self.menu.index('end')
+        self._sync_claude_menu()
         for key in FETCHERS:
             self.menu.add_checkbutton(label=TITLES[key] + ' 조회', variable=self.enabled[key], command=lambda k=key: self.toggle_provider(k))
         self.menu.add_separator()
@@ -2440,7 +2455,7 @@ class UsageWidget:
         self.menu.add_command(label='바탕화면 바로가기 생성', command=self.make_desktop_shortcut)
         self.menu.add_command(label=f'버전 {APP_VERSION}', state='disabled')
         self.menu.add_command(label='종료', command=self.close)
-        self.menu.bind('<Map>', lambda e: self._lift_menu())
+        self.menu.bind('<Map>', lambda e: self._on_menu_map())
 
     def apply_topmost(self):
         if self.preview:
@@ -2558,6 +2573,26 @@ class UsageWidget:
             return
         self._raise_open_menus()
 
+    def _on_menu_map(self):
+        self._sync_claude_menu()
+        self._lift_menu()
+
+    def _sync_claude_menu(self):
+        index = getattr(self, '_claude_menu', None)
+        if index is None:
+            return
+        label, action = prepare_action('claude')
+        self.menu.entryconfigure(
+            index,
+            label=claude_menu_label(label),
+            command=lambda a=action: self._service_setup_action(a),
+        )
+
+    def _run_claude_menu_action(self):
+        self._sync_claude_menu()
+        _, action = prepare_action('claude')
+        self._service_setup_action(action)
+
     def _arm_menu_raise(self):
         hwnd = self._widget_hwnd()
         if not self._overlay and self.topmost.get():
@@ -2608,7 +2643,7 @@ class UsageWidget:
             '사용량 조회는 언제든 실패하거나 바뀔 수 있습니다.\n\n'
             'GPT: 실제 한도 기간으로 구분하며, 5시간이 있으면 우선 표시하고 없으면 주간·기타 한도를 표시합니다.\n'
             'Cursor: Cursor Models를 대표 잔여로 표시하고 Other Models를 보조 바로 표시합니다. 막대 아래는 청구 주기 초기화입니다.\n'
-            'Claude: Claude.ai 구독과 지원되는 Claude Code가 필요합니다. 대화형 세션의 5시간·주간 한도만 표시하며 Additional/Billing은 없습니다. 연동은 우클릭 → 표시할 서비스에서 켭니다. claude -p는 추적되지 않습니다.\n'
+            'Claude: Claude.ai 구독과 지원되는 Claude Code가 필요합니다. 대화형 세션의 5시간·주간 한도만 표시하며 Additional/Billing은 없습니다. 연동은 우클릭 → Claude 연동... 또는 표시할 서비스에서 켭니다. claude -p는 추적되지 않습니다.\n'
             '기본 포함량 소진과 전체 한도 소진은 다를 수 있습니다.\n\n'
             '한 줄 칩 색이 임박·소진·이전 데이터를 나타냅니다.\n'
             '우클릭 → 표시할 서비스·로그인에서 GPT / Cursor / Claude를 고릅니다.\n'
@@ -2682,6 +2717,8 @@ class UsageWidget:
             )
         except Exception as exc:
             self.notify(messagebox.showerror, 'Claude 연동', str(exc) or '연동에 실패했습니다.', parent=self.root)
+        finally:
+            self._sync_claude_menu()
 
     def make_desktop_shortcut(self):
         try:
@@ -3069,11 +3106,12 @@ class UsageWidget:
     def refresh(self):
         for key in FETCHERS:
             self.due[key] = 0
+        self.claude_cli_due = 0.0
         self.set_footer('새로고침 요청됨', MUTED, CODEX)
 
     def start_job(self, key):
         if key == 'claude':
-            self.accept(key, fetch_claude())
+            self.start_claude_job()
             return
         try:
             now = time.monotonic()
@@ -3089,6 +3127,27 @@ class UsageWidget:
         except OSError:
             self.accept(key, error_snapshot(key, TITLES[key], '조회 프로세스를 시작하지 못했습니다.', URLS[key]))
 
+    def start_claude_job(self):
+        """statusLine cache first; fall back to asking Claude Code directly."""
+        key = 'claude'
+        snap = fetch_claude()
+        now = time.monotonic()
+        if snap.ok:
+            self.claude_cli_due = max(self.claude_cli_due, now + CLAUDE_CLI_INTERVAL)
+        else:
+            fallback = self.claude_cli_snapshot
+            if fallback is not None:
+                snap = replace(fallback, stale=now - self.claude_cli_at > CLAUDE_CLI_STALE)
+            if now >= self.claude_cli_due:
+                self.claude_cli_due = now + CLAUDE_CLI_INTERVAL
+                try:
+                    if self.runner.start(key, now):
+                        self.request_started[key] = now
+                        LOG.debug('[Usage] Claude usage query started')
+                except OSError:
+                    LOG.debug('[Usage] Claude usage query could not start')
+        self.accept(key, snap)
+
     def _request_fast_poll(self, key, now):
         if key in self.runner.slots:
             self.poll_pending[key] = True
@@ -3100,6 +3159,8 @@ class UsageWidget:
         self.runner.cancel(key)
         self.due[key] = 0
         self.failures[key] = 0
+        if key == 'claude':
+            self.claude_cli_due = 0.0
         if self.enabled[key].get() and key in self.snapshots:
             self.snapshots[key] = replace(self.snapshots[key], stale=True)
             self.render(key)
@@ -3119,8 +3180,7 @@ class UsageWidget:
             if state is not None and state != self.locked:
                 self.locked = state
                 for key in FETCHERS:
-                    if key in NETWORK_FETCHERS:
-                        self.runner.cancel(key)
+                    self.runner.cancel(key)
                     self.due[key] = 0
                 if not state:
                     for key, snap in list(self.snapshots.items()):
@@ -3160,6 +3220,9 @@ class UsageWidget:
                 retry_after=getattr(snap, 'retry_after', ''),
             )
         now = time.monotonic()
+        if key == 'claude' and snap.ok and (snap.internal or {}).get('source') == 'claude_cli':
+            self.claude_cli_snapshot = snap
+            self.claude_cli_at = now
         until = getattr(self, 'usage_until', None)
         if until is None:
             until = {}

@@ -11,13 +11,13 @@ Windows에서 GPT·Cursor·Claude 잔여 사용량을 보는 작은 위젯입니
 4) 첫 실행 때 바탕화면 바로가기를 고를 수 있고, 위젯 우클릭 → 바탕화면 바로가기 생성에서도 만들 수 있습니다.
 5) 이미 있는 Python 3.9 이상(명령 프롬프트에서 python --version)을 먼저 씁니다. Microsoft Store로 깐 것도 포함합니다.
 6) 없거나, 3.9 미만이거나, 위젯 화면(Tk)을 쓸 수 없을 때만 위젯용 Python을 추가로 설치합니다. 이미 있는 Python을 업그레이드하지는 않습니다.
-7) 표시할 서비스(GPT / Cursor / Claude)를 고릅니다. GPT·Cursor는 로그인이 없으면 설치·로그인 창을 띄울 수 있습니다. Claude는 연동을 켠 뒤 대화형 Claude Code가 필요합니다.
+7) 표시할 서비스(GPT / Cursor / Claude)를 고릅니다. GPT·Cursor는 로그인이 없으면 설치·로그인 창을 띄울 수 있습니다. Claude는 연동을 켠 뒤 로그인된 Claude Code가 필요합니다.
 
 로그인
 위젯은 ChatGPT 데스크톱 앱과 연동되지 않습니다.
 - Codex: Codex CLI 설치 후 `codex login` (위젯에서 버튼으로 가능)
 - Cursor: Cursor 앱 설치 후 앱에서 로그인 (위젯에서 버튼으로 가능)
-- Claude: 우클릭 → 표시할 서비스에서 Claude 연동을 켭니다. Claude.ai 구독과 지원되는 Claude Code가 필요합니다. `claude -p`만으로는 추적되지 않으며 Additional/Billing은 아직 없습니다.
+- Claude: 우클릭 → 표시할 서비스에서 Claude 연동을 켭니다. Claude.ai 구독과 로그인된 Claude Code가 필요합니다. 터미널 세션이 열려 있으면 더 자주 갱신되고, 없으면 위젯이 60초마다 Claude Code에 사용량만 물어봅니다. Additional/Billing은 아직 없습니다.
 
 조작
 - 제목 줄을 드래그하면 이동합니다.

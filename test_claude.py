@@ -12,7 +12,7 @@ import claude_integration as integ
 import providers as p
 import usage_widget as u
 from providers import ProviderSnapshot, QuotaBar
-from runtime import AlertGate, limiting_quota
+from runtime import AlertGate, limiting_quota, prepare_action
 
 
 def _stdin_payload(session="sess-a", transcript=None, five=1, week=0, five_reset=None, week_reset=None, extra=None):
@@ -30,6 +30,27 @@ def _stdin_payload(session="sess-a", transcript=None, five=1, week=0, five_reset
     if extra:
         data.update(extra)
     return json.dumps(data)
+
+
+def _control_output(five=25, week=3, available=True):
+    """One `get_usage` control_response, shaped like the CLI's real answer."""
+    body = {
+        "session": {"total_cost_usd": 0},
+        "subscription_type": "pro",
+        "rate_limits_available": available,
+        "rate_limits": {
+            "five_hour": {"utilization": five, "resets_at": "2026-09-18T09:19:59.650242+00:00"},
+            "seven_day": {"utilization": week, "resets_at": "2026-09-25T04:59:59.650266+00:00"},
+            "seven_day_opus": None,
+        },
+    }
+    return "\n".join([
+        '{"type":"system","subtype":"init"}',
+        json.dumps({
+            "type": "control_response",
+            "response": {"subtype": "success", "request_id": "usage", "response": body},
+        }),
+    ])
 
 
 class ClaudeBridgeTests(unittest.TestCase):
@@ -121,6 +142,31 @@ class ClaudeBridgeTests(unittest.TestCase):
         self.assertNotIn("secret-path", text)
         self.assertNotIn("transcript_path", text)
         self.assertNotIn("session_id", text)
+
+    def test_invocation_log_records_call_without_identifiers(self):
+        self.assertFalse(bridge.bridge_log_path().is_file())
+        transcript = self.dir / "secret-path.jsonl"
+        transcript.write_text("x", encoding="utf-8")
+        session = "raw-session-id-should-not-leak"
+        bridge.ingest_statusline(_stdin_payload(session=session, transcript=transcript), now=1000)
+        text = bridge.bridge_log_path().read_text(encoding="utf-8")
+        self.assertIn("rate_limits=yes", text)
+        self.assertIn("windows=five_hour,seven_day", text)
+        self.assertNotIn(session, text)
+        self.assertNotIn("secret-path", text)
+
+    def test_invocation_log_marks_payload_without_rate_limits(self):
+        bridge.ingest_statusline(json.dumps({"session_id": "s", "version": "2.1.276"}), now=1000)
+        text = bridge.bridge_log_path().read_text(encoding="utf-8")
+        self.assertIn("rate_limits=no", text)
+        self.assertIn("windows=-", text)
+
+    def test_invocation_log_is_capped(self):
+        path = bridge.bridge_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x" * (bridge.BRIDGE_LOG_LIMIT + 10), encoding="utf-8")
+        bridge.ingest_statusline(_stdin_payload(), now=1000)
+        self.assertLess(path.stat().st_size, bridge.BRIDGE_LOG_LIMIT)
 
     def test_atomic_write_ignores_temp_and_corrupt(self):
         (self.sessions).mkdir(parents=True, exist_ok=True)
@@ -301,6 +347,64 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(snap.main_limits[0].raw_identifier, "seven_day")
         self.assertEqual(snap.hero_caption, "주간 기준 잔여")
 
+    def test_cli_usage_maps_utilization_and_iso_reset(self):
+        now = 1789700000.0
+        snap = p.claude_usage_from_control_output(_control_output(), now)
+        self.assertTrue(snap.ok)
+        self.assertEqual(snap.hero_percent, 75.0)
+        self.assertEqual(snap.hero_caption, "5시간 기준 잔여")
+        self.assertEqual([item.raw_identifier for item in snap.main_limits], ["five_hour", "seven_day"])
+        self.assertEqual(snap.main_limits[1].remaining_percent, 97.0)
+        self.assertEqual(snap.main_limits[0].source, "claude_cli")
+        self.assertEqual(snap.internal["source"], "claude_cli")
+        self.assertEqual(u.hero_bar_index(snap), 0)
+        self.assertEqual(
+            p.parse_iso_epoch("2026-09-18T09:19:59.650242+00:00"),
+            p.parse_iso_epoch("2026-09-18T09:19:59.650242Z"),
+        )
+
+    def test_cli_usage_without_rate_limits_is_an_error(self):
+        snap = p.claude_usage_from_control_output(_control_output(available=False), 1789700000.0)
+        self.assertFalse(snap.ok)
+        self.assertIn("플랜 한도", snap.error)
+
+    def test_cli_usage_ignores_output_without_a_control_response(self):
+        snap = p.claude_usage_from_control_output('{"type":"system","subtype":"init"}\nnoise\n', 1.0)
+        self.assertFalse(snap.ok)
+        self.assertIn("돌려주지", snap.error)
+
+    def test_cli_usage_expired_window_is_dropped(self):
+        # resets_at in the past means the window is unconfirmed, not full.
+        snap = p.claude_usage_from_control_output(_control_output(), 1793000000.0)
+        self.assertFalse(snap.ok)
+        self.assertEqual(snap.hero_caption, "사용량 없음")
+
+    def test_cli_and_statusline_agree_on_shape(self):
+        now = 1789700000.0
+        cli = p.claude_usage_from_control_output(_control_output(five=25), now)
+        self._install()
+        self._write("s", {
+            "quota_observed_at": now,
+            "bridge_seen_at": now,
+            "five_hour": {"used_percent": 25, "remaining_percent": 75, "resets_at": now + 1000},
+            "seven_day": {"used_percent": 3, "remaining_percent": 97, "resets_at": now + 2000},
+        })
+        with patch.object(integ, "claude_ready", return_value=(True, "ok")):
+            line = p.fetch_claude(now)
+        self.assertEqual(cli.hero_percent, line.hero_percent)
+        self.assertEqual(cli.hero_caption, line.hero_caption)
+        self.assertEqual(
+            [item.display_name for item in cli.main_limits],
+            [item.display_name for item in line.main_limits],
+        )
+
+    def test_silent_statusline_defers_to_the_cli_query(self):
+        self._install()
+        with patch.object(integ, "claude_ready", return_value=(True, "ok")):
+            snap = p.fetch_claude()
+        self.assertFalse(snap.ok)
+        self.assertIn("가져오는 중", snap.error)
+
     def test_both_missing(self):
         self._install()
         self._write("empty", {"quota_observed_at": time.time(), "bridge_seen_at": time.time()})
@@ -468,5 +572,172 @@ class ClaudeUiTests(unittest.TestCase):
             root.destroy()
 
 
-if __name__ == "__main__":
-    unittest.main()
+class ClaudeDiscoverabilityTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.settings_path = self.dir / "settings.json"
+        env = patch.dict(os.environ, {
+            "AIUSAGE_CLAUDE_DIR": str(self.dir / "claude"),
+            "AIUSAGE_CLAUDE_SETTINGS": str(self.dir / "user-settings.json"),
+        })
+        env.start()
+        self.addCleanup(env.stop)
+        self.addCleanup(self.tmp.cleanup)
+        self.ready = patch.object(integ, "claude_ready", return_value=(True, "ok"))
+        self.ready.start()
+        self.addCleanup(self.ready.stop)
+        self._pill = u.UpdatePill.animate
+        self._card = u.Card.animate
+        self._chip = u.Chip.animate
+        u.UpdatePill.animate = False
+        u.Card.animate = False
+        u.Chip.animate = False
+        self.widget_patches = []
+        self.w = None
+
+    def tearDown(self):
+        if self.w is not None:
+            self.w.close()
+            self.w = None
+        for item in self.widget_patches:
+            item.stop()
+        u.UpdatePill.animate = self._pill
+        u.Card.animate = self._card
+        u.Chip.animate = self._chip
+
+    def _write_settings(self, payload):
+        self.settings_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    def _open_widget(self):
+        self.widget_patches = [
+            patch.object(u, "SETTINGS_PATH", self.settings_path),
+            patch.object(u, "CACHE_PATH", self.dir / "cache.json"),
+        ]
+        for item in self.widget_patches:
+            item.start()
+        self.w = u.UsageWidget(preview=True)
+        self.w.root.withdraw()
+        self.w.root.update_idletasks()
+        return self.w
+
+    def _labels(self):
+        labels = []
+        for index in range(self.w.menu.index("end") + 1):
+            kind = self.w.menu.type(index)
+            if kind in ("command", "checkbutton"):
+                labels.append(self.w.menu.entrycget(index, "label"))
+        return labels
+
+    def _confirm(self, fn, *args, **kwargs):
+        if fn is u.messagebox.askyesno:
+            return True
+        return None
+
+    def test_upgrade_config_hides_card_but_keeps_menu_entry(self):
+        self._write_settings({
+            "setup_done": True,
+            "version": 3,
+            "enabled": {"chatgpt": True, "cursor": True},
+        })
+        w = self._open_widget()
+        self.assertFalse(w.enabled["claude"].get())
+        self.assertTrue(w.enabled["chatgpt"].get())
+        self.assertTrue(w.enabled["cursor"].get())
+        w.apply_mode()
+        w.root.update_idletasks()
+        self.assertEqual(w.cards["claude"].winfo_manager(), "")
+        self.assertEqual(w.cards["chatgpt"].winfo_manager(), "pack")
+        self.assertEqual(w.cards["cursor"].winfo_manager(), "pack")
+        labels = self._labels()
+        self.assertIn("Claude 연동...", labels)
+        self.assertIn("표시할 서비스·로그인...", labels)
+        self.assertIn("GPT 조회", labels)
+        self.assertIn("Cursor 조회", labels)
+        self.assertEqual(prepare_action("claude"), ("Claude 연동", "claude-setup"))
+
+    def test_silent_statusline_asks_the_cli_once_per_interval(self):
+        self._write_settings({
+            "setup_done": True,
+            "version": 3,
+            "enabled": {"chatgpt": False, "cursor": False, "claude": True},
+        })
+        w = self._open_widget()
+        started = []
+        with patch.object(w.runner, "start", side_effect=lambda key, now: started.append(key) or True):
+            w.start_claude_job()
+            w.start_claude_job()
+        self.assertEqual(started, ["claude"])
+        self.assertFalse(w.snapshots["claude"].ok)
+
+    def test_cli_values_survive_the_next_empty_statusline_read(self):
+        self._write_settings({
+            "setup_done": True,
+            "version": 3,
+            "enabled": {"chatgpt": False, "cursor": False, "claude": True},
+        })
+        w = self._open_widget()
+        w.accept("claude", p.claude_usage_from_control_output(_control_output(), time.time()))
+        self.assertTrue(w.snapshots["claude"].ok)
+        self.assertEqual(w.snapshots["claude"].hero_percent, 75.0)
+        with patch.object(w.runner, "start", return_value=False):
+            w.start_claude_job()
+        self.assertTrue(w.snapshots["claude"].ok)
+        self.assertEqual(w.snapshots["claude"].hero_percent, 75.0)
+        self.assertFalse(w.snapshots["claude"].stale)
+
+    def test_disabled_claude_keeps_top_level_action(self):
+        self._write_settings({
+            "setup_done": True,
+            "version": 3,
+            "enabled": {"chatgpt": True, "cursor": True, "claude": False},
+        })
+        w = self._open_widget()
+        self.assertFalse(w.enabled["claude"].get())
+        w.apply_mode()
+        w.root.update_idletasks()
+        self.assertEqual(w.cards["claude"].winfo_manager(), "")
+        self.assertIn("Claude 연동...", self._labels())
+
+    def test_menu_install_enables_card_with_existing_handler(self):
+        self._write_settings({
+            "setup_done": True,
+            "version": 3,
+            "enabled": {"chatgpt": True, "cursor": True},
+        })
+        w = self._open_widget()
+        w.notify = self._confirm
+        w.preview = False
+        with patch.object(integ, "install_statusline", wraps=integ.install_statusline) as installed:
+            w._run_claude_menu_action()
+        self.assertEqual(installed.call_count, 1)
+        self.assertTrue(integ.is_installed())
+        self.assertTrue(w.enabled["claude"].get())
+        saved = json.loads(self.settings_path.read_text(encoding="utf-8"))
+        self.assertTrue(saved["enabled"]["claude"])
+        w.apply_mode()
+        w.root.update_idletasks()
+        self.assertEqual(w.cards["claude"].winfo_manager(), "pack")
+        w._sync_claude_menu()
+        self.assertIn("연동 해제...", self._labels())
+        self.assertNotIn("Claude 연동...", self._labels())
+
+    def test_menu_conflict_reuses_protection(self):
+        self._write_settings({
+            "setup_done": True,
+            "version": 3,
+            "enabled": {"chatgpt": True, "cursor": True, "claude": True},
+        })
+        w = self._open_widget()
+        w.notify = self._confirm
+        w._run_claude_menu_action()
+        user_settings = self.dir / "user-settings.json"
+        user_settings.write_text(json.dumps({"statusLine": {"type": "command", "command": "whoami"}}), encoding="utf-8")
+        w._sync_claude_menu()
+        self.assertEqual(prepare_action("claude"), ("충돌 확인", "claude-conflict"))
+        self.assertIn("충돌 확인...", self._labels())
+        w._claude_integration_action("claude-uninstall")
+        data = json.loads(user_settings.read_text(encoding="utf-8"))
+        self.assertEqual(data["statusLine"]["command"], "whoami")
+        self.assertEqual(integ.conflict_state(), "conflict")
+

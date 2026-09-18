@@ -1,1 +1,1 @@
-{"version":"3.3.0","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"GPT 추가 한도를 접어서 보고, 그룹 단위로 표시합니다 / Claude Pro 사용량을 대화형 Claude Code와 연동해 표시합니다 / 사용량 상태와 한도 표시 구조를 서비스 공통 형태로 정리합니다"}
+{"version":"3.4.0","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"데스크톱 앱 세션만 쓰면 Claude 사용량이 비어 있던 문제를 고쳤습니다 / 우클릭 메뉴에 Claude 연동 진입점을 추가해 기존 버전에서 업데이트한 사용자도 찾기 쉽게 했습니다 / statusLine 값이 없으면 60초마다 Claude Code에 사용량만 직접 물어봅니다. 프롬프트를 보내지 않아 사용량을 소모하지 않습니다"}

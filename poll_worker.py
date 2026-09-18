@@ -4,16 +4,18 @@ import sys
 import time
 import providers
 
-from providers import fetch_chatgpt, fetch_cursor, error_snapshot, snapshot_to_dict
+from providers import fetch_chatgpt, fetch_claude_cli, fetch_cursor, error_snapshot, snapshot_to_dict
+
+FETCHERS = {'chatgpt': fetch_chatgpt, 'cursor': fetch_cursor, 'claude': fetch_claude_cli}
 
 if __name__ == '__main__':
     key = sys.argv[1]
-    if key not in ('chatgpt', 'cursor'):
+    if key not in FETCHERS:
         raise SystemExit(2)
     if key == 'cursor' and len(sys.argv) > 2:
         providers._PLAN_MEM.update(name=sys.argv[2], until=time.time()+1800)
     try:
-        snap = (fetch_chatgpt if key == 'chatgpt' else fetch_cursor)()
+        snap = FETCHERS[key]()
     except Exception as exc:
         message = str(exc) if isinstance(exc, RuntimeError) else '로그인 상태와 연결을 확인하세요.'
         snap = error_snapshot(key, key, message, '', getattr(exc, 'retry_after', ''))

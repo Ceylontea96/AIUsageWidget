@@ -15,6 +15,7 @@ class UpdaterTests(unittest.TestCase):
         self.assertFalse(u.is_newer('3.1.0', '3.1.0'))
         self.assertFalse(u.is_newer('3.0.9', '3.1.0'))
         self.assertEqual(u.parse_version('3.1'), (3, 1, 0))
+        self.assertTrue(u.is_newer('3.3.1', '3.3.0'))
         self.assertTrue(u.is_newer('3.3.0', '3.2.27'))
         self.assertFalse(u.is_newer('3.3.0', '3.3.0'))
         self.assertTrue(u.is_newer('3.3.1', '3.3.0'))

@@ -36,6 +36,9 @@ STALE_AFTER_SECONDS = 15 * 60
 SESSION_INACTIVE_AFTER_SECONDS = 20.0
 # Widget rereads local cache; this is not a network poll interval.
 CACHE_READ_INTERVAL = 2.0
+# bridge.log records each call so a silent statusLine is diagnosable. Only the
+# terminal TUI runs statusLine; stream-json sessions never call the bridge.
+BRIDGE_LOG_LIMIT = 64 * 1024
 ALLOWED_CACHE_KEYS = {
     "source",
     "schema_version",
@@ -87,6 +90,10 @@ def sessions_dir() -> Path:
 
 def salt_path() -> Path:
     return claude_dir() / "session.salt"
+
+
+def bridge_log_path() -> Path:
+    return claude_dir() / "bridge.log"
 
 
 def integration_path() -> Path:
@@ -467,6 +474,26 @@ def write_session_cache(session_key: str, payload: dict[str, Any]) -> None:
     atomic_write_json(path, sanitize_cache(payload))
 
 
+def record_invocation(whitelist: dict[str, Any], now: float) -> None:
+    """Append one line per statusLine call. No ids, paths, prompts or tokens."""
+    windows = whitelist.get("windows") or {}
+    line = "{stamp} called rate_limits={flag} windows={names} version={version}\n".format(
+        stamp=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+        flag="yes" if whitelist.get("has_rate_limits") else "no",
+        names=",".join(sorted(windows)) or "-",
+        version=str(whitelist.get("claude_code_version") or "-"),
+    )
+    path = bridge_log_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.is_file() and path.stat().st_size > BRIDGE_LOG_LIMIT:
+            path.write_text("", encoding="utf-8")
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+    except OSError:
+        pass
+
+
 def ingest_statusline(raw_text: str, now: float | None = None) -> dict[str, Any] | None:
     current = time.time() if now is None else float(now)
     try:
@@ -490,6 +517,7 @@ def ingest_statusline(raw_text: str, now: float | None = None) -> dict[str, Any]
     mtime = transcript_mtime(transcript_path)
     session_key = opaque_session_key(session_id, transcript_path)
     whitelist = extract_whitelist(data)
+    record_invocation(whitelist, current)
     previous = load_session(session_key)
     payload = build_session_cache(
         session_key=session_key,

@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-09-18
+
+### Fixed
+- 데스크톱 앱 세션만 쓰면 Claude 사용량이 비어 있던 문제를 고쳤습니다
+- 우클릭 메뉴에 Claude 연동 진입점을 추가해 기존 버전에서 업데이트한 사용자도 찾기 쉽게 했습니다
+
+### Added
+- statusLine 값이 없으면 60초마다 Claude Code에 사용량만 직접 물어봅니다. 프롬프트를 보내지 않아 사용량을 소모하지 않습니다
+- statusLine 호출 기록을 claude/bridge.log에 남겨 연동 동작 여부를 확인할 수 있습니다 (식별자·경로·대화 내용은 기록하지 않음)
+
+### Changed
+- Claude 카드 구성을 statusLine·직접 조회 두 경로가 공유해 대표 한도와 문구가 같게 나옵니다
+- 직접 조회는 기존 워커 프로세스에서 실행되어 다른 서비스 조회나 화면을 막지 않습니다
+- 사용 설명서에 Claude 조회 경로와 갱신 주기를 반영했습니다
+
 ## [3.3.0] - 2026-09-18
 
 ### Added
@@ -280,7 +295,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.3.0...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.3.1...HEAD
+[3.3.1]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.3.1
 [3.3.0]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.3.0
 [3.2.27]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.27
 [3.2.26]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.26

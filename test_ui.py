@@ -128,7 +128,7 @@ class UiTests(unittest.TestCase):
         w=self.prepare()
         with patch.object(u,'session_locked',return_value=True):w.tick()
         self.assertTrue(w.locked)
-        self.assertEqual(w.runner.cancel.call_count,2)
+        self.assertEqual(w.runner.cancel.call_count,len(u.FETCHERS))
         w.runner.start.assert_not_called()
         w.last_environment=float('-inf')
         with patch.object(u,'session_locked',return_value=False):w.tick()

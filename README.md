@@ -15,7 +15,7 @@ Windows에서 GPT·Cursor·Claude 잔여 사용량을 보는 작은 위젯입니
 3. 한 번 실행한 뒤에는 실행 파일만 다른 곳으로 복사해도 됩니다. 원래 폴더는 그대로 두세요.
 4. Python이 없으면 처음 한 번 설치를 시도합니다.
 5. Codex는 Codex CLI 로그인, Cursor는 Cursor 앱 로그인이 필요합니다.
-6. Claude 사용량은 우클릭 → 표시할 서비스에서 **Claude 연동**을 켠 뒤, 대화형 Claude Code 세션이 필요합니다. `claude -p`만으로는 추적되지 않으며 Additional/Billing은 아직 없습니다.
+6. Claude 사용량은 우클릭 → 표시할 서비스에서 **Claude 연동**을 켠 뒤 표시됩니다. 터미널 Claude Code 세션이 열려 있으면 statusLine으로 2초마다, 없으면 60초마다 Claude Code에 사용량만 물어봅니다. 프롬프트를 보내지 않으므로 사용량은 소모되지 않습니다. Additional/Billing은 아직 없습니다.
 
 새 버전이 올라가면 위젯의 **업데이트** 버튼이 켜집니다.
 
