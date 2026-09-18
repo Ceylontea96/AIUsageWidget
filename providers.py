@@ -496,6 +496,34 @@ def fetch_cursor() -> ProviderSnapshot:
     )
 
 
+FIVE_HOURS = 5 * 60 * 60
+ONE_WEEK = 7 * 24 * 60 * 60
+
+
+def _window_duration(window: dict[str, Any] | None) -> float | None:
+    if not isinstance(window, dict):
+        return None
+    seconds = to_float(window.get("limit_window_seconds"))
+    return seconds if seconds is not None and seconds > 0 else None
+
+
+def _duration_label(seconds: float | None, unknown_index: int = 1) -> str:
+    if seconds is None:
+        return "기간 미상" if unknown_index <= 1 else f"기간 미상 {unknown_index}"
+    if abs(seconds - FIVE_HOURS) <= 60:
+        return "5시간"
+    if abs(seconds - ONE_WEEK) <= 900:
+        return "주간"
+    days = seconds / 86400
+    hours = seconds / 3600
+    minutes = seconds / 60
+    if seconds >= 86400 and abs(days - round(days)) <= 1 / 24:
+        return f"{max(1, round(days))}일"
+    if seconds >= 3600 and abs(hours - round(hours)) <= 1 / 60:
+        return f"{max(1, round(hours))}시간"
+    return f"{max(1, round(minutes))}분"
+
+
 def _window_bar(label: str, window: dict[str, Any] | None) -> QuotaBar:
     window = window or {}
     used = to_float(window.get("used_percent"))
@@ -508,6 +536,39 @@ def _window_bar(label: str, window: dict[str, Any] | None) -> QuotaBar:
     detail = "잔여 --" if remaining is None else f"잔여 {remaining:.0f}%"
     scope = json.dumps([window.get("reset_at") or reset, window.get("limit_window_seconds")])
     return QuotaBar(label, remaining, used, detail, reset, scope)
+
+
+def _chatgpt_windows(rate: dict[str, Any]) -> list[QuotaBar]:
+    raw = []
+    for key in ("primary_window", "secondary_window"):
+        window = rate.get(key)
+        if isinstance(window, dict) and window:
+            raw.append(window)
+    unknown = 0
+    # Keep labels stable and unique if a provider unexpectedly returns two
+    # windows with the same duration.
+    seen = {}
+    items = []
+    order = {"5시간": 0, "주간": 1}
+    for index, window in enumerate(raw):
+        duration = _window_duration(window)
+        if duration is None:
+            unknown += 1
+        label = _duration_label(duration, unknown)
+        seen[label] = seen.get(label, 0) + 1
+        unique = label if seen[label] == 1 else f"{label} {seen[label]}"
+        items.append((order.get(label, 2), duration or float('inf'), index,
+                      _window_bar(unique, window)))
+    return [item[-1] for item in sorted(items, key=lambda item: item[:-1])]
+
+
+def _chatgpt_hero_bar(bars: list[QuotaBar]) -> QuotaBar | None:
+    known = [bar for bar in bars if bar.remaining_percent is not None]
+    if not known:
+        return None
+    return (next((bar for bar in known if bar.label == "5시간"), None)
+            or next((bar for bar in known if bar.label == "주간"), None)
+            or known[0])
 
 
 def fetch_chatgpt() -> ProviderSnapshot:
@@ -535,10 +596,7 @@ def fetch_chatgpt() -> ProviderSnapshot:
     if status >= 400:
         raise RuntimeError(f"ChatGPT 사용량 API 오류 ({status})")
     rate = body.get("rate_limit") or {}
-    primary = rate.get("primary_window") if isinstance(rate, dict) else None
-    secondary = rate.get("secondary_window") if isinstance(rate, dict) else None
-    five = _window_bar("5시간", primary if isinstance(primary, dict) else None)
-    week = _window_bar("주간", secondary if isinstance(secondary, dict) else None)
+    bars = _chatgpt_windows(rate) if isinstance(rate, dict) else []
     extras = []
     credits = body.get("credits") or {}
     if credits.get("has_credits"):
@@ -549,18 +607,15 @@ def fetch_chatgpt() -> ProviderSnapshot:
         extras.append(f"리셋권 {available}")
     plan = str(body.get("plan_type") or "ChatGPT").title()
     reached = bool(rate.get("limit_reached")) if isinstance(rate, dict) else False
-    known = [b for b in (five, week) if b.remaining_percent is not None]
-    if not known:
+    hero = _chatgpt_hero_bar(bars)
+    known = [bar for bar in bars if bar.remaining_percent is not None]
+    if hero is None:
         raise RuntimeError("사용량 응답에 한도 정보가 없습니다.")
-    tightest = min(known, key=lambda b: b.remaining_percent)
     exhausted = [b.label for b in known if b.remaining_percent <= 0]
     blocked = reached or bool(exhausted) or rate.get("allowed") is False
-    caption = (" · ".join(exhausted) + " 소진") if exhausted else ("사용 제한 · 상세 확인" if blocked else f"{tightest.label} 기준 잔여")
+    caption = f"{hero.label} 소진" if hero.remaining_percent <= 0 else f"{hero.label} 기준 잔여"
     footer = ""
-    info_rows = [
-        InfoRow("5시간", five.detail),
-        InfoRow("주간", week.detail),
-    ]
+    info_rows = [InfoRow(bar.label, bar.detail) for bar in bars]
     if extras:
         info_rows.append(InfoRow("추가", " · ".join(extras)))
     return ProviderSnapshot(
@@ -568,10 +623,10 @@ def fetch_chatgpt() -> ProviderSnapshot:
         title="GPT",
         plan="ChatGPT " + plan,
         ok=True,
-        hero_percent=tightest.remaining_percent,
+        hero_percent=hero.remaining_percent,
         blocked=blocked,
         hero_caption=caption,
-        bars=[five, week],
+        bars=bars,
         info_rows=info_rows,
         footer=footer,
         dashboard_url="https://chatgpt.com/codex/settings/usage",

@@ -156,8 +156,10 @@ class AlertGate:
 
 
 def limiting_quota(snap):
-    values = [(snap.hero_percent, snap.hero_caption)]
-    values.extend((bar.remaining_percent, bar.label) for bar in snap.bars if bar.remaining_percent is not None)
+    values = [(bar.remaining_percent, bar.label) for bar in snap.bars
+              if bar.remaining_percent is not None]
+    if not values and snap.hero_percent is not None:
+        values.append((snap.hero_percent, snap.hero_caption))
     return min(values, key=lambda value: value[0])
 
 
