@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+## [3.2.27] - 2026-09-18
+
+### Fixed
+- Hero quota가 100%인 동안 보조 quota 경고가 Compact 색상과 Hero 상태를 덮어쓰지 않도록 한 3.2.26 hotfix를 새 버전으로 재배포
+
 ## [3.2.26] - 2026-09-18
 
 ### Fixed
@@ -258,7 +263,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.26...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.27...HEAD
+[3.2.27]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.27
 [3.2.26]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.26
 [3.2.25]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.25
 [3.2.24]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.24

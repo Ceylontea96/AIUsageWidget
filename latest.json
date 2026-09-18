@@ -1,1 +1,1 @@
-{"version":"3.2.26","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"Compact 숫자·색상과 Hero 배지·상태를 대표 Hero quota 기준으로 통일하고, 보조 quota 경고에는 해당 기간을 명시 / 초기 Cursor transcript 스캔이 종료된 과거 이벤트로 FAST fallback을 시작하지 않도록 수정 / 4시간·6일·8일 한도를 5시간·주간으로 잘못 분류하지 않도록 기간 판별 허용 범위를 축소"}
+{"version":"3.2.27","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"Hero quota가 100%인 동안 보조 quota 경고가 Compact 색상과 Hero 상태를 덮어쓰지 않도록 한 3.2.26 hotfix를 새 버전으로 재배포"}
