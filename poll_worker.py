@@ -16,5 +16,5 @@ if __name__ == '__main__':
         snap = (fetch_chatgpt if key == 'chatgpt' else fetch_cursor)()
     except Exception as exc:
         message = str(exc) if isinstance(exc, RuntimeError) else '로그인 상태와 연결을 확인하세요.'
-        snap = error_snapshot(key, key, message, '')
+        snap = error_snapshot(key, key, message, '', getattr(exc, 'retry_after', ''))
     sys.stdout.buffer.write(json.dumps(snapshot_to_dict(snap), ensure_ascii=True, allow_nan=False).encode('ascii'))

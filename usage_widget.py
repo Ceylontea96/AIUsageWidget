@@ -24,9 +24,10 @@ from dataclasses import replace
 from pathlib import Path
 from tkinter import messagebox, font as tkfont
 
-from providers import error_snapshot, snapshot_from_dict, snapshot_to_dict
+from additional_ui import AdditionalBlock, additional_count
 from codex_activity import CodexActivityMonitor, FAST_INTERVAL, LOG
 from cursor_activity import CursorActivityMonitor
+from providers import error_snapshot, fetch_claude, snapshot_from_dict, snapshot_to_dict
 from runtime import AlertGate, AuthWatcher, PollRunner, ToastSender, limiting_quota, login_present, login_status, prepare_action, session_locked, start_tool_setup
 from updater import APP_VERSION, CHECK_EVERY, LAUNCHER_EXE, download_and_stage, fetch_latest, load_feed_url, start_apply, update_confirm_text
 
@@ -126,6 +127,7 @@ TOKENS = {'width': 380,
            'fg_dim': '#5B6069',
            'codex': '#10A37F',
            'cursor': '#F0883E',
+           'claude': '#C96442',
            'warn': '#F5B544',
            'danger': '#EF4444',
            'stale_strip': '#4A5060',
@@ -135,6 +137,7 @@ TOKENS = {'width': 380,
            'close_hover_bg': '#3A2020',
            'chip_codex_fill': '#1F6B5A',
            'chip_cursor_fill': '#75411F',
+           'chip_claude_fill': '#6B3A2A',
            'chip_warn_fill': '#C48A22',
            'chip_danger_fill': '#B44545',
            'chip_stale_fill': '#3A4252'},
@@ -153,14 +156,16 @@ TOKENS = {'width': 380,
  'labels': {'title': 'AI Usage',
             'codex': 'GPT',
             'cursor': 'Cursor',
+            'claude': 'Claude',
             'codex_hero_sub': '5시간 기준 잔여',
-            'cursor_hero_sub': '전체 잔여',
+            'cursor_hero_sub': 'Cursor Models 기준 잔여',
+            'claude_hero_sub': '5시간 기준 잔여',
             'codex_row_5h': '5시간',
             'codex_row_weekly': '주간',
             'codex_row_extra': '추가',
             'codex_extra_value': '리셋권 1',
-            'cursor_row_own': '자사 모델',
-            'cursor_row_api': 'API 사용량',
+            'cursor_row_own': 'Cursor Models',
+            'cursor_row_api': 'Other Models',
             'cursor_footer_line': '기본 포함량',
             'footer_ok': '자동 감지',
             'footer_empty': '사용량 소진',
@@ -168,26 +173,35 @@ TOKENS = {'width': 380,
             'refresh_hint': 'F5 새로고침'}}
 BG, CARD, HAIR, TRACK = (TOKENS['color'][k] for k in ('bg_window','bg_card','hairline','track'))
 TEXT, MUTED, DIM = (TOKENS['color'][k] for k in ('fg','fg_muted','fg_dim'))
-CODEX, CURSOR = TOKENS['color']['codex'], TOKENS['color']['cursor']
+CODEX, CURSOR, CLAUDE = TOKENS['color']['codex'], TOKENS['color']['cursor'], TOKENS['color']['claude']
 WARN, DANGER = TOKENS['color']['warn'], TOKENS['color']['danger']
 STALE_STRIP, STALE_HERO = TOKENS['color']['stale_strip'], TOKENS['color']['stale_hero']
 ICON, HOVER, CLOSE_HOVER = TOKENS['color']['icon'], '#20232D', TOKENS['color']['close_hover_bg']
-CHIP_CODEX, CHIP_CURSOR = TOKENS['color']['chip_codex_fill'], TOKENS['color']['chip_cursor_fill']
+CHIP_CODEX, CHIP_CURSOR, CHIP_CLAUDE = (
+    TOKENS['color']['chip_codex_fill'],
+    TOKENS['color']['chip_cursor_fill'],
+    TOKENS['color']['chip_claude_fill'],
+)
 CHIP_WARN, CHIP_DANGER, CHIP_STALE = (TOKENS['color'][k] for k in ('chip_warn_fill','chip_danger_fill','chip_stale_fill'))
 CHIP_FG, CHIP_TRACK = '#F2FFFB', '#2A3142'
 GREEN, AMBER, RED, LINE = CODEX, WARN, DANGER, HAIR
-ACCENTS = {'chatgpt': CODEX, 'cursor': CURSOR}
-CHIP_OK = {'chatgpt': CHIP_CODEX, 'cursor': CHIP_CURSOR}
-TITLES = {'chatgpt': 'GPT', 'cursor': 'Cursor'}
+ACCENTS = {'chatgpt': CODEX, 'cursor': CURSOR, 'claude': CLAUDE}
+CHIP_OK = {'chatgpt': CHIP_CODEX, 'cursor': CHIP_CURSOR, 'claude': CHIP_CLAUDE}
+TITLES = {'chatgpt': 'GPT', 'cursor': 'Cursor', 'claude': 'Claude'}
 ICON_HINTS = {
     'refresh': '새로고침 (F5)',
     'minus': '한 줄로 접기',
     'expand': '상세로 펼치기',
     'close': '종료',
 }
-HERO_SUB = {'chatgpt': '5시간 기준 잔여', 'cursor': '전체 잔여'}
-URLS = {'chatgpt': 'https://chatgpt.com/codex/settings/usage', 'cursor': 'https://cursor.com/dashboard/usage'}
-FETCHERS = ('chatgpt', 'cursor')
+HERO_SUB = {'chatgpt': '5시간 기준 잔여', 'cursor': 'Cursor Models 기준 잔여', 'claude': '5시간 기준 잔여'}
+URLS = {
+    'chatgpt': 'https://chatgpt.com/codex/settings/usage',
+    'cursor': 'https://cursor.com/dashboard/usage',
+    'claude': 'https://claude.ai/settings/usage',
+}
+FETCHERS = ('chatgpt', 'cursor', 'claude')
+NETWORK_FETCHERS = ('chatgpt', 'cursor')
 WARN_AT, DANGER_AT = 30, 15
 WINDOW_W, HEADER_H, COMPACT_H, FOOTER_H = (TOKENS[k] for k in ('width','header_h','compact_h','footer_h'))
 BAR_H, STRIP_W, CHIP_H = TOKENS['bar']['height'], TOKENS['strip']['width'], TOKENS['chip']['height']
@@ -418,19 +432,19 @@ def strip_color(key, snap):
         return WARN
     if state == 'danger':
         return DANGER
-    return ACCENTS[key]
+    return ACCENTS.get(key, MUTED)
 
 
 def bar_color(key, remaining, stale):
     if remaining is None:
         return TRACK
     if stale:
-        return ACCENTS[key]
+        return ACCENTS.get(key, MUTED)
     if remaining <= DANGER_AT:
         return DANGER
     if remaining <= WARN_AT:
         return WARN
-    return ACCENTS[key]
+    return ACCENTS.get(key, MUTED)
 
 
 def chip_style(key, snap):
@@ -552,24 +566,46 @@ def chatgpt_hero_index(snap):
     return known[0][0] if known else None
 
 
+def hero_bar_index(snap):
+    if snap is None or not getattr(snap, 'bars', None):
+        return None
+    if snap.key in ('chatgpt', 'claude'):
+        return chatgpt_hero_index(snap) if snap.key == 'chatgpt' else _named_hero_index(snap, ('5시간', '주간'))
+    if snap.key == 'cursor':
+        for index, bar in enumerate(snap.bars):
+            if bar.label == 'Cursor Models':
+                return index
+        return 0
+    return 0
+
+
+def _named_hero_index(snap, wanted):
+    known = [(index, bar) for index, bar in enumerate(snap.bars)
+             if bar.remaining_percent is not None]
+    for label in wanted:
+        for index, bar in known:
+            if bar.label == label:
+                return index
+    return known[0][0] if known else None
+
+
 def representative_percent(snap):
     if snap is None:
         return None
-    if snap.key == 'chatgpt':
-        index = chatgpt_hero_index(snap)
-        if index is not None:
-            return snap.bars[index].remaining_percent
+    index = hero_bar_index(snap)
+    if index is not None:
+        return snap.bars[index].remaining_percent
     return snap.hero_percent
 
 
 def representative_blocked(snap):
     # ChatGPT can be blocked by a secondary window. That remains alert-worthy,
     # but the provider's representative UI state belongs to the Hero window.
-    return bool(snap and snap.blocked and snap.key != 'chatgpt')
+    return bool(snap and snap.blocked and snap.key not in ('chatgpt', 'claude'))
 
 
 def quota_alert_copy(key, severity, remaining, label):
-    provider = 'ChatGPT' if key == 'chatgpt' else TITLES[key]
+    provider = {'chatgpt': 'ChatGPT', 'claude': 'Claude'}.get(key, TITLES.get(key, key))
     quota = quota_window_title(label)
     status = '소진' if remaining <= 0 else '제한' if severity == 2 else '임박'
     return f'{provider} {quota} {status}', f'{quota} · 잔여 {remaining:.0f}%'
@@ -607,17 +643,18 @@ def next_fast_due(started, now, interval=FAST_INTERVAL):
 
 
 def next_interval(snap, failures=0, active=False):
-    if failures:
-        return min(900, 30 * (2 ** min(failures - 1, 5)))
-    if not snap or not snap.ok:
-        return 30
-    if snap.blocked or snap.hero_percent == 0:
-        return 300
-    if active:
-        return FAST_INTERVAL
-    if any(value <= 35 for value in remaining_marks(snap)):
-        return 20
-    return 30
+    from polling import next_poll_delay, policy_for
+    policy = policy_for(getattr(snap, 'key', '') if snap else '')
+    return next_poll_delay(
+        policy,
+        ok=bool(snap and snap.ok),
+        blocked=bool(snap and getattr(snap, 'blocked', False)),
+        hero_percent=None if not snap else snap.hero_percent,
+        main_remaining=remaining_marks(snap) if snap else [],
+        failures=int(failures or 0),
+        active=bool(active),
+        retry_after=getattr(snap, 'retry_after', '') if snap else '',
+    )
 
 
 def should_setup(settings, preview=False):
@@ -633,11 +670,11 @@ def should_setup(settings, preview=False):
 def default_enabled(settings, preview=False, present=None):
     saved = settings.get('enabled')
     if isinstance(saved, dict) and not should_setup(settings, preview):
-        return {key: bool(saved.get(key, True)) for key in FETCHERS}
+        return {key: bool(saved.get(key, key != 'claude')) for key in FETCHERS}
     present = present if present is not None else {key: login_present(key) for key in FETCHERS}
-    if any(present.values()):
-        return {key: bool(present.get(key)) for key in FETCHERS}
-    return {key: True for key in FETCHERS}
+    if any(present.get(key) for key in NETWORK_FETCHERS):
+        return {key: bool(present.get(key)) if key != 'claude' else False for key in FETCHERS}
+    return {key: key != 'claude' for key in FETCHERS}
 
 
 def _monitor_rects(x, y):
@@ -1914,11 +1951,12 @@ class Card(BarShimmer, tk.Frame):
     """Explicit pixel layout matching the supplied 334px-wide card references."""
     animate = True
 
-    def __init__(self,parent,key,metrics=None):
+    def __init__(self,parent,key,metrics=None,on_additional=None):
         self.metrics = metrics or Metrics()
         m = self.metrics
         super().__init__(parent,width=m.card_w,height=m.p(120),bg=BG)
         self.key, self.height, self.last_signature = key,m.p(120),None
+        self.hero_height = m.p(120)
         self._service_icon = load_service_icon(key, m.scale)
         self._bar_photos = []
         self._bar_origins = []
@@ -1930,9 +1968,12 @@ class Card(BarShimmer, tk.Frame):
         self._anim_t0 = None
         self._anim_after = None
         self._snap = None
+        self._additional_expanded = False
+        self._additional_max_body = 0
         self.rows = tk.Canvas(self,width=m.card_w,height=self.height,bg=BG,bd=0,highlightthickness=0,cursor='hand2')
         self.rows.pack()
-        self.rows.bind('<Button-1>',lambda e:webbrowser.open(URLS[key]))
+        self.rows.bind('<Button-1>',lambda e:webbrowser.open(URLS.get(key, '')))
+        self.additional = AdditionalBlock(self, m, on_toggle=on_additional, bg=CARD)
         self.bind('<Destroy>', self._cancel_anim)
         self._init_shimmer()
 
@@ -1941,6 +1982,34 @@ class Card(BarShimmer, tk.Frame):
             self.last_signature = None
             self._service_icon = load_service_icon(self.key, metrics.scale)
         self.metrics = metrics
+        self.additional.set_metrics(metrics)
+
+    def set_additional_layout(self, expanded, max_body):
+        self._additional_expanded = bool(expanded)
+        self._additional_max_body = max(0, int(max_body or 0))
+        self._sync_additional()
+
+    def _sync_additional(self):
+        groups = getattr(self._snap, 'additional_groups', []) if self._snap and self._snap.ok else []
+        colors = {
+            'bg': CARD, 'muted': MUTED, 'text': TEXT, 'warn': WARN, 'danger': DANGER,
+            'track': TRACK, 'dim': DIM, 'font_meta': FONT_META, 'font_row': FONT_ROW,
+            'font_value': FONT_VALUE,
+        }
+        self.additional.render(
+            groups,
+            expanded=self._additional_expanded,
+            max_body=self._additional_max_body,
+            colors=colors,
+        )
+        if additional_count(groups):
+            if not self.additional.winfo_ismapped():
+                self.additional.pack(fill='x')
+        else:
+            self.additional.pack_forget()
+        extra = self.additional.height if additional_count(groups) else 0
+        self.height = getattr(self, 'hero_height', self.height) + extra
+        self.configure(width=self.metrics.card_w, height=self.height)
 
     def render(self,snap):
         visual = snapshot_to_dict(snap)
@@ -2015,12 +2084,10 @@ class Card(BarShimmer, tk.Frame):
         return base + self.metrics.p(4) * self._emphasis
 
     def _hero_value(self):
-        if self.key == 'chatgpt':
-            index = chatgpt_hero_index(self._snap)
-            if index is not None and index < len(self._shown_pcts):
-                bar = self._snap.bars[index]
-                return self._shown_pcts[index], index, bar.remaining_percent
-            return self._hero_shown, None, self._snap.hero_percent
+        index = hero_bar_index(self._snap)
+        if index is not None and index < len(self._shown_pcts):
+            bar = self._snap.bars[index]
+            return self._shown_pcts[index], index, bar.remaining_percent
         return self._hero_shown, None, self._snap.hero_percent
 
     def _paint_ring(self):
@@ -2068,9 +2135,9 @@ class Card(BarShimmer, tk.Frame):
         if self._snap is None or int(now) == self._clock_second:
             return
         self._clock_second = int(now)
-        hero_index = chatgpt_hero_index(self._snap) if self.key == 'chatgpt' else None
+        hero_index = hero_bar_index(self._snap)
         hero_label = self._snap.bars[hero_index].label if hero_index is not None else ''
-        prefer_days = self.key == 'cursor' or (self.key == 'chatgpt' and hero_label != '5시간')
+        prefer_days = self.key == 'cursor' or (self.key in ('chatgpt', 'claude') and hero_label != '5시간')
         self.rows.itemconfigure('countdown',text=reset_countdown(self._reset_epoch,now,prefer_days))
         if self._week_epoch is not None:
             days = max(0,int((self._week_epoch-now)//86400))
@@ -2083,7 +2150,7 @@ class Card(BarShimmer, tk.Frame):
         self._bar_origins = [None] * len(bars)
         self._bar_photos = [None] * (len(bars)+1)
         self._week_epoch = None
-        primary_index = chatgpt_hero_index(snap) if self.key == 'chatgpt' else (0 if bars else None)
+        primary_index = hero_bar_index(snap)
         primary = bars[primary_index] if primary_index is not None and primary_index < len(bars) else None
         reset = primary.reset_text if primary else ''
         if not reset and self.key == 'cursor':
@@ -2117,20 +2184,23 @@ class Card(BarShimmer, tk.Frame):
             c.create_rectangle(0,0,m.card_w,m.p(2),fill=state,outline='',tags='strip')
         c.create_image(m.p(16),m.p(54),anchor='nw',tags='ring')
         c.create_text(m.p(58),m.p(96),text='',font=m.font(FONT_HERO),tags='hero')
-        hero_title = (quota_window_title(primary.label) + ' · 남은 사용량'
-                      if self.key == 'chatgpt' and primary is not None
-                      else '사용량 한도 · 남은 사용량' if self.key == 'chatgpt'
-                      else '월간 크레딧 · 남음')
+        if primary is not None:
+            hero_title = (quota_window_title(primary.label) + ' · 남은 사용량'
+                          if self.key in ('chatgpt', 'claude') else f'{primary.label} · 남은 사용량')
+        elif self.key in ('chatgpt', 'claude'):
+            hero_title = '사용량 한도 · 남은 사용량'
+        else:
+            hero_title = '남은 사용량'
         text(114,64,hero_title,FONT_SERVICE)
         text(114,88,'다음 리셋',FONT_META,MUTED)
         text(172,85,'', (FACE_SEMI,-15),TEXT,tags='countdown')
-        short_reset = self.key == 'chatgpt' and primary is not None and primary.label == '5시간'
+        short_reset = self.key in ('chatgpt', 'claude') and primary is not None and primary.label == '5시간'
         text(114,112,reset_stamp(reset) if short_reset else dated_reset_stamp(reset),FONT_META,DIM)
         y = 156
         for index,bar in enumerate(bars):
-            if self.key=='chatgpt' and index == primary_index:
+            if index == primary_index:
                 continue
-            text(16,y,quota_window_title(bar.label) if self.key=='chatgpt' else bar.label,FONT_ROW,MUTED)
+            text(16,y,quota_window_title(bar.label) if self.key in ('chatgpt', 'claude') else bar.label,FONT_ROW,MUTED)
             value = bar.remaining_percent
             c.create_text(m.card_w-m.p(16),m.p(y),text='—' if value is None else f'{value:.0f}%',font=m.font(FONT_VALUE),fill=TEXT,anchor='ne',tags='bar_value_'+str(index))
             bar_y = m.p(y+23)
@@ -2138,7 +2208,7 @@ class Card(BarShimmer, tk.Frame):
             self._bar_origins[index] = (m.p(16),bar_y)
             c.create_image(m.p(16),bar_y-(raster-m.bar_h)/2,anchor='nw',tags='bar_'+str(index))
             y += 42
-            if self.key=='chatgpt' and bar.reset_text:
+            if self.key in ('chatgpt', 'claude') and bar.reset_text:
                 text(16,y,bar.label + ' 리셋 ' + dated_reset_stamp(bar.reset_text).removesuffix(' 리셋'),FONT_META,DIM)
                 self._week_epoch = reset_epoch(bar.reset_text,snap.fetched_at)
                 c.create_text(m.card_w-m.p(16),m.p(y),text='',font=m.font(FONT_META),fill=DIM,anchor='ne',tags='week_remaining')
@@ -2168,8 +2238,9 @@ class Card(BarShimmer, tk.Frame):
             y=178
         self.height=m.p(y+16)
         c.configure(width=m.card_w,height=self.height)
-        self.configure(width=m.card_w,height=self.height)
-        c.create_line(0,self.height-1,m.card_w,self.height-1,fill=HAIR)
+        self.hero_height = self.height
+        self._sync_additional()
+        c.create_line(0,self.hero_height-1,m.card_w,self.hero_height-1,fill=HAIR)
         self._paint_shimmer()
         self._clock_second=None
         self.refresh_clock()
@@ -2222,6 +2293,7 @@ class UsageWidget:
         self.dragging = False
         self.last_area = None
         self.snapshots = {}
+        self.additional_open = None
         self.failures = dict.fromkeys(FETCHERS, 0)
         self.due = dict.fromkeys(FETCHERS, 0.0)
         self.usage_until = dict.fromkeys(FETCHERS, 0.0)
@@ -2248,6 +2320,11 @@ class UsageWidget:
                 pass
         if should_setup(self.settings, self.preview):
             self.pick_services()
+        try:
+            from claude_integration import ensure_bridge_copy
+            ensure_bridge_copy()
+        except Exception:
+            pass
         self.apply_mode()
         self.load_cache()
         self.root.update_idletasks()
@@ -2308,7 +2385,7 @@ class UsageWidget:
         for name,callback in (('refresh',self.refresh),('minus',self.toggle),('close',self.close)):
             self.header_buttons.append(self.icon_button(self.header,name,callback,CLOSE_HOVER if name == 'close' else HOVER))
         self.body = tk.Frame(self.shell,bg=BG,padx=0)
-        self.cards = {k:Card(self.body,k,m) for k in FETCHERS}
+        self.cards = {k:Card(self.body,k,m,on_additional=lambda key=k: self.toggle_additional(key)) for k in FETCHERS}
         self.footer = tk.Frame(self.shell,bg=BG,height=m.footer_h)
         tk.Frame(self.footer,bg=HAIR,height=1).place(x=0,y=0,relwidth=1,height=1)
         self.footer_dot = tk.Canvas(self.footer,width=m.p(6),height=m.p(6),bg=BG,highlightthickness=0,bd=0)
@@ -2527,13 +2604,14 @@ class UsageWidget:
     def help_text(self):
         return (
             f'현재 버전 {APP_VERSION}\n\n'
-            '이 위젯은 OpenAI(ChatGPT)·Cursor와 제휴되지 않은 비공식 도구입니다.\n'
+            '이 위젯은 OpenAI(ChatGPT)·Cursor·Anthropic과 제휴되지 않은 비공식 도구입니다.\n'
             '사용량 조회는 언제든 실패하거나 바뀔 수 있습니다.\n\n'
             'GPT: 실제 한도 기간으로 구분하며, 5시간이 있으면 우선 표시하고 없으면 주간·기타 한도를 표시합니다.\n'
-            'Cursor: 전체 잔여와 자사 모델·API 잔여를 구분합니다. 막대 아래는 청구 주기 초기화입니다.\n'
+            'Cursor: Cursor Models를 대표 잔여로 표시하고 Other Models를 보조 바로 표시합니다. 막대 아래는 청구 주기 초기화입니다.\n'
+            'Claude: Claude.ai 구독과 지원되는 Claude Code가 필요합니다. 대화형 세션의 5시간·주간 한도만 표시하며 Additional/Billing은 없습니다. 연동은 우클릭 → 표시할 서비스에서 켭니다. claude -p는 추적되지 않습니다.\n'
             '기본 포함량 소진과 전체 한도 소진은 다를 수 있습니다.\n\n'
             '한 줄 칩 색이 임박·소진·이전 데이터를 나타냅니다.\n'
-            '우클릭 → 표시할 서비스·로그인에서 GPT / Cursor를 고릅니다.\n'
+            '우클릭 → 표시할 서비스·로그인에서 GPT / Cursor / Claude를 고릅니다.\n'
             '계정 로그인은 각 서비스에서 하세요. 위젯은 읽기만 합니다.\n'
             'GPT 사용량은 ChatGPT 데스크톱 앱이 아니라 Codex CLI 로그인이 필요합니다.\n\n'
             '실행은 zip 푼 폴더의 AI Usage.exe 입니다. 한 번 실행한 뒤에는 실행 파일만 옮겨도 됩니다.\n'
@@ -2549,6 +2627,61 @@ class UsageWidget:
 
     def help(self):
         self.notify(messagebox.showinfo, 'AI Usage', self.help_text(), parent=self.root)
+
+    def _service_setup_action(self, action):
+        if str(action).startswith('claude'):
+            self._claude_integration_action(action)
+            return
+        start_tool_setup(action)
+
+    def _claude_integration_action(self, action):
+        from claude_integration import conflict_state, install_statusline, uninstall_statusline
+        try:
+            if action == 'claude-conflict':
+                self.notify(
+                    messagebox.showinfo,
+                    'Claude 연동',
+                    'Claude Code statusLine이 설치 이후 변경되어 자동으로 되돌리지 않습니다.\n'
+                    '원본을 복구하려면 사용자가 직접 ~/.claude/settings.json의 statusLine을 확인하세요.',
+                    parent=self.root,
+                )
+                return
+            if action == 'claude-uninstall':
+                if not self.notify(messagebox.askyesno, 'Claude 연동 해제',
+                                   'statusLine wrapper를 제거하고 가능한 경우 원본을 복구할까요?',
+                                   parent=self.root):
+                    return
+                result = uninstall_statusline()
+                messages = {
+                    'restored': '원본 statusLine을 복구했습니다.',
+                    'removed': 'Claude statusLine 연동을 제거했습니다.',
+                    'conflict': '사용자가 statusLine을 바꿔 자동 원복하지 않았습니다.',
+                    'absent': '제거할 연동이 없습니다.',
+                }
+                self.notify(messagebox.showinfo, 'Claude 연동', messages.get(result, result), parent=self.root)
+                return
+            if not self.notify(
+                messagebox.askyesno,
+                'Claude 연동',
+                '대화형 Claude Code의 공식 statusLine으로 5시간·주간 한도를 읽습니다.\n'
+                '기존 statusLine이 있으면 덮어쓰지 않고 tee wrapper로 전달합니다.\n'
+                '지금 연동할까요?',
+                parent=self.root,
+            ):
+                return
+            install_statusline()
+            self.enabled['claude'].set(True)
+            self.due['claude'] = 0
+            self.persist()
+            self.apply_mode()
+            self.notify(
+                messagebox.showinfo,
+                'Claude 연동',
+                '연동했습니다. 대화형 Claude Code 세션을 열면 사용량이 나타납니다.',
+                parent=self.root,
+            )
+        except Exception as exc:
+            self.notify(messagebox.showerror, 'Claude 연동', str(exc) or '연동에 실패했습니다.', parent=self.root)
 
     def make_desktop_shortcut(self):
         try:
@@ -2570,7 +2703,7 @@ class UsageWidget:
         tk.Label(dialog, text='이 PC에서 볼 서비스를 고르세요.', bg=BG, fg=TEXT, font=FONT_TITLE).pack(anchor='w', padx=16, pady=(14, 6))
         tk.Label(
             dialog,
-            text='GPT 사용량은 ChatGPT 데스크톱 앱만으로 연동되지 않습니다. Codex CLI와 Cursor 앱 로그인이 필요합니다.',
+            text='GPT는 Codex CLI, Cursor는 Cursor 앱 로그인이 필요합니다. Claude는 대화형 Claude Code 연동이 필요합니다.',
             bg=BG, fg=MUTED, font=FONT_FOOT, wraplength=340, justify='left',
         ).pack(anchor='w', padx=16)
         notes = {}
@@ -2590,13 +2723,13 @@ class UsageWidget:
             label, action = prepare_action(key)
             button = tk.Button(
                 block, text=label, bg=CARD, fg=TEXT, bd=0, padx=10, pady=3, cursor='hand2',
-                command=lambda a=action: start_tool_setup(a),
+                command=lambda a=action: self._service_setup_action(a),
             )
             button.pack(anchor='w', pady=(4, 0))
             actions[key] = button
         tk.Label(
             dialog,
-            text='Claude · Gemini · ChatGPT 웹 구독은 아직 로컬 잔여량 조회를 지원하지 않습니다.',
+            text='Claude 연동은 ~/.claude/settings.json을 자동으로 바꾸지 않습니다. 연동 버튼을 눌렀을 때만 statusLine wrapper를 설치합니다.',
             bg=BG, fg=DIM, font=FONT_META, wraplength=340, justify='left',
         ).pack(anchor='w', padx=16, pady=(4, 4))
         buttons = tk.Frame(dialog, bg=BG)
@@ -2610,7 +2743,7 @@ class UsageWidget:
             for key in FETCHERS:
                 notes[key].configure(text=login_status(key))
                 label, action = prepare_action(key)
-                actions[key].configure(text=label, command=lambda a=action: start_tool_setup(a))
+                actions[key].configure(text=label, command=lambda a=action: self._service_setup_action(a))
         try:
             dialog.after(2000, refresh_status)
         except tk.TclError:
@@ -2749,6 +2882,43 @@ class UsageWidget:
         self.set_scale(DEFAULT_SCALE)
         return 'break'
 
+    def toggle_additional(self, key):
+        self.additional_open = None if self.additional_open == key else key
+        self.relayout()
+
+    def relayout(self, x=None, y=None):
+        try:
+            if x is None:
+                x, y = int(self.root.winfo_x()), int(self.root.winfo_y())
+        except (tk.TclError, ValueError, TypeError):
+            x, y = 40, 80
+        work = work_area(x, y)
+        monitor = monitor_area(x, y)
+        max_h = min(self.metrics.p(480), max(1, work[3] - work[1]) * 0.5)
+        visible = [k for k in FETCHERS if self.enabled[k].get()]
+        m = self.metrics
+        used = 2 + m.header_h + m.footer_h
+        for key in visible:
+            card = self.cards[key]
+            used += getattr(card, 'hero_height', card.height)
+            snap = self.snapshots.get(key)
+            groups = getattr(snap, 'additional_groups', []) if snap and getattr(snap, 'ok', False) else []
+            if additional_count(groups):
+                used += m.p(28)
+            used += m.card_gap
+        remaining = max(0, int(max_h - used))
+        for key in FETCHERS:
+            self.cards[key].set_additional_layout(self.additional_open == key, remaining)
+        self.apply_mode()
+        if self.compact:
+            height = m.compact_h
+        else:
+            body_h = sum(self.cards[k].height for k in visible) + m.card_gap * max(0, len(visible) - 1)
+            height = 2 + m.header_h + body_h + m.footer_h
+        x, y = clamp_position(x, y, m.window_w, height, work, monitor)
+        self.root.geometry(geometry_at(x, y))
+        self.apply_topmost()
+
     def apply_mode(self):
         m = self.metrics
         visible = [k for k in FETCHERS if self.enabled[k].get()]
@@ -2805,8 +2975,7 @@ class UsageWidget:
 
     def toggle(self):
         self.compact = not self.compact
-        self.apply_mode()
-        self.place(self.root.winfo_x(), self.root.winfo_y())
+        self.relayout()
         self.persist()
 
     def set_topmost(self):
@@ -2856,16 +3025,11 @@ class UsageWidget:
 
     def end_drag(self, e):
         self.dragging = False
-        self.place(self.root.winfo_x(), self.root.winfo_y())
+        self.relayout(self.root.winfo_x(), self.root.winfo_y())
         self.persist()
 
     def place(self, x, y):
-        self.root.update_idletasks()
-        w, h = self.root.winfo_width(), self.root.winfo_height()
-        cx, cy = x + w // 2, y + h // 2
-        x, y = clamp_position(x, y, w, h, work_area(cx, cy), monitor_area(cx, cy))
-        self.root.geometry(geometry_at(x, y))
-        self.apply_topmost()
+        self.relayout(x, y)
 
     def persist(self):
         if self.preview:
@@ -2908,6 +3072,9 @@ class UsageWidget:
         self.set_footer('새로고침 요청됨', MUTED, CODEX)
 
     def start_job(self, key):
+        if key == 'claude':
+            self.accept(key, fetch_claude())
+            return
         try:
             now = time.monotonic()
             previous = self.request_started.get(key, float('-inf'))
@@ -2952,7 +3119,8 @@ class UsageWidget:
             if state is not None and state != self.locked:
                 self.locked = state
                 for key in FETCHERS:
-                    self.runner.cancel(key)
+                    if key in NETWORK_FETCHERS:
+                        self.runner.cancel(key)
                     self.due[key] = 0
                 if not state:
                     for key, snap in list(self.snapshots.items()):
@@ -2979,22 +3147,30 @@ class UsageWidget:
                     self.due[key] = 0
 
     def accept(self, key, snap):
-        if snap.ok:
+        if key == 'claude' or snap.ok:
             self.failures[key] = 0
         else:
             self.failures[key] += 1
         previous = self.snapshots.get(key)
         if not snap.ok and previous and previous.ok:
-            snap = replace(previous, stale=True, error=snap.error)
+            snap = replace(
+                previous,
+                stale=True,
+                error=snap.error,
+                retry_after=getattr(snap, 'retry_after', ''),
+            )
         now = time.monotonic()
         until = getattr(self, 'usage_until', None)
         if until is None:
             until = {}
             self.usage_until = until
-        if key != 'chatgpt' and snap.ok and usage_dropped(previous, snap):
+        if key not in ('chatgpt', 'claude') and snap.ok and usage_dropped(previous, snap):
             until[key] = now + ACTIVE_HOLD
         self.snapshots[key] = snap
-        if key == 'chatgpt':
+        if key == 'claude':
+            from claude_bridge import CACHE_READ_INTERVAL
+            self.due[key] = now + CACHE_READ_INTERVAL
+        elif key == 'chatgpt':
             monitor = getattr(self, 'codex_activity', None)
             fast = monitor is not None and monitor.fast(now) and not self.failures[key]
             self._schedule_poll(key, snap, now, active=fast)
@@ -3084,7 +3260,7 @@ class UsageWidget:
             return
         snap = self.snapshots[key]
         self.cards[key].render(snap)
-        self.apply_mode()
+        self.relayout()
         hero = representative_percent(snap)
         value = '—' if hero is None else f'{hero:.0f}%'
         fill, fg = chip_style(key, snap)

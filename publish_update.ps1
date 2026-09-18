@@ -55,14 +55,15 @@ $latest = [ordered]@{
     zip     = $zipUrl
     notes   = $shortNotes
 } | ConvertTo-Json -Compress
-[System.IO.File]::WriteAllText((Join-Path $project 'latest.json'), $latest + "`n", $utf8)
 
 $stage = Join-Path $env:TEMP 'AIUsageWidget_dist_stage'
 if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
 New-Item -ItemType Directory -Path (Join-Path $stage 'assets\icons') -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $stage 'assets\fonts') -Force | Out-Null
 $copy = @(
-    'usage_widget.py', 'providers.py', 'runtime.py', 'codex_activity.py', 'cursor_activity.py', 'poll_worker.py', 'updater.py',
+    'usage_widget.py', 'providers.py', 'runtime.py', 'polling.py', 'additional_ui.py',
+    'codex_activity.py', 'cursor_activity.py', 'poll_worker.py', 'updater.py',
+    'claude_bridge.py', 'claude_integration.py',
     'setup_and_run.ps1', 'setup_login.ps1', 'create_shortcut.ps1',
     'start_usage_widget.vbs', 'start_usage_widget.bat',
     'toast.ps1', 'register_notifications.ps1', 'feed_url.txt', 'CHANGELOG.md', 'LICENSE', 'CODEX_ACTIVITY.md'
@@ -104,6 +105,7 @@ $z2 = Join-Path $env:USERPROFILE 'Downloads\AIUsageWidget.zip'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory($stage, $z1, [System.IO.Compression.CompressionLevel]::Optimal, $false)
 Copy-Item -LiteralPath $z1 -Destination $z2 -Force
+[System.IO.File]::WriteAllText((Join-Path $project 'latest.json'), $latest + "`n", $utf8)
 Copy-Item -LiteralPath (Join-Path $project 'latest.json') -Destination (Join-Path $release 'latest.json') -Force
 $notesFile = Join-Path $release 'RELEASE_NOTES.md'
 [System.IO.File]::WriteAllText($notesFile, $releaseNotes, $utf8)

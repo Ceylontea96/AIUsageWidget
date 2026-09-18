@@ -25,6 +25,9 @@ def auth_paths():
 
 
 def login_present(key, paths=None):
+    if key == 'claude':
+        from claude_integration import is_installed
+        return is_installed()
     return any(path.is_file() for path in (paths or auth_paths()).get(key, []))
 
 
@@ -62,6 +65,9 @@ def cursor_app_path():
 
 
 def login_status(key, paths=None):
+    if key == 'claude':
+        from claude_integration import integration_label
+        return integration_label()
     if login_present(key, paths):
         return '로그인 감지됨'
     if key == 'chatgpt':
@@ -74,6 +80,13 @@ def login_status(key, paths=None):
 
 
 def prepare_action(key):
+    if key == 'claude':
+        from claude_integration import conflict_state, is_installed
+        if conflict_state() == 'conflict':
+            return '충돌 확인', 'claude-conflict'
+        if is_installed():
+            return '연동 해제', 'claude-uninstall'
+        return 'Claude 연동', 'claude-setup'
     if key == 'chatgpt':
         if login_present(key) or codex_cli_path():
             return '로그인', 'codex-login'

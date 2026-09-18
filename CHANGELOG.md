@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-09-18
+
+### Added
+- GPT 추가 한도를 접어서 보고, 그룹 단위로 표시합니다
+- Claude Pro 사용량을 대화형 Claude Code와 연동해 표시합니다
+- 사용량 상태와 한도 표시 구조를 서비스 공통 형태로 정리합니다
+
+### Changed
+- Cursor 대표 잔여를 Cursor Models, 보조 막대를 Other Models로 표시합니다
+- mapping implementation confirmed via same-response displayMessage/percent correlation; direct Dashboard sanity check pending
+- 조회 간격과 오류 재시도(Retry-After)를 더 안정적으로 처리합니다
+
+### Notes
+- Claude는 Claude Code와 Claude.ai 구독이 필요하며, 대화형 Claude Code 세션 기준입니다
+- `claude -p`만으로는 실시간 추적되지 않으며 Claude Additional/Billing은 아직 없습니다
+- Cursor Billing 문구의 사용자-facing 의미는 별도 검증 전까지 새로 확정하지 않습니다
+
 ## [3.2.27] - 2026-09-18
 
 ### Fixed
@@ -263,7 +280,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.27...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.3.0...HEAD
+[3.3.0]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.3.0
 [3.2.27]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.27
 [3.2.26]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.26
 [3.2.25]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.25

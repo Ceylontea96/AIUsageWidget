@@ -129,10 +129,10 @@ class WidgetTests(unittest.TestCase):
         self.assertFalse(u.should_setup({'version':3,'enabled':{'chatgpt':True}},preview=False))
         self.assertTrue(u.should_setup({},preview=False))
         self.assertFalse(u.should_setup({},preview=True))
-        self.assertEqual(u.default_enabled({},present={'chatgpt':False,'cursor':True}),{'chatgpt':False,'cursor':True})
+        self.assertEqual(u.default_enabled({},present={'chatgpt':False,'cursor':True}),{'chatgpt':False,'cursor':True,'claude':False})
         self.assertEqual(
             u.default_enabled({'version':3,'enabled':{'chatgpt':True,'cursor':False}},present={'chatgpt':False,'cursor':True}),
-            {'chatgpt':True,'cursor':False},
+            {'chatgpt':True,'cursor':False,'claude':False},
         )
         work, monitor = (0, 0, 1920, 1040), (0, 0, 1920, 1080)
         with patch.object(u, 'work_area', return_value=work):

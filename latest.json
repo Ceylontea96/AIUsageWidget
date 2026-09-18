@@ -1,1 +1,1 @@
-{"version":"3.2.27","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"Hero quota가 100%인 동안 보조 quota 경고가 Compact 색상과 Hero 상태를 덮어쓰지 않도록 한 3.2.26 hotfix를 새 버전으로 재배포"}
+{"version":"3.3.0","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"GPT 추가 한도를 접어서 보고, 그룹 단위로 표시합니다 / Claude Pro 사용량을 대화형 Claude Code와 연동해 표시합니다 / 사용량 상태와 한도 표시 구조를 서비스 공통 형태로 정리합니다"}

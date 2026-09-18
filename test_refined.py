@@ -68,13 +68,13 @@ class RefinedTests(unittest.TestCase):
         try:
             card=u.Card(root,'cursor')
             card.render(ProviderSnapshot('cursor','Cursor','Pro',True,27,'',
-                bars=[QuotaBar('자사 모델',72,28,'','9월 28일 11:27'),QuotaBar('API 사용량',82,18,'','9월 28일 11:27')],
+                bars=[QuotaBar('Cursor Models',72,28,'','9월 28일 11:27'),QuotaBar('Other Models',82,18,'','9월 28일 11:27')],
                 info_rows=[], footer='9월 28일 11:27 초기화 · 보너스 $340.87'))
             texts=[card.rows.itemcget(i,'text') for i in card.rows.find_all() if card.rows.type(i)=='text']
             self.assertIn('◇ 보너스 사용액',texts)
             self.assertIn('$340.87',texts)
-            self.assertIn('월간 크레딧 · 남음',texts)
-            self.assertEqual(card.rows.itemcget('bar_value_0','text'),'72%')
+            self.assertIn('Cursor Models · 남은 사용량',texts)
+            self.assertFalse(card.rows.find_withtag('bar_0'))
             self.assertEqual(card.rows.itemcget('bar_value_1','text'),'82%')
             self.assertNotIn('28% 사용', texts)
             self.assertNotIn('18% 사용', texts)

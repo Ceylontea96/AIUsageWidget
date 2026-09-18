@@ -46,6 +46,56 @@ class InfoRow:
 
 
 @dataclass
+class QuotaItem:
+    quota_id: str
+    source: str
+    category: str
+    display_name: str
+    raw_identifier: str = ""
+    window_seconds: float | None = None
+    window_label: str = ""
+    used_percent: float | None = None
+    remaining_percent: float | None = None
+    reset_at: float | None = None
+    model_name: str = ""
+    scope: str = "global"
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class LimitGroup:
+    group_id: str
+    source: str
+    display_name: str
+    category: str = "additional"
+    raw_identifier: str = ""
+    limits: list[QuotaItem] = field(default_factory=list)
+    scope: str = "scoped"
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class BillingItem:
+    billing_id: str
+    source: str
+    kind: str
+    raw_value: Any = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+class JsonPayload(dict):
+    def __init__(self, mapping=None, retry_after: str = "") -> None:
+        super().__init__(mapping or {})
+        self.retry_after = str(retry_after or "")
+
+
+class FetchError(RuntimeError):
+    def __init__(self, message: str, retry_after: str = "") -> None:
+        super().__init__(message)
+        self.retry_after = str(retry_after or "")
+
+
+@dataclass
 class ProviderSnapshot:
     key: str
     title: str
@@ -61,6 +111,17 @@ class ProviderSnapshot:
     fetched_at: float = 0.0
     stale: bool = False
     blocked: bool = False
+    main_limits: list[QuotaItem] = field(default_factory=list)
+    additional_groups: list[LimitGroup] = field(default_factory=list)
+    billing: list[BillingItem] = field(default_factory=list)
+    retry_after: str = ""
+    internal: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.main_limits and self.bars:
+            self.main_limits = [quota_item_from_bar(self.key, bar) for bar in self.bars]
+        elif self.main_limits and not self.bars:
+            self.bars = [bar_from_quota_item(item) for item in self.main_limits]
 
 
 def jwt_payload(token: str) -> dict[str, Any]:
@@ -110,15 +171,19 @@ def http_json(
                     raise RuntimeError("사용량 응답 크기가 너무 큽니다.")
             raw = b''.join(chunks)
             if not raw:
-                return int(getattr(resp, "status", 200) or 200), {}
+                return int(getattr(resp, "status", 200) or 200), JsonPayload({})
             parsed = json.loads(raw.decode("utf-8"))
             if not isinstance(parsed, dict):
                 raise RuntimeError("사용량 응답 형식이 올바르지 않습니다.")
-            return int(getattr(resp, "status", 200) or 200), parsed
+            return int(getattr(resp, "status", 200) or 200), JsonPayload(parsed)
     except urllib.error.HTTPError as exc:
         status = int(exc.code)
+        retry_after = ""
+        headers = getattr(exc, "headers", None)
+        if headers is not None:
+            retry_after = str(headers.get("Retry-After") or "")
         exc.close()
-        return status, {}
+        return status, JsonPayload({}, retry_after)
     except Exception as exc:
         raise RuntimeError("서버 연결을 확인한 뒤 다시 시도하세요.") from None
 
@@ -200,6 +265,167 @@ def to_int(value: Any) -> int | None:
     return None if number is None else int(number)
 
 
+def json_safe_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe_value(item) for item in value]
+    if isinstance(value, bool) or value is None or isinstance(value, str):
+        return value
+    if isinstance(value, (int, float)):
+        return to_float(value)
+    return value
+
+
+def _scope_window_seconds(scope: str) -> float | None:
+    text = str(scope or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if isinstance(parsed, list) and len(parsed) >= 2:
+        seconds = to_float(parsed[1])
+        return seconds if seconds is not None and seconds > 0 else None
+    return None
+
+
+def quota_item_from_bar(source: str, bar: QuotaBar) -> QuotaItem:
+    seconds = _scope_window_seconds(bar.usage_scope)
+    raw = f"window:{int(seconds)}" if seconds is not None else (bar.usage_scope or f"label:{bar.label}")
+    return QuotaItem(
+        quota_id=f"{source}:main:{raw}",
+        source=source,
+        category="main",
+        display_name=bar.label,
+        raw_identifier=raw,
+        window_seconds=seconds,
+        window_label=bar.label,
+        used_percent=bar.used_percent,
+        remaining_percent=bar.remaining_percent,
+        scope="global",
+    )
+
+
+def bar_from_quota_item(item: QuotaItem) -> QuotaBar:
+    remaining = item.remaining_percent
+    detail = "잔여 --" if remaining is None else f"잔여 {remaining:.0f}%"
+    return QuotaBar(
+        label=item.display_name or item.window_label,
+        remaining_percent=item.remaining_percent,
+        used_percent=item.used_percent,
+        detail=detail,
+        reset_text=fmt_local(item.reset_at, "reset") if item.reset_at else "",
+        usage_scope=json.dumps([item.reset_at, item.window_seconds]),
+    )
+
+
+def _quota_item_to_dict(item: QuotaItem) -> dict[str, Any]:
+    return {
+        "quota_id": item.quota_id,
+        "source": item.source,
+        "category": item.category,
+        "display_name": item.display_name,
+        "raw_identifier": item.raw_identifier,
+        "window_seconds": json_safe_value(item.window_seconds),
+        "window_label": item.window_label,
+        "used_percent": json_safe_value(item.used_percent),
+        "remaining_percent": json_safe_value(item.remaining_percent),
+        "reset_at": json_safe_value(item.reset_at),
+        "model_name": item.model_name,
+        "scope": item.scope,
+        "metadata": json_safe_value(item.metadata) if isinstance(item.metadata, dict) else {},
+    }
+
+
+def _quota_item_from_dict(raw: Any) -> QuotaItem | None:
+    if not isinstance(raw, dict):
+        return None
+    quota_id = str(raw.get("quota_id") or "")
+    if not quota_id:
+        return None
+    metadata = raw.get("metadata")
+    return QuotaItem(
+        quota_id=quota_id,
+        source=str(raw.get("source") or ""),
+        category=str(raw.get("category") or "unknown"),
+        display_name=str(raw.get("display_name") or ""),
+        raw_identifier=str(raw.get("raw_identifier") or ""),
+        window_seconds=to_float(raw.get("window_seconds")),
+        window_label=str(raw.get("window_label") or ""),
+        used_percent=to_float(raw.get("used_percent")),
+        remaining_percent=to_float(raw.get("remaining_percent")),
+        reset_at=to_float(raw.get("reset_at")),
+        model_name=str(raw.get("model_name") or ""),
+        scope=str(raw.get("scope") or "global"),
+        metadata=dict(metadata) if isinstance(metadata, dict) else {},
+    )
+
+
+def _limit_group_to_dict(group: LimitGroup) -> dict[str, Any]:
+    return {
+        "group_id": group.group_id,
+        "source": group.source,
+        "display_name": group.display_name,
+        "category": group.category,
+        "raw_identifier": group.raw_identifier,
+        "limits": [_quota_item_to_dict(item) for item in group.limits],
+        "scope": group.scope,
+        "metadata": json_safe_value(group.metadata) if isinstance(group.metadata, dict) else {},
+    }
+
+
+def _limit_group_from_dict(raw: Any) -> LimitGroup | None:
+    if not isinstance(raw, dict):
+        return None
+    group_id = str(raw.get("group_id") or "")
+    if not group_id:
+        return None
+    limits = []
+    for item in raw.get("limits") if isinstance(raw.get("limits"), list) else []:
+        parsed = _quota_item_from_dict(item)
+        if parsed is not None:
+            limits.append(parsed)
+    metadata = raw.get("metadata")
+    return LimitGroup(
+        group_id=group_id,
+        source=str(raw.get("source") or ""),
+        display_name=str(raw.get("display_name") or ""),
+        category=str(raw.get("category") or "additional"),
+        raw_identifier=str(raw.get("raw_identifier") or ""),
+        limits=limits,
+        scope=str(raw.get("scope") or "scoped"),
+        metadata=dict(metadata) if isinstance(metadata, dict) else {},
+    )
+
+
+def _billing_item_to_dict(item: BillingItem) -> dict[str, Any]:
+    return {
+        "billing_id": item.billing_id,
+        "source": item.source,
+        "kind": item.kind,
+        "raw_value": json_safe_value(item.raw_value),
+        "metadata": json_safe_value(item.metadata) if isinstance(item.metadata, dict) else {},
+    }
+
+
+def _billing_item_from_dict(raw: Any) -> BillingItem | None:
+    if not isinstance(raw, dict):
+        return None
+    billing_id = str(raw.get("billing_id") or "")
+    if not billing_id:
+        return None
+    metadata = raw.get("metadata")
+    return BillingItem(
+        billing_id=billing_id,
+        source=str(raw.get("source") or ""),
+        kind=str(raw.get("kind") or "unknown"),
+        raw_value=json_safe_value(raw.get("raw_value")),
+        metadata=dict(metadata) if isinstance(metadata, dict) else {},
+    )
+
+
 def snapshot_to_dict(snap: ProviderSnapshot) -> dict[str, Any]:
     return {
         "key": snap.key,
@@ -211,8 +437,8 @@ def snapshot_to_dict(snap: ProviderSnapshot) -> dict[str, Any]:
         "bars": [
             {
                 "label": bar.label,
-                "remaining_percent": bar.remaining_percent,
-                "used_percent": bar.used_percent,
+                "remaining_percent": json_safe_value(bar.remaining_percent),
+                "used_percent": json_safe_value(bar.used_percent),
                 "detail": bar.detail,
                 "reset_text": bar.reset_text,
                 "usage_scope": bar.usage_scope,
@@ -233,6 +459,11 @@ def snapshot_to_dict(snap: ProviderSnapshot) -> dict[str, Any]:
         "fetched_at": snap.fetched_at,
         "stale": snap.stale,
         "blocked": snap.blocked,
+        "main_limits": [_quota_item_to_dict(item) for item in snap.main_limits],
+        "additional_groups": [_limit_group_to_dict(group) for group in snap.additional_groups],
+        "billing": [_billing_item_to_dict(item) for item in snap.billing],
+        "retry_after": snap.retry_after,
+        "internal": json_safe_value(snap.internal) if isinstance(snap.internal, dict) else {},
     }
 
 
@@ -264,6 +495,21 @@ def snapshot_from_dict(data: dict[str, Any]) -> ProviderSnapshot:
                 emphasis=str(raw.get("emphasis") or ""),
             )
         )
+    main_limits = []
+    for raw in data.get("main_limits") if isinstance(data.get("main_limits"), list) else []:
+        item = _quota_item_from_dict(raw)
+        if item is not None:
+            main_limits.append(item)
+    additional_groups = []
+    for raw in data.get("additional_groups") if isinstance(data.get("additional_groups"), list) else []:
+        group = _limit_group_from_dict(raw)
+        if group is not None:
+            additional_groups.append(group)
+    billing = []
+    for raw in data.get("billing") if isinstance(data.get("billing"), list) else []:
+        item = _billing_item_from_dict(raw)
+        if item is not None:
+            billing.append(item)
     return ProviderSnapshot(
         key=str(data.get("key") or ""),
         title=str(data.get("title") or ""),
@@ -279,6 +525,11 @@ def snapshot_from_dict(data: dict[str, Any]) -> ProviderSnapshot:
         fetched_at=to_float(data.get("fetched_at")) or 0.0,
         stale=True,
         blocked=bool(data.get("blocked", False)),
+        main_limits=main_limits,
+        additional_groups=additional_groups,
+        billing=billing,
+        retry_after=str(data.get("retry_after") or ""),
+        internal=dict(data.get("internal")) if isinstance(data.get("internal"), dict) else {},
     )
 
 
@@ -436,63 +687,94 @@ def fetch_cursor() -> ProviderSnapshot:
             {},
         )
     if usage_status >= 400:
-        raise RuntimeError(f"Cursor 사용량 API 오류 ({usage_status})")
+        raise FetchError(
+            f"Cursor 사용량 API 오류 ({usage_status})",
+            getattr(usage, "retry_after", ""),
+        )
 
     plan_name = _cursor_plan_name(headers, (auth.plan or "Cursor").title())
-    plan_usage = usage.get("planUsage") or {}
+    plan_usage = usage.get("planUsage") if isinstance(usage.get("planUsage"), dict) else {}
     auto_used = to_float(plan_usage.get("autoPercentUsed"))
     api_used = to_float(plan_usage.get("apiPercentUsed"))
     total_used = to_float(plan_usage.get("totalPercentUsed"))
-    reset_text = fmt_local(usage.get("billingCycleEnd"), "reset")
-    scope = json.dumps([usage.get("billingCycleEnd"), plan_usage.get("limit")])
-    bars = []
-    if auto_used is not None:
-        bars.append(
-            QuotaBar("자사 모델", remaining_from_used(auto_used), auto_used, f"{auto_used:.0f}% 사용", reset_text, scope)
+    reset_at = to_float(usage.get("billingCycleEnd"))
+    reset_text = fmt_local(reset_at, "reset")
+    pools = (
+        ("autoPercentUsed", "Cursor Models", auto_used),
+        ("apiPercentUsed", "Other Models", api_used),
+    )
+    main_limits = [
+        QuotaItem(
+            quota_id=f"cursor:main:{raw_id}",
+            source="cursor",
+            category="main",
+            display_name=label,
+            raw_identifier=raw_id,
+            used_percent=used,
+            remaining_percent=remaining_from_used(used),
+            reset_at=reset_at,
+            window_label=label,
+            scope="global",
         )
-    if api_used is not None:
-        bars.append(
-            QuotaBar("API 사용량", remaining_from_used(api_used), api_used, f"{api_used:.0f}% 사용", reset_text, scope)
-        )
-    bonus = to_float(plan_usage.get("bonusSpend")) or 0.0
+        for raw_id, label, used in pools
+        if used is not None
+    ]
+    hero = next((item for item in main_limits if item.raw_identifier == "autoPercentUsed"), None)
+    if hero is None and main_limits:
+        hero = main_limits[0]
+    if hero is None:
+        raise RuntimeError("Cursor 모델 한도 정보를 확인할 수 없습니다.")
+    bonus = to_float(plan_usage.get("bonusSpend"))
     limit = to_float(plan_usage.get("limit"))
-    included = to_float(plan_usage.get("includedSpend")) or 0.0
+    included = to_float(plan_usage.get("includedSpend"))
     remaining_cents = to_float(plan_usage.get("remaining"))
-    if remaining_cents is None and limit is not None:
-        remaining_cents = max(0.0, limit - included)
-    info_rows: list[InfoRow] = []
-    if auto_used is not None:
-        info_rows.append(InfoRow("자사 모델", f"{auto_used:.0f}% 사용"))
-    if api_used is not None:
-        info_rows.append(InfoRow("API 사용량", f"{api_used:.0f}% 사용"))
-    if limit is not None:
-        info_rows.append(
-            InfoRow(
-                "기본 포함량",
-                f"{dollars(included)} / {dollars(limit)}",
-                "",
+    billing = []
+    for kind, value in (
+        ("includedSpend", included),
+        ("limit", limit),
+        ("remaining", remaining_cents),
+        ("bonusSpend", bonus),
+        ("remainingBonus", to_float(plan_usage.get("remainingBonus"))),
+        ("totalSpend", to_float(plan_usage.get("totalSpend"))),
+    ):
+        if value is not None:
+            billing.append(BillingItem(f"cursor:billing:{kind}", "cursor", kind, value))
+    spend = usage.get("spendLimitUsage")
+    if isinstance(spend, dict):
+        for kind, raw in spend.items():
+            billing.append(
+                BillingItem(
+                    f"cursor:billing:spendLimitUsage.{kind}",
+                    "cursor",
+                    f"spendLimitUsage.{kind}",
+                    json_safe_value(raw),
+                )
             )
-        )
+    info_rows: list[InfoRow] = []
+    if limit is not None:
+        info_rows.append(InfoRow("기본 포함량", f"{dollars(included or 0.0)} / {dollars(limit)}"))
     footer_parts = [f"{reset_text} 초기화" if reset_text else ""]
     if bonus:
         footer_parts.append(f"보너스 {dollars(bonus)}")
-    hero = remaining_from_used(total_used)
-    if hero is None:
-        raise RuntimeError("Cursor 전체 한도 정보를 확인할 수 없습니다.")
-    used_label = f"{total_used:.0f}% 사용" if total_used is not None else "30일 한도"
-    caption = "전체 잔여"
+    caption = (
+        f"{hero.display_name} 소진"
+        if hero.remaining_percent is not None and hero.remaining_percent <= 0
+        else f"{hero.display_name} 기준 잔여"
+    )
     return ProviderSnapshot(
         key="cursor",
         title="Cursor",
         plan=plan_name,
         ok=True,
-        hero_percent=hero,
+        hero_percent=hero.remaining_percent,
         hero_caption=caption,
-        bars=bars,
+        main_limits=main_limits,
         info_rows=info_rows,
         footer=" · ".join(part for part in footer_parts if part),
         dashboard_url="https://cursor.com/dashboard/usage",
         fetched_at=time.time(),
+        billing=billing,
+        internal={"totalPercentUsed": total_used},
     )
 
 
@@ -524,13 +806,232 @@ def _duration_label(seconds: float | None, unknown_index: int = 1) -> str:
     return f"{max(1, round(minutes))}분"
 
 
-def _window_bar(label: str, window: dict[str, Any] | None) -> QuotaBar:
+def _window_reset_at(window: dict[str, Any] | None) -> float | None:
     window = window or {}
-    used = to_float(window.get("used_percent"))
     reset_at = to_float(window.get("reset_at"))
     seconds = to_float(window.get("reset_after_seconds"))
     if reset_at is None and seconds is not None:
         reset_at = time.time() + max(0, seconds)
+    return reset_at
+
+
+def _quota_item_from_window(
+    *,
+    quota_id: str,
+    source: str,
+    category: str,
+    display_name: str,
+    raw_identifier: str,
+    window: dict[str, Any] | None,
+    scope: str,
+    metadata: dict[str, Any] | None = None,
+) -> QuotaItem:
+    window = window or {}
+    used = to_float(window.get("used_percent"))
+    duration = _window_duration(window)
+    return QuotaItem(
+        quota_id=quota_id,
+        source=source,
+        category=category,
+        display_name=display_name,
+        raw_identifier=raw_identifier,
+        window_seconds=duration,
+        window_label=display_name,
+        used_percent=used,
+        remaining_percent=remaining_from_used(used),
+        reset_at=_window_reset_at(window),
+        scope=scope,
+        metadata=metadata or {},
+    )
+
+
+def _looks_like_window(raw: Any) -> bool:
+    if not isinstance(raw, dict) or not raw:
+        return False
+    return any(
+        key in raw
+        for key in ("used_percent", "limit_window_seconds", "reset_at", "reset_after_seconds")
+    )
+
+
+def _iter_rate_windows(rate: Any) -> list[tuple[str, dict[str, Any]]]:
+    found: list[tuple[str, dict[str, Any]]] = []
+    seen: set[int] = set()
+
+    def add(key: str, window: Any) -> None:
+        if not _looks_like_window(window):
+            return
+        marker = id(window)
+        if marker in seen:
+            return
+        seen.add(marker)
+        found.append((key, window))
+
+    if isinstance(rate, list):
+        for index, window in enumerate(rate):
+            add(f"windows[{index}]", window)
+        return found
+    if not isinstance(rate, dict):
+        return found
+    for key in ("primary_window", "secondary_window"):
+        add(key, rate.get(key))
+    extra = rate.get("windows")
+    if isinstance(extra, list):
+        for index, window in enumerate(extra):
+            add(f"windows[{index}]", window)
+    for key, value in rate.items():
+        if key in ("primary_window", "secondary_window", "windows"):
+            continue
+        add(str(key), value)
+    return found
+
+
+def additional_groups_from_payload(source: str, body: dict[str, Any] | None) -> list[LimitGroup]:
+    # Labels stay labels. Do not infer a selectable model from limit_name.
+    source = str(source or "unknown")
+    body = body if isinstance(body, dict) else {}
+    raw_groups = body.get("additional_rate_limits")
+    if raw_groups is None:
+        return []
+    if not isinstance(raw_groups, list):
+        return [
+            LimitGroup(
+                group_id=f"{source}:additional:payload",
+                source=source,
+                display_name="추가 한도",
+                category="unknown",
+                raw_identifier="additional_rate_limits",
+                limits=[
+                    QuotaItem(
+                        f"{source}:additional:payload:item",
+                        source,
+                        "unknown",
+                        "기간 미상",
+                        raw_identifier="additional_rate_limits",
+                        scope="scoped",
+                        metadata={"raw": json_safe_value(raw_groups)},
+                    )
+                ],
+                scope="scoped",
+                metadata={"raw": json_safe_value(raw_groups)},
+            )
+        ]
+    groups: list[LimitGroup] = []
+    seen: dict[str, int] = {}
+    for index, raw in enumerate(raw_groups):
+        if not isinstance(raw, dict):
+            groups.append(
+                LimitGroup(
+                    group_id=f"{source}:additional:unknown-{index}",
+                    source=source,
+                    display_name="추가 한도",
+                    category="unknown",
+                    raw_identifier=f"unknown-{index}",
+                    limits=[
+                        QuotaItem(
+                            f"{source}:additional:unknown-{index}:item",
+                            source,
+                            "unknown",
+                            "기간 미상",
+                            raw_identifier=f"unknown-{index}",
+                            scope="scoped",
+                            metadata={"raw": json_safe_value(raw), "raw_type": type(raw).__name__},
+                        )
+                    ],
+                    scope="scoped",
+                    metadata={"raw": json_safe_value(raw), "raw_type": type(raw).__name__},
+                )
+            )
+            continue
+        display = str(
+            raw.get("display_name")
+            or raw.get("limit_name")
+            or raw.get("name")
+            or ""
+        ).strip()
+        raw_id = str(
+            raw.get("limit_id")
+            or raw.get("metered_feature")
+            or raw.get("limit_name")
+            or f"additional-{index}"
+        ).strip() or f"additional-{index}"
+        group_id = f"{source}:additional:{raw_id}"
+        seen[group_id] = seen.get(group_id, 0) + 1
+        if seen[group_id] > 1:
+            group_id = f"{group_id}:{seen[group_id]}"
+        if not display:
+            display = raw_id
+        rate = raw.get("rate_limit") if isinstance(raw.get("rate_limit"), dict) else raw
+        unknown = 0
+        limits: list[QuotaItem] = []
+        seen_items: dict[str, int] = {}
+        windows = _iter_rate_windows(rate)
+        if not windows and _looks_like_window(rate):
+            windows = [("window", rate)]
+        for window_key, window in windows:
+            duration = _window_duration(window)
+            if duration is None:
+                unknown += 1
+            label = _duration_label(duration, unknown)
+            item_raw = f"window:{int(duration)}" if duration is not None else window_key
+            seen_items[item_raw] = seen_items.get(item_raw, 0) + 1
+            if seen_items[item_raw] > 1:
+                item_raw = f"{item_raw}:{seen_items[item_raw]}"
+            leftover = {
+                key: json_safe_value(value)
+                for key, value in window.items()
+                if key not in ("used_percent", "limit_window_seconds", "reset_at", "reset_after_seconds")
+            }
+            limits.append(
+                _quota_item_from_window(
+                    quota_id=f"{group_id}:{item_raw}",
+                    source=source,
+                    category="additional",
+                    display_name=label,
+                    raw_identifier=item_raw,
+                    window=window,
+                    scope="scoped",
+                    metadata={
+                        "window_key": window_key,
+                        "raw": leftover,
+                    },
+                )
+            )
+        if not limits:
+            limits.append(
+                QuotaItem(
+                    f"{group_id}:unknown",
+                    source,
+                    str(raw.get("category") or "unknown"),
+                    display,
+                    raw_identifier=raw_id,
+                    scope="scoped",
+                    metadata={"raw": json_safe_value(raw)},
+                )
+            )
+        groups.append(
+            LimitGroup(
+                group_id=group_id,
+                source=source,
+                display_name=display,
+                category=str(raw.get("category") or "additional"),
+                raw_identifier=raw_id,
+                limits=limits,
+                scope="scoped",
+                metadata={"raw": json_safe_value(raw)},
+            )
+        )
+    return groups
+
+
+def _chatgpt_additional_groups(body: dict[str, Any]) -> list[LimitGroup]:
+    return additional_groups_from_payload("chatgpt", body)
+
+
+def _window_bar(label: str, window: dict[str, Any] | None) -> QuotaBar:
+    window = window or {}
+    used = to_float(window.get("used_percent"))
+    reset_at = _window_reset_at(window)
     reset = fmt_local(reset_at, "reset")
     remaining = remaining_from_used(used)
     detail = "잔여 --" if remaining is None else f"잔여 {remaining:.0f}%"
@@ -594,9 +1095,13 @@ def fetch_chatgpt() -> ProviderSnapshot:
         headers["Authorization"] = f"Bearer {auth.access_token()}"
         status, body = http_json("GET", "https://chatgpt.com/backend-api/wham/usage", headers)
     if status >= 400:
-        raise RuntimeError(f"ChatGPT 사용량 API 오류 ({status})")
+        raise FetchError(
+            f"ChatGPT 사용량 API 오류 ({status})",
+            getattr(body, "retry_after", ""),
+        )
     rate = body.get("rate_limit") or {}
     bars = _chatgpt_windows(rate) if isinstance(rate, dict) else []
+    additional_groups = _chatgpt_additional_groups(body if isinstance(body, dict) else {})
     extras = []
     credits = body.get("credits") or {}
     if credits.get("has_credits"):
@@ -627,6 +1132,7 @@ def fetch_chatgpt() -> ProviderSnapshot:
         blocked=blocked,
         hero_caption=caption,
         bars=bars,
+        additional_groups=additional_groups,
         info_rows=info_rows,
         footer=footer,
         dashboard_url="https://chatgpt.com/codex/settings/usage",
@@ -634,7 +1140,134 @@ def fetch_chatgpt() -> ProviderSnapshot:
     )
 
 
-def error_snapshot(key: str, title: str, message: str, dashboard_url: str) -> ProviderSnapshot:
+CLAUDE_DASHBOARD_URL = "https://claude.ai/settings/usage"
+
+
+def _claude_quota_item(raw_id: str, window: dict[str, Any], now: float) -> QuotaItem | None:
+    from claude_bridge import KNOWN_WINDOWS, window_expired
+
+    spec = KNOWN_WINDOWS.get(raw_id)
+    if spec is None or not isinstance(window, dict):
+        return None
+    if window_expired(window, now):
+        return None
+    used = to_float(window.get("used_percent"))
+    remaining = to_float(window.get("remaining_percent"))
+    if remaining is None:
+        remaining = remaining_from_used(used)
+    reset = to_float(window.get("resets_at"))
+    if used is None and remaining is None:
+        return None
+    return QuotaItem(
+        quota_id=f"claude:{raw_id}",
+        source="claude_statusline",
+        category=str(spec["category"]),
+        display_name=str(spec["display_name"]),
+        raw_identifier=raw_id,
+        window_seconds=float(spec["window_seconds"]),
+        window_label=str(spec["window_label"]),
+        used_percent=used,
+        remaining_percent=remaining,
+        reset_at=reset,
+        scope="global",
+    )
+
+
+def fetch_claude(now: float | None = None) -> ProviderSnapshot:
+    from claude_bridge import (
+        WINDOW_KEYS,
+        list_session_caches,
+        quota_stale,
+        select_session_cache,
+        session_inactive,
+    )
+    from claude_integration import claude_ready, is_installed
+
+    current = time.time() if now is None else float(now)
+    if not is_installed():
+        return error_snapshot(
+            "claude",
+            "Claude",
+            "Claude 연동을 켜면 대화형 Claude Code 사용량을 표시합니다.",
+            CLAUDE_DASHBOARD_URL,
+        )
+    ready, detail = claude_ready()
+    if not ready:
+        return error_snapshot("claude", "Claude", detail, CLAUDE_DASHBOARD_URL)
+    selected = select_session_cache(list_session_caches(current), current)
+    if selected is None:
+        return error_snapshot(
+            "claude",
+            "Claude",
+            "대화형 Claude Code를 실행하면 사용량이 나타납니다. claude -p만으로는 추적되지 않습니다.",
+            CLAUDE_DASHBOARD_URL,
+        )
+    items = []
+    for key in WINDOW_KEYS:
+        raw = selected.get(key)
+        if isinstance(raw, dict):
+            item = _claude_quota_item(key, raw, current)
+            if item is not None:
+                items.append(item)
+    stale = quota_stale(selected, current)
+    observed = to_float(selected.get("quota_observed_at")) or current
+    five = next((item for item in items if item.raw_identifier == "five_hour"), None)
+    week = next((item for item in items if item.raw_identifier == "seven_day"), None)
+    hero = five or week
+    if hero is None:
+        return ProviderSnapshot(
+            key="claude",
+            title="Claude",
+            plan="Claude",
+            ok=False,
+            hero_percent=None,
+            hero_caption="사용량 없음",
+            error="사용량 창을 기다리는 중",
+            dashboard_url=CLAUDE_DASHBOARD_URL,
+            fetched_at=observed,
+            stale=stale,
+            footer="Claude Code가 다음 응답 후 한도를 다시 제공합니다.",
+            internal={
+                "quota_observed_at": observed,
+                "bridge_seen_at": selected.get("bridge_seen_at"),
+                "source": "claude_statusline",
+            },
+        )
+    remaining = hero.remaining_percent
+    caption = (
+        f"{hero.display_name} 소진"
+        if remaining is not None and remaining <= 0
+        else f"{hero.display_name} 기준 잔여"
+    )
+    footer = ""
+    if stale:
+        footer = (
+            "이전 데이터 · Claude Code 세션이 없습니다"
+            if session_inactive(selected, current)
+            else "이전 데이터"
+        )
+    return ProviderSnapshot(
+        key="claude",
+        title="Claude",
+        plan="Claude",
+        ok=True,
+        hero_percent=remaining,
+        hero_caption=caption,
+        main_limits=items,
+        blocked=remaining is not None and remaining <= 0,
+        stale=stale,
+        footer=footer,
+        dashboard_url=CLAUDE_DASHBOARD_URL,
+        fetched_at=observed,
+        internal={
+            "quota_observed_at": observed,
+            "bridge_seen_at": selected.get("bridge_seen_at"),
+            "source": "claude_statusline",
+        },
+    )
+
+
+def error_snapshot(key: str, title: str, message: str, dashboard_url: str, retry_after: str = "") -> ProviderSnapshot:
     return ProviderSnapshot(
         key=key,
         title=title,
@@ -645,5 +1278,6 @@ def error_snapshot(key: str, title: str, message: str, dashboard_url: str) -> Pr
         error=message,
         dashboard_url=dashboard_url,
         fetched_at=time.time(),
+        retry_after=str(retry_after or ""),
     )
 
