@@ -33,11 +33,15 @@ def _stdin_payload(session="sess-a", transcript=None, five=1, week=0, five_reset
 
 
 def _control_output(five=25, week=3, available=True):
-    """One `get_usage` control_response, shaped like the CLI's real answer."""
+    """Synthetic `get_usage` response with explicit, cross-checkable percentages."""
     body = {
         "session": {"total_cost_usd": 0},
         "subscription_type": "pro",
         "rate_limits_available": available,
+        "limits": [
+            {"kind": "five_hour", "percent": five},
+            {"kind": "seven_day", "percent": week},
+        ],
         "rate_limits": {
             "five_hour": {"utilization": five, "resets_at": "2026-09-18T09:19:59.650242+00:00"},
             "seven_day": {"utilization": week, "resets_at": "2026-09-25T04:59:59.650266+00:00"},
@@ -677,7 +681,7 @@ class ClaudeDiscoverabilityTests(unittest.TestCase):
             "enabled": {"chatgpt": False, "cursor": False, "claude": True},
         })
         w = self._open_widget()
-        w.accept("claude", p.claude_usage_from_control_output(_control_output(), time.time()))
+        w.accept("claude", p.claude_usage_from_control_output(_control_output(), 1789700000.0), is_new=True)
         self.assertTrue(w.snapshots["claude"].ok)
         self.assertEqual(w.snapshots["claude"].hero_percent, 75.0)
         with patch.object(w.runner, "start", return_value=False):
@@ -698,6 +702,23 @@ class ClaudeDiscoverabilityTests(unittest.TestCase):
         w.root.update_idletasks()
         self.assertEqual(w.cards["claude"].winfo_manager(), "")
         self.assertIn("Claude 연동...", self._labels())
+
+    def test_worker_completion_records_a_new_cli_observation(self):
+        self._write_settings({
+            "setup_done": True,
+            "version": 3,
+            "enabled": {"chatgpt": False, "cursor": False, "claude": True},
+        })
+        w = self._open_widget()
+        snap = p.claude_usage_from_control_output(_control_output(), 1789700000.0)
+        missing = p.error_snapshot("claude", "Claude", "missing", "")
+        with patch.object(w.runner, "poll", return_value=[("claude", snap, "")]), \
+                patch.object(u, "fetch_claude", return_value=missing), \
+                patch.object(u.time, "monotonic", return_value=1234.0):
+            w.tick()
+        self.assertEqual(w.claude_cli_at, 1234.0)
+        self.assertEqual(w.snapshots["claude"].hero_percent, 75.0)
+        self.assertFalse(w.snapshots["claude"].stale)
 
     def test_menu_install_enables_card_with_existing_handler(self):
         self._write_settings({

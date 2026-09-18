@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [3.4.1] - 2026-09-18
+
+### Fixed
+- Claude CLI 기존 값의 재표시가 관측 시각을 갱신하지 않으며, 오래된 statusLine도 CLI fallback 조회를 허용합니다.
+- 손상되거나 읽을 수 없는 Claude settings.json은 변경하지 않습니다. 설정 변경 전에 원본 statusLine 복구 metadata를 저장합니다.
+- Claude CLI 한도는 semantic kind와 검증 가능한 percent/scale로 해석하며, 모호하거나 불일치하는 수치는 사용 불가로 처리합니다.
+- Claude CLI 응답의 실제 구조(rate_limits 안의 kind 행, session/weekly_all)를 읽도록 맞춰 사용량이 다시 표시됩니다.
+- 배포 전 원격 latest와 release 버전을 검사하고 동일·하위 버전 재게시 및 기존 artifact 덮어쓰기를 차단합니다.
+
 ## [3.4.0] - 2026-09-18
 
 ### Fixed

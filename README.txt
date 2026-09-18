@@ -17,7 +17,7 @@ Windows에서 GPT·Cursor·Claude 잔여 사용량을 보는 작은 위젯입니
 위젯은 ChatGPT 데스크톱 앱과 연동되지 않습니다.
 - Codex: Codex CLI 설치 후 `codex login` (위젯에서 버튼으로 가능)
 - Cursor: Cursor 앱 설치 후 앱에서 로그인 (위젯에서 버튼으로 가능)
-- Claude: 우클릭 → 표시할 서비스에서 Claude 연동을 켭니다. Claude.ai 구독과 로그인된 Claude Code가 필요합니다. 터미널 세션이 열려 있으면 더 자주 갱신되고, 없으면 위젯이 60초마다 Claude Code에 사용량만 물어봅니다. Additional/Billing은 아직 없습니다.
+- Claude: 우클릭 → 표시할 서비스에서 Claude 연동을 켭니다. Claude.ai 구독과 로그인된 Claude Code가 필요합니다. statusLine 캐시를 2초마다 읽고, 값이 없거나 오래되면 공식 Claude CLI에 60초 간격으로 사용량만 조회합니다. Additional/Billing은 아직 없습니다.
 
 조작
 - 제목 줄을 드래그하면 이동합니다.

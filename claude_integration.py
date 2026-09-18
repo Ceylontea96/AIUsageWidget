@@ -72,10 +72,18 @@ def installed_statusline_object() -> dict[str, Any]:
 
 def read_user_settings() -> dict[str, Any]:
     path = user_claude_settings_path()
-    if not path.is_file():
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("Settings must be an object")
+        return data
+    except FileNotFoundError:
         return {}
-    data = _read_json(path)
-    return data if data is not None else {}
+    except (OSError, ValueError, UnicodeError) as exc:
+        raise RuntimeError(
+            "Claude settings.json을 읽을 수 없어 연동 설정을 변경하지 않았습니다. "
+            "파일을 확인한 뒤 다시 시도하세요."
+        ) from exc
 
 
 def current_statusline() -> Any:
@@ -94,9 +102,12 @@ def is_installed() -> bool:
 
 
 def conflict_state() -> str:
-    """none | installed | missing | conflict | absent."""
+    """installed | missing | conflict | absent | unmanaged | unreadable."""
     meta = load_integration()
-    current = current_statusline()
+    try:
+        current = current_statusline()
+    except RuntimeError:
+        return "unreadable"
     if not meta.get("installed"):
         return "absent" if current in (None, {}) else "unmanaged"
     expected = meta.get("fingerprint")
@@ -171,7 +182,6 @@ def install_statusline() -> dict[str, Any]:
     _copy_bridge_script()
     installed_object = installed_statusline_object()
     settings["statusLine"] = installed_object
-    _write_user_settings(settings)
     meta = {
         "schema_version": 1,
         "installed": True,
@@ -182,7 +192,15 @@ def install_statusline() -> dict[str, Any]:
         "claude_executable": str(resolve_claude_executable() or ""),
         "claude_version": claude_version_text(),
     }
+    # Persist the original statusLine before the atomic settings replacement.
+    # Even an interrupted/failed settings write must leave recovery metadata.
     atomic_write_json(integration_path(), meta)
+    try:
+        _write_user_settings(settings)
+    except OSError:
+        meta["installed"] = False
+        atomic_write_json(integration_path(), meta)
+        raise
     return meta
 
 
@@ -268,5 +286,6 @@ def integration_label() -> str:
         "conflict": "사용자가 statusLine을 변경함 · 자동 원복 안 함",
         "unmanaged": "기존 statusLine 있음 · 연동 시 tee wrapper 사용",
         "absent": "연동 안 됨",
+        "unreadable": "Claude settings.json을 읽을 수 없습니다 · 파일 확인 필요",
     }
     return labels.get(state, state)

@@ -3132,12 +3132,9 @@ class UsageWidget:
         key = 'claude'
         snap = fetch_claude()
         now = time.monotonic()
-        if snap.ok:
+        if snap.ok and not snap.stale:
             self.claude_cli_due = max(self.claude_cli_due, now + CLAUDE_CLI_INTERVAL)
         else:
-            fallback = self.claude_cli_snapshot
-            if fallback is not None:
-                snap = replace(fallback, stale=now - self.claude_cli_at > CLAUDE_CLI_STALE)
             if now >= self.claude_cli_due:
                 self.claude_cli_due = now + CLAUDE_CLI_INTERVAL
                 try:
@@ -3146,7 +3143,35 @@ class UsageWidget:
                         LOG.debug('[Usage] Claude usage query started')
                 except OSError:
                     LOG.debug('[Usage] Claude usage query could not start')
-        self.accept(key, snap)
+        self.accept(key, self._claude_display_snapshot(snap, now))
+
+    def _claude_display_snapshot(self, statusline, now):
+        """Prefer fresh observations, then the newest; statusLine wins ties."""
+        candidates = [statusline] if statusline.ok else []
+        previous = self.snapshots.get('claude')
+        if not statusline.ok and previous is not None and previous.ok:
+            # A missing cache is not a new observation of the previous value.
+            if (previous.internal or {}).get('source') == 'claude_statusline':
+                candidates.append(replace(previous, stale=True))
+        fallback = self.claude_cli_snapshot
+        if fallback is not None and fallback.ok:
+            candidates.append(replace(
+                fallback,
+                stale=fallback.stale or now - self.claude_cli_at >= CLAUDE_CLI_STALE,
+            ))
+
+        def rank(snap):
+            meta = snap.internal or {}
+            observed = meta.get('quota_observed_at', snap.fetched_at)
+            try:
+                observed = float(observed)
+            except (TypeError, ValueError):
+                observed = 0.0
+            if not math.isfinite(observed):
+                observed = 0.0
+            return (not snap.stale, observed, meta.get('source') == 'claude_statusline')
+
+        return max(candidates, key=rank) if candidates else statusline
 
     def _request_fast_poll(self, key, now):
         if key in self.runner.slots:
@@ -3206,7 +3231,18 @@ class UsageWidget:
                     self.runner.cancel(key)
                     self.due[key] = 0
 
-    def accept(self, key, snap):
+    def accept(self, key, snap, *, is_new=False):
+        now = time.monotonic()
+        if key == 'claude' and is_new:
+            # Only an actual successful worker response advances CLI freshness.
+            if snap.ok and not snap.stale and (snap.internal or {}).get('source') == 'claude_cli':
+                self.claude_cli_snapshot = snap
+                self.claude_cli_at = now
+            elif self.claude_cli_snapshot is not None:
+                self.claude_cli_snapshot = replace(self.claude_cli_snapshot, stale=True)
+            selected = self._claude_display_snapshot(fetch_claude(), now)
+            if selected.ok:
+                snap = selected
         if key == 'claude' or snap.ok:
             self.failures[key] = 0
         else:
@@ -3219,10 +3255,6 @@ class UsageWidget:
                 error=snap.error,
                 retry_after=getattr(snap, 'retry_after', ''),
             )
-        now = time.monotonic()
-        if key == 'claude' and snap.ok and (snap.internal or {}).get('source') == 'claude_cli':
-            self.claude_cli_snapshot = snap
-            self.claude_cli_at = now
         until = getattr(self, 'usage_until', None)
         if until is None:
             until = {}
@@ -3397,7 +3429,7 @@ class UsageWidget:
         for key, snap, error in self.runner.poll(now):
             completed.append(key)
             if not self.locked and self.enabled[key].get():
-                self.accept(key, snap or error_snapshot(key, TITLES[key], error, URLS[key]))
+                self.accept(key, snap or error_snapshot(key, TITLES[key], error, URLS[key]), is_new=True)
         for key in completed:
             if self.poll_pending.get(key):
                 self.poll_pending[key] = False

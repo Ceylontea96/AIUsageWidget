@@ -4,7 +4,7 @@ param([switch]$GitHub)
 $ErrorActionPreference = 'Stop'
 $utf8 = New-Object System.Text.UTF8Encoding $false
 $project = Split-Path -Parent $MyInvocation.MyCommand.Path
-& (Join-Path $project 'build_launcher.ps1')
+. (Join-Path $project 'release_policy.ps1')
 $updater = Get-Content -LiteralPath (Join-Path $project 'updater.py') -Raw
 if ($updater -notmatch "APP_VERSION = '([^']+)'") { throw 'APP_VERSION not found' }
 $version = $Matches[1]
@@ -43,6 +43,17 @@ foreach ($line in Get-Content -LiteralPath $feedFile) {
     $trim = $line.Trim()
     if ($trim -and -not $trim.StartsWith('#')) { $feed = $trim; break }
 }
+$doGitHub = $GitHub
+if (-not $doGitHub -and (Get-Command gh -ErrorAction SilentlyContinue)) { $doGitHub = $true }
+$gh = $null
+foreach ($candidate in @((Get-Command gh -ErrorAction SilentlyContinue).Source, "$env:ProgramFiles\GitHub CLI\gh.exe")) {
+    if ($candidate -and (Test-Path -LiteralPath $candidate)) { $gh = $candidate; break }
+}
+if ($doGitHub -and -not $gh) { throw 'GitHub CLI is required to verify and publish releases' }
+$repository = 'Ceylontea96/AIUsageWidget'
+$verifyGh = if ($doGitHub) { $gh } else { $null }
+Assert-PublishAllowed -Version $version -Feed $feed -GitHubExecutable $verifyGh -Repository $repository
+& (Join-Path $project 'build_launcher.ps1')
 $zipUrl = ''
 if ($feed.EndsWith('latest.json')) {
     $zipUrl = $feed.Substring(0, $feed.Length - 'latest.json'.Length) + 'AIUsageWidget.zip'
@@ -121,28 +132,10 @@ if (-not $feed) {
     Write-Host "zip url $zipUrl"
 }
 
-$doGitHub = $GitHub
-if (-not $doGitHub -and (Get-Command gh -ErrorAction SilentlyContinue)) { $doGitHub = $true }
-$gh = $null
-foreach ($candidate in @((Get-Command gh -ErrorAction SilentlyContinue).Source, "$env:ProgramFiles\GitHub CLI\gh.exe")) {
-    if ($candidate -and (Test-Path -LiteralPath $candidate)) { $gh = $candidate; break }
-}
 if ($doGitHub -and $gh) {
     $tag = "v$version"
-    $prevEap = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    $null = & $gh release view $tag --json tagName 2>$null
-    $exists = ($LASTEXITCODE -eq 0)
-    $ErrorActionPreference = $prevEap
-    if ($exists) {
-        & $gh release upload $tag $z1 (Join-Path $release 'latest.json') --clobber
-        if ($LASTEXITCODE -ne 0) { throw "gh release upload failed for $tag" }
-        & $gh release edit $tag --title $version --notes-file $notesFile
-        if ($LASTEXITCODE -ne 0) { throw "gh release edit failed for $tag" }
-        Write-Host "updated GitHub release $tag"
-    } else {
-        & $gh release create $tag $z1 (Join-Path $release 'latest.json') --title $version --notes-file $notesFile
-        if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag" }
-        Write-Host "created GitHub release $tag"
-    }
+    # Create only: a release appearing after preflight also fails, never clobbers.
+    & $gh release create $tag $z1 (Join-Path $release 'latest.json') --repo $repository --title $version --notes-file $notesFile
+    if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag" }
+    Write-Host "created GitHub release $tag"
 }

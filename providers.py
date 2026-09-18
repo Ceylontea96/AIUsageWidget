@@ -1260,27 +1260,97 @@ def parse_iso_epoch(value: Any) -> float | None:
     return parsed.timestamp()
 
 
-def claude_windows_from_rate_limits(rate_limits: Any) -> dict[str, dict[str, Any]]:
-    """Map the CLI's utilization/ISO reset rows onto the statusLine window shape."""
+# The CLI names its global windows by meter kind. weekly_scoped rows are model
+# or surface scoped, so they are deliberately absent here.
+CLAUDE_CLI_KINDS = {
+    "session": "five_hour",
+    "five_hour": "five_hour",
+    "weekly_all": "seven_day",
+    "seven_day": "seven_day",
+}
+
+
+def _claude_cli_used_percent(rows: list[dict[str, Any]]) -> float | None:
+    """Require an explicit percent, scale, or cross-validation; never guess."""
+    def number(value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        try:
+            value = float(value)
+        except OverflowError:
+            return None
+        return value if math.isfinite(value) else None
+
+    percents = []
+    utilizations = []
+    for row in rows:
+        if "percent" in row:
+            value = number(row["percent"])
+            if value is None or not 0 <= value <= 100:
+                return None
+            percents.append(value)
+        if "utilization" in row:
+            value = number(row["utilization"])
+            if value is None or value < 0:
+                return None
+            scale = row.get("utilization_scale")
+            if scale in ("percent", "fraction"):
+                value *= 100 if scale == "fraction" else 1
+                if value > 100:
+                    return None
+                percents.append(value)
+            elif scale is not None:
+                return None
+            else:
+                utilizations.append(value)
+    if not percents:
+        return None
+    used = percents[0]
+    if any(not math.isclose(used, value, abs_tol=1e-6) for value in percents[1:]):
+        return None
+    for value in utilizations:
+        if not (math.isclose(used, value, abs_tol=1e-6)
+                or (0 <= value <= 1 and math.isclose(used, value * 100, abs_tol=1e-6))):
+            return None
+    return used
+
+
+def claude_windows_from_rate_limits(rate_limits: Any, limits: Any = None) -> dict[str, dict[str, Any]]:
+    """Use semantic kinds and validated used percentages, never display labels."""
     from claude_bridge import WINDOW_KEYS
 
-    if not isinstance(rate_limits, dict):
-        return {}
+    rows: dict[str, list[dict[str, Any]]] = {key: [] for key in WINDOW_KEYS}
+    if limits is None and isinstance(rate_limits, dict):
+        # The CLI carries its kind-classified rows inside rate_limits.
+        limits = rate_limits.get("limits")
+    def window_key(kind: Any) -> str | None:
+        return CLAUDE_CLI_KINDS.get(kind) if isinstance(kind, str) else None
+
+    if isinstance(limits, list):
+        for raw in limits:
+            if not isinstance(raw, dict):
+                continue
+            key = window_key(raw.get("kind"))
+            if key is not None:
+                rows[key].append(raw)
+    if isinstance(rate_limits, dict):
+        for raw_key, raw in rate_limits.items():
+            if not isinstance(raw, dict):
+                continue
+            key = window_key(raw.get("kind", raw_key))
+            if key is not None:
+                rows[key].append(raw)
     windows: dict[str, dict[str, Any]] = {}
-    for key in WINDOW_KEYS:
-        raw = rate_limits.get(key)
-        if not isinstance(raw, dict):
+    for key, candidates in rows.items():
+        used = _claude_cli_used_percent(candidates)
+        if used is None:
             continue
-        used = to_float(raw.get("utilization"))
-        reset = parse_iso_epoch(raw.get("resets_at"))
-        if used is None and reset is None:
-            continue
-        window: dict[str, Any] = {}
-        if used is not None:
-            window["used_percent"] = used
-            window["remaining_percent"] = remaining_from_used(used)
-        if reset is not None:
-            window["resets_at"] = reset
+        window: dict[str, Any] = {"used_percent": used, "remaining_percent": remaining_from_used(used)}
+        for raw in candidates:
+            reset = parse_iso_epoch(raw.get("resets_at"))
+            if reset is not None:
+                window["resets_at"] = reset
+                break
         windows[key] = window
     return windows
 
@@ -1319,7 +1389,7 @@ def claude_usage_from_control_output(raw_text: str, now: float | None = None) ->
             "이 계정에서는 플랜 한도를 제공하지 않습니다.",
             CLAUDE_DASHBOARD_URL,
         )
-    windows = claude_windows_from_rate_limits(body.get("rate_limits"))
+    windows = claude_windows_from_rate_limits(body.get("rate_limits"), body.get("limits"))
     items = _claude_items(windows, current, "claude_cli")
     return _claude_snapshot(
         items,
