@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from providers import ProviderSnapshot, QuotaBar
-from runtime import AlertGate, AuthWatcher, PollRunner, login_present, login_status, prepare_action, tool_setup_command
+from runtime import AlertGate, AuthWatcher, PollRunner, limiting_quota, login_present, login_status, prepare_action, tool_setup_command
 
 
 def snap(value, **kwargs):
@@ -49,6 +49,13 @@ class RuntimeTests(unittest.TestCase):
         gate=AlertGate()
         self.assertEqual(gate.observe('cursor',value),2)
         self.assertIsNone(gate.observe('cursor',value))
+
+    def test_limiting_quota_reports_secondary_label_for_alerts(self):
+        value=snap(100,bars=[
+            QuotaBar('5시간',100,0,''),
+            QuotaBar('주간',13,87,''),
+        ])
+        self.assertEqual(limiting_quota(value),(13,'주간'))
 
     def test_auth_creation_change_delete_and_wal(self):
         with tempfile.TemporaryDirectory() as directory:

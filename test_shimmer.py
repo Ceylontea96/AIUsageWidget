@@ -94,7 +94,7 @@ class ShimmerUiTests(unittest.TestCase):
 
     def weekly_card(self):
         card = u.Card(self.root, 'chatgpt')
-        card.render(replace(snapshot(), bars=[QuotaBar('주간', 60, 40, '', '')]))
+        card.render(snapshot())
         return card
 
     def test_card_updates_only_bar_images_and_stops_timer(self):
@@ -112,13 +112,13 @@ class ShimmerUiTests(unittest.TestCase):
         self.assertEqual(card._shown_pcts, [60])
         self.assertTrue(card._active)
         self.assertIsNotNone(card._shimmer_after)
-        card._stop_shimmer()
+        card._destroy_shimmer()
         self.assertIsNone(card._shimmer_after)
         self.assertFalse(card._active)
         card._snap.stale = True
         self.assertFalse(card._shimmer_ready())
 
-    def test_chip_preserves_label_and_stops_when_hidden(self):
+    def test_chip_preserves_label_and_activity_when_hidden(self):
         chip = u.Chip(self.root)
         chip.configure(text='Codex 60%', bg=u.CODEX, percent=60)
         label = chip.find_withtag('label')
@@ -129,7 +129,7 @@ class ShimmerUiTests(unittest.TestCase):
         self.assertEqual(chip.itemcget(label[0], 'text'), 'Codex 60%')
         chip._shimmer_tick()
         self.assertIsNone(chip._shimmer_after)
-        self.assertFalse(chip._active)
+        self.assertTrue(chip._active)
         chip.configure(bg=u.CHIP_STALE)
         self.assertFalse(chip._shimmer_ready())
 
@@ -146,7 +146,7 @@ class ShimmerUiTests(unittest.TestCase):
         heights = []
         for now, active in ((0, True), (0.4, True), (4, True), (6, True), (8, True), (11, True), (15, True)):
             self.pump(card, now, active)
-            heights.append(card._bar_height_for(0))
+            heights.append(card._bar_height_for(1))
         peak = card.metrics.bar_h + card.metrics.p(4)
         self.assertEqual(heights[0], card.metrics.bar_h)
         self.assertEqual(heights[1], peak)
@@ -157,14 +157,14 @@ class ShimmerUiTests(unittest.TestCase):
         card = self.weekly_card()
         self.pump(card, 0, True)
         self.pump(card, 0.4, True)
-        peak = card._bar_height_for(0)
+        peak = card._bar_height_for(1)
         self.pump(card, 0.4, False)
-        self.assertEqual(card._bar_height_for(0), peak)
+        self.assertEqual(card._bar_height_for(1), peak)
         self.pump(card, 0.4 + u.SHIMMER_SHRINK_S / 2, False)
-        self.assertLess(card._bar_height_for(0), peak)
-        self.assertGreater(card._bar_height_for(0), card.metrics.bar_h)
+        self.assertLess(card._bar_height_for(1), peak)
+        self.assertGreater(card._bar_height_for(1), card.metrics.bar_h)
         self.pump(card, 0.4 + u.SHIMMER_SHRINK_S, False)
-        self.assertEqual(card._bar_height_for(0), card.metrics.bar_h)
+        self.assertEqual(card._bar_height_for(1), card.metrics.bar_h)
         self.assertFalse(card._active)
 
     def test_active_bar_thickens_smoothly_then_returns_to_base_height(self):
@@ -173,8 +173,8 @@ class ShimmerUiTests(unittest.TestCase):
         offsets = []
         for now, active in ((10.0, True), (10.2, True), (10.4, True), (15.0, True), (15.4, False), (15.85, False)):
             self.pump(card, now, active)
-            heights.append(card._bar_height_for(0))
-            offsets.append(card.rows.coords('bar_0')[1])
+            heights.append(card._bar_height_for(1))
+            offsets.append(card.rows.coords('bar_1')[1])
         self.assertEqual(heights[0], card.metrics.bar_h)
         self.assertGreater(heights[1], heights[0])
         self.assertEqual(heights[2], card.metrics.bar_h + card.metrics.p(4))
@@ -192,30 +192,31 @@ class ShimmerUiTests(unittest.TestCase):
             frames.append(b''.join(rows))
         self.assertEqual(len(set(frames)), 4)
 
-    def test_error_and_recovery_cancel_and_do_not_replay(self):
+    def test_error_pauses_and_recovery_preserves_live_activity(self):
         card = u.Card(self.root, 'chatgpt')
         card.render(snapshot())
         self.pump(card, 1, True)
         self.assertTrue(card._active)
         card.render(snapshot(59.9, stale=True))
         self.pump(card, 1.1, True)
-        self.assertFalse(card._active)
+        self.assertTrue(card._active)
         self.assertIsNone(card._shimmer_after)
         card.render(snapshot(59.8))
-        self.assertFalse(card._active)
+        self.assertTrue(card._active)
         self.pump(card, 2, True)
         self.assertTrue(card._active)
 
-    def test_hidden_usage_is_not_replayed_on_show(self):
+    def test_hidden_usage_activity_is_preserved_on_show(self):
         chip = u.Chip(self.root)
         chip.configure(bg=u.CODEX, percent=60)
         chip.set_activity(True)
-        self.assertFalse(chip._active)
+        self.assertTrue(chip._active)
+        self.assertIsNone(chip._shimmer_after)
         with patch.object(chip, 'winfo_ismapped', return_value=True):
             chip.set_activity(True)
             self.assertTrue(chip._active)
-            chip._stop_shimmer()
-            self.assertFalse(chip._active)
+            chip._pause_shimmer()
+            self.assertTrue(chip._active)
 
     def advance_length(self, control, now):
         if control._anim_after is not None:

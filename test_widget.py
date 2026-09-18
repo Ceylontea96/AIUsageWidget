@@ -20,7 +20,11 @@ class FakeAuth:
 
 
 def codex(primary=10, weekly=20, reached=False):
-    body={'rate_limit': {'primary_window': {'used_percent':primary,'reset_after_seconds':3600}, 'secondary_window': {'used_percent':weekly,'reset_after_seconds':86400}, 'limit_reached':reached}}
+    body={'rate_limit': {
+        'primary_window': {'used_percent':primary,'limit_window_seconds':18000,'reset_after_seconds':3600},
+        'secondary_window': {'used_percent':weekly,'limit_window_seconds':604800,'reset_after_seconds':86400},
+        'limit_reached':reached,
+    }}
     with patch.object(p,'ChatGptAuth',FakeAuth),patch.object(p,'http_json',return_value=(200,body)):
         return p.fetch_chatgpt()
 
@@ -61,10 +65,10 @@ class WidgetTests(unittest.TestCase):
 
     def test_weekly_exhaustion(self):
         s=codex(10,100,True)
-        self.assertEqual(s.hero_percent,0)
+        self.assertEqual(s.hero_percent,90)
         self.assertTrue(s.blocked)
-        self.assertEqual(s.hero_caption,'주간 소진')
-        self.assertEqual(u.color_for(s),u.RED)
+        self.assertEqual(s.hero_caption,'5시간 기준 잔여')
+        self.assertEqual(u.color_for(s),u.CODEX)
 
     def test_short_exhaustion(self):
         self.assertEqual(codex(100,20).hero_caption,'5시간 소진')
@@ -72,11 +76,11 @@ class WidgetTests(unittest.TestCase):
     def test_unknown_restriction(self):
         s=codex(10,20,True)
         self.assertTrue(s.blocked)
-        self.assertIn('상세 확인',s.hero_caption)
-        self.assertEqual(u.color_for(s),u.RED)
+        self.assertEqual(s.hero_caption,'5시간 기준 잔여')
+        self.assertEqual(u.color_for(s),u.CODEX)
 
     def test_tightest_window(self):
-        self.assertEqual(codex(10,80).hero_percent,20)
+        self.assertEqual(codex(10,80).hero_percent,90)
 
     def test_missing_data_does_not_claim_success(self):
         with self.assertRaises(RuntimeError):codex(None,None)
@@ -234,6 +238,7 @@ class WidgetTests(unittest.TestCase):
         self.assertEqual(w.due['chatgpt'], 103.0)
         w.runner=Mock()
         w.runner.start.return_value=False
+        w.poll_pending={'chatgpt':False}
         w.codex_last_request=100.0
         w.start_job('chatgpt')
         self.assertEqual(w.request_started['chatgpt'], 100.0)
@@ -275,8 +280,8 @@ class WidgetTests(unittest.TestCase):
         w.cards={'chatgpt': Mock(), 'cursor': card}
         w.mini_values={'chatgpt': Mock(), 'cursor': chip}
         w.codex_activity=u.CodexActivityMonitor()
-        w.cursor_activity=u.CursorActivityMonitor()
-        w.cursor_activity.last_activity_time=time.monotonic()
+        w.cursor_activity=Mock()
+        w.cursor_activity.visual_active.side_effect=[True,False]
         w.usage_until={}
         w._ui_active={}
         with self.assertLogs('ai_usage.activity', level='DEBUG') as logged:
@@ -284,7 +289,6 @@ class WidgetTests(unittest.TestCase):
         card.set_activity.assert_called_with(True)
         chip.set_activity.assert_called_with(True)
         self.assertTrue(any('Cursor bar ACTIVE' in line for line in logged.output))
-        w.cursor_activity.last_activity_time=float('-inf')
         with self.assertLogs('ai_usage.activity', level='DEBUG') as logged:
             w._sync_activity_ui()
         card.set_activity.assert_called_with(False)

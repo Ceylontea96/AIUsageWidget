@@ -4,6 +4,30 @@
 
 ## [Unreleased]
 
+## [3.2.26] - 2026-09-18
+
+### Fixed
+- Compact 숫자·색상과 Hero 배지·상태를 대표 Hero quota 기준으로 통일하고, 보조 quota 경고에는 해당 기간을 명시
+- 초기 Cursor transcript 스캔이 종료된 과거 이벤트로 FAST fallback을 시작하지 않도록 수정
+- 4시간·6일·8일 한도를 5시간·주간으로 잘못 분류하지 않도록 기간 판별 허용 범위를 축소
+- 주간 잔여량의 경고와 소진 배지, Cursor 전체 잔여량 기반 상태 표시를 보완하고 이전 quota 캐시를 무효화
+- 긴 JSON 행의 잘린 조각 오인식과 FAST 유지 중 불필요한 후속 조회 예약을 수정
+- 재탐색 전에 추적 파일의 새 이벤트를 처리하고 숨김/복귀 시 shimmer 진행 위치를 보존
+- 종료 후 남은 Tk 타이머를 취소하고 현재 디자인에 맞춰 회귀 테스트를 갱신
+
+### Changed
+- Cursor 활동 감지를 transcript별 `user`/`assistant`/`turn_ended` 상태 머신으로 변경하고, 종료 grace와 10분 watchdog 추가
+- Cursor quota 감소의 60초 FAST fallback을 API polling에만 적용해 shimmer·굵기 효과와 분리
+- 추적 파일은 0.75초마다 확인하고 전체 프로젝트를 12초마다 metadata-only 재탐색하며 ACTIVE transcript는 퇴출하지 않도록 변경
+- 위젯 Unmap 시 shimmer 상태를 보존하고, Compact chip에 고정 Canvas 내부 24→28px ACTIVE 굵기 효과 추가
+- GPT quota window를 `primary/secondary` 위치가 아니라 `limit_window_seconds` 기간으로 분류하도록 변경
+- 5시간 window가 없으면 주간·기타 기간을 원형 게이지로 표시하고 라벨을 `남은 사용량`으로 명확화
+- 원형 게이지·Compact 값·리셋 시간이 같은 대표 window를 사용하도록 통일
+
+### Added
+- Cursor 동시 main/subagent, 늦은 이벤트, unknown cooldown, partial JSON, 재탐색, stale timeout 회귀 테스트
+- 주간 단독, window 순서 반전, 알 수 없는 기간, 리셋 연결에 대한 GPT quota 회귀 테스트
+
 ## [3.2.25] - 2026-09-15
 
 ### Added
@@ -234,7 +258,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.25...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.2.26...HEAD
+[3.2.26]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.26
 [3.2.25]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.25
 [3.2.24]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.24
 [3.2.23]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.23

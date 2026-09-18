@@ -20,15 +20,15 @@ class RefinedTests(unittest.TestCase):
             self.assertEqual(u.design_severity(value)[0],expected)
         self.assertEqual(u.design_severity(90,blocked=True)[0],'critical')
         self.assertEqual(u.design_severity(1,stale=True)[0],'stale')
-    def test_hero_uses_five_hour_while_badge_can_warn_on_weekly(self):
+    def test_hero_and_badge_use_five_hour_while_weekly_warns_independently(self):
         root=u.tk.Tk(); root.withdraw()
         try:
             card=u.Card(root,'chatgpt')
             snap=ProviderSnapshot('chatgpt','GPT','Plus',True,4,'',bars=[QuotaBar('5시간',91,9,''),QuotaBar('주간',4,96,'')])
             card.render(snap)
             self.assertEqual(card.rows.itemcget('hero','text'),'91%')
-            self.assertIn('5시간 한도 · 남음',[card.rows.itemcget(i,'text') for i in card.rows.find_all() if card.rows.type(i)=='text'])
-            self.assertEqual(card.rows.itemcget('severity','text'),'곧 한도')
+            self.assertIn('5시간 한도 · 남은 사용량',[card.rows.itemcget(i,'text') for i in card.rows.find_all() if card.rows.type(i)=='text'])
+            self.assertEqual(card.rows.itemcget('severity','text'),'여유')
             self.assertFalse(card.rows.find_withtag('bar_0'))
             self.assertTrue(card.rows.find_withtag('bar_1'))
             for scale in (.75,1,1.5):
@@ -40,6 +40,29 @@ class RefinedTests(unittest.TestCase):
                         self.assertLessEqual(box[2],card.metrics.card_w)
             card.destroy()
         finally: root.destroy()
+
+    def test_representative_state_ignores_secondary_quota(self):
+        cases = [
+            (100, 13, 'ok', u.CHIP_OK['chatgpt']),
+            (5, 80, 'danger', u.CHIP_DANGER),
+            (100, 0, 'ok', u.CHIP_OK['chatgpt']),
+            (0, 80, 'danger', u.CHIP_DANGER),
+        ]
+        for hero, secondary, expected, compact_color in cases:
+            with self.subTest(hero=hero, secondary=secondary):
+                snap=ProviderSnapshot('chatgpt','GPT','Plus',True,hero,'',
+                    bars=[QuotaBar('5시간',hero,100-hero,''),QuotaBar('주간',secondary,100-secondary,'')],
+                    blocked=secondary == 0 or hero == 0)
+                self.assertEqual(u.representative_percent(snap),hero)
+                self.assertEqual(u.visual_state(snap),expected)
+                self.assertEqual(u.chip_style('chatgpt',snap)[0],compact_color)
+
+    def test_secondary_alert_names_quota_without_changing_hero_state(self):
+        snap=ProviderSnapshot('chatgpt','GPT','Plus',True,100,'5시간 기준 잔여',
+            bars=[QuotaBar('5시간',100,0,''),QuotaBar('주간',0,100,'')],blocked=True)
+        self.assertEqual(u.visual_state(snap),'ok')
+        self.assertEqual(u.quota_alert_copy('chatgpt',2,0,'주간'),
+                         ('ChatGPT 주간 한도 소진','주간 한도 · 잔여 0%'))
     def test_cursor_bonus_is_spend_not_remaining(self):
         root=u.tk.Tk(); root.withdraw()
         try:

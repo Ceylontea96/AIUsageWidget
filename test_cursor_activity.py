@@ -34,24 +34,26 @@ class CursorActivityTests(unittest.TestCase):
         return json.dumps({'type': 'turn_ended', 'status': status}) + '\n'
 
     def test_seed_then_append_enters_fast_and_times_out(self):
-        self.write(self.path, self.user())
+        self.write(self.path, self.ended())
         self.assertFalse(self.monitor.poll(0))
         self.assertFalse(self.monitor.fast(0))
-        self.write(self.path, self.assistant())
+        self.write(self.path, self.user())
         self.assertTrue(self.monitor.poll(1))
         self.assertTrue(self.monitor.fast(1))
-        self.assertTrue(self.monitor.fast(12.9))
-        self.assertFalse(self.monitor.poll(14))
-        self.assertFalse(self.monitor.fast(14))
+        self.write(self.path, self.assistant() + self.ended())
+        self.assertTrue(self.monitor.poll(2))
+        self.assertTrue(self.monitor.fast(13.9))
+        self.assertFalse(self.monitor.poll(15))
+        self.assertFalse(self.monitor.fast(15))
 
     def test_same_size_does_not_extend_but_timeout_does(self):
-        self.write(self.path, self.user())
+        self.write(self.path, self.ended())
         self.monitor.poll(0)
-        self.write(self.path, self.assistant())
+        self.write(self.path, self.user() + self.ended())
         self.assertTrue(self.monitor.poll(1))
         self.assertFalse(self.monitor.poll(2))
         self.assertTrue(self.monitor.fast(12))
-        self.assertFalse(self.monitor.fast(13.1))
+        self.assertFalse(self.monitor.fast(14.1))
 
     def test_turn_ended_does_not_clear_active_immediately(self):
         self.write(self.path, self.user())
@@ -77,8 +79,8 @@ class CursorActivityTests(unittest.TestCase):
         self.monitor.poll(0)
         other = self.root / 'proj' / 'agent-transcripts' / 'conv-2' / 'conv-2.jsonl'
         self.write(other, self.user() + self.assistant(), 'wb')
-        self.assertTrue(self.monitor.poll(1))
-        self.assertTrue(self.monitor.fast(1))
+        self.assertTrue(self.monitor.poll(12.1))
+        self.assertTrue(self.monitor.fast(12.1))
 
     def test_missing_root_is_nonfatal(self):
         monitor = CursorActivityMonitor(self.root / 'missing')
@@ -92,9 +94,9 @@ class CursorActivityTests(unittest.TestCase):
         self.write(self.path, self.assistant(), 'wb')
         self.assertTrue(self.monitor.poll(1))
 
-    def test_malformed_line_still_counts_as_append(self):
-        self.write(self.path, self.user())
+    def test_malformed_line_is_ignored_without_losing_state(self):
+        self.write(self.path, self.ended())
         self.monitor.poll(0)
         self.write(self.path, b'not-json\n')
-        self.assertTrue(self.monitor.poll(1))
-        self.assertTrue(self.monitor.fast(1))
+        self.assertFalse(self.monitor.poll(1))
+        self.assertFalse(self.monitor.fast(1))
