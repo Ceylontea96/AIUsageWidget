@@ -6,11 +6,18 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from providers import ProviderSnapshot, QuotaBar
-from runtime import AlertGate, AuthWatcher, PollRunner, limiting_quota, login_present, login_status, prepare_action, tool_setup_command
+from providers import ProviderSnapshot, QuotaItem
+from runtime import AlertGate, AuthWatcher, PollRunner, login_present, login_status, prepare_action, tool_setup_command
+
+
+def quota(raw_id, remaining, window=18000.0, name='5시간'):
+    return QuotaItem(f'chatgpt:main:{raw_id}','chatgpt','main',name,raw_identifier=raw_id,
+                     window_seconds=window,window_label=name,used_percent=100-remaining,
+                     remaining_percent=remaining,scope='global')
 
 
 def snap(value, **kwargs):
+    kwargs.setdefault('main_limits',[quota('primary_window',value)])
     return ProviderSnapshot('chatgpt','Codex','Plus',True,value,'',**kwargs)
 
 
@@ -44,18 +51,12 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(gate.observe('cursor',snap(5)),1)
 
     def test_cursor_api_limit_even_when_total_is_high(self):
-        value=snap(80)
-        value.bars=[QuotaBar('API 사용량',0,100,'')]
+        # A second global quota at zero must still alert, whatever the hero says.
+        value=snap(80,main_limits=[quota('autoPercentUsed',80,None,'Cursor Models'),
+                                   quota('apiPercentUsed',0,None,'Other Models')])
         gate=AlertGate()
         self.assertEqual(gate.observe('cursor',value),2)
         self.assertIsNone(gate.observe('cursor',value))
-
-    def test_limiting_quota_reports_secondary_label_for_alerts(self):
-        value=snap(100,bars=[
-            QuotaBar('5시간',100,0,''),
-            QuotaBar('주간',13,87,''),
-        ])
-        self.assertEqual(limiting_quota(value),(13,'주간'))
 
     def test_auth_creation_change_delete_and_wal(self):
         with tempfile.TemporaryDirectory() as directory:

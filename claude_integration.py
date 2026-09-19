@@ -7,6 +7,8 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,7 @@ from claude_bridge import (
     MIN_CLAUDE_VERSION,
     atomic_write_json,
     claude_dir,
+    command_references_wrapper,
     integration_path,
     parse_claude_version,
     sessions_dir,
@@ -21,6 +24,11 @@ from claude_bridge import (
 )
 
 WRAPPER_NAME = "statusline_bridge.py"
+VERSION_TTL = 3600.0
+VERSION_FAILURE_TTL = 30.0
+_VERSION_CACHE = {}
+_VERSION_PENDING = set()
+_VERSION_LOCK = threading.Lock()
 
 
 def user_claude_settings_path() -> Path:
@@ -109,27 +117,107 @@ def conflict_state() -> str:
     except RuntimeError:
         return "unreadable"
     if not meta.get("installed"):
+        if owned_statusline(current, meta):
+            return "recovery"
         return "absent" if current in (None, {}) else "unmanaged"
     expected = meta.get("fingerprint")
     actual = statusline_fingerprint(current) if current not in (None, {}) else ""
     if not current:
         return "missing"
-    if expected and actual != expected:
+    if not expected or actual != expected:
         return "conflict"
-    return "installed"
+    return "installed" if wrapper_script_path().is_file() else "recovery"
+
+
+def owned_statusline(statusline: Any, meta: dict[str, Any]) -> bool:
+    if not isinstance(statusline, dict) or statusline.get("type") != "command":
+        return False
+    command = statusline.get("command")
+    return command_references_wrapper(command) or bool(
+        meta.get("fingerprint") == statusline_fingerprint(statusline)
+        and command == meta.get("command") and command_references_wrapper(meta.get("command"))
+    )
+
+
+def valid_backup(meta: dict[str, Any]) -> bool:
+    if type(meta.get("schema_version")) is not int or meta["schema_version"] != 1:
+        return False
+    if type(meta.get("had_original")) is not bool:
+        return False
+    original = meta.get("original_statusline")
+    if not meta["had_original"]:
+        return original is None
+    return (isinstance(original, dict) and original.get("type") == "command"
+            and isinstance(original.get("command"), str) and bool(original["command"].strip())
+            and not command_references_wrapper(original["command"]))
 
 
 def resolve_claude_executable() -> Path | None:
     found = shutil.which("claude") or shutil.which("claude.cmd") or shutil.which("claude.exe")
     if found:
         return Path(found)
-    return None
+    # Explorer may still have the PATH from before CLI installation. Store
+    # Desktop installations also redirect Roaming into their package cache.
+    candidates = [Path.home() / ".local" / "bin" / "claude.exe"]
+    roaming = os.environ.get("APPDATA")
+    local = os.environ.get("LOCALAPPDATA")
+    roots = []
+    if roaming:
+        candidates.append(Path(roaming) / "npm" / "claude.cmd")
+        roots.append(Path(roaming) / "Claude" / "claude-code")
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    if local:
+        roots.extend(
+            package / "LocalCache" / "Roaming" / "Claude" / "claude-code"
+            for package in (Path(local) / "Packages").glob("Claude_*")
+        )
+    builds = [exe for root in roots for exe in root.glob("*/claude.exe") if exe.is_file()]
+    return max(builds, key=lambda exe: parse_claude_version(exe.parent.name) or (0, 0, 0), default=None)
 
 
-def claude_version_text(executable: Path | None = None) -> str:
+def start_claude_login() -> None:
+    exe = resolve_claude_executable()
+    if exe is None:
+        raise RuntimeError("Claude Code를 찾지 못했습니다. 설치 후 다시 시도하세요.")
+    # The official CLI opens the account authorization page in the browser.
+    subprocess.Popen(
+        [str(exe), "auth", "login"],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+
+
+def invalidate_version_cache() -> None:
+    with _VERSION_LOCK:
+        _VERSION_CACHE.clear()
+
+
+def claude_version_text(executable: Path | None = None, *, force=False, background=False) -> str:
     exe = executable or resolve_claude_executable()
     if exe is None:
         return ""
+    try:
+        stat = exe.stat()
+        key = (str(exe.resolve()), stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        key = (str(exe), None, None)
+    now = time.monotonic()
+    with _VERSION_LOCK:
+        cached = _VERSION_CACHE.get(key)
+        if not force and cached and now < cached[0]:
+            return cached[1]
+        if background:
+            if key not in _VERSION_PENDING:
+                _VERSION_PENDING.add(key)
+                threading.Thread(target=_cache_version, args=(exe, key), daemon=True).start()
+            return ""
+    return _cache_version(exe, key)
+
+
+def _cache_version(exe, key) -> str:
+    text = ""
     try:
         completed = subprocess.run(
             [str(exe), "--version"],
@@ -137,19 +225,31 @@ def claude_version_text(executable: Path | None = None) -> str:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=8,
+            timeout=2,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
+        if completed.returncode == 0:
+            text = ((completed.stdout or "") + " " + (completed.stderr or "")).strip()
+            if parse_claude_version(text) is None:
+                text = ""
     except (OSError, subprocess.TimeoutExpired):
-        return ""
-    return ((completed.stdout or "") + " " + (completed.stderr or "")).strip()
+        pass
+    finally:
+        with _VERSION_LOCK:
+            ttl = VERSION_TTL if text else VERSION_FAILURE_TTL
+            _VERSION_CACHE[key] = (time.monotonic() + ttl, text)
+            _VERSION_PENDING.discard(key)
+    return text
 
 
-def claude_ready() -> tuple[bool, str]:
-    exe = resolve_claude_executable()
+def claude_ready(*, executable=None, force=False, background=False) -> tuple[bool, str]:
+    """Version sanity only; actual quota schema is checked at ingestion."""
+    exe = executable or resolve_claude_executable()
     if exe is None:
         return False, "PATH에서 claude를 찾지 못했습니다."
-    text = claude_version_text(exe)
+    text = claude_version_text(exe, force=force, background=background)
+    if background and not text:
+        return False, "Claude Code 버전 확인 중 · 사용량 기능은 응답 수신 후 확인합니다."
     version = parse_claude_version(text)
     if not version_supported(version):
         needed = ".".join(str(part) for part in MIN_CLAUDE_VERSION)
@@ -162,7 +262,12 @@ def _copy_bridge_script() -> None:
     source = Path(__file__).with_name("claude_bridge.py")
     dest = wrapper_script_path()
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(source.read_bytes())
+    tmp = dest.with_name(f".{dest.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_bytes(source.read_bytes())
+        os.replace(tmp, dest)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def _write_user_settings(settings: dict[str, Any]) -> None:
@@ -172,12 +277,26 @@ def _write_user_settings(settings: dict[str, Any]) -> None:
 
 
 def install_statusline() -> dict[str, Any]:
-    ready, detail = claude_ready()
+    # Parse settings before any mutation, including wrapper/backup changes.
+    settings = read_user_settings()
+    previous = load_integration()
+    current = settings.get("statusLine")
+    owned = owned_statusline(current, previous)
+    if owned and not valid_backup(previous):
+        raise RuntimeError("Claude 연동 복구 정보가 없거나 손상되었습니다. 원본 statusLine을 확인해 복구한 뒤 다시 연동하세요.")
+    if (previous.get("installed") and current not in (None, {})
+            and (not owned or previous.get("fingerprint") != statusline_fingerprint(current))):
+        raise RuntimeError("사용자가 statusLine을 변경했습니다. 기존 설정과 원본 백업을 보존했습니다.")
+    ready, detail = claude_ready(force=True)
     if not ready:
         raise RuntimeError(detail)
-    settings = read_user_settings()
-    original = settings.get("statusLine")
+    if (owned or previous.get("installed")) and valid_backup(previous):
+        original = previous.get("original_statusline")
+    else:
+        original = current
     had_original = original not in (None, {})
+    if had_original and not valid_backup({"schema_version": 1, "had_original": True, "original_statusline": original}):
+        raise RuntimeError("기존 statusLine 형식을 확인할 수 없어 설정을 변경하지 않았습니다.")
     original_object = dict(original) if isinstance(original, dict) else original
     _copy_bridge_script()
     installed_object = installed_statusline_object()
@@ -207,9 +326,11 @@ def install_statusline() -> dict[str, Any]:
 def uninstall_statusline() -> str:
     """Returns restored | removed | conflict | absent."""
     state = conflict_state()
-    if state == "conflict":
+    if state in {"conflict", "unreadable"}:
         return "conflict"
     meta = load_integration()
+    if owned_statusline(current_statusline(), meta) and not valid_backup(meta):
+        return "conflict"
     if not meta.get("installed") and state in {"absent", "unmanaged"}:
         _cleanup_files()
         return "absent"
@@ -218,11 +339,8 @@ def uninstall_statusline() -> str:
         settings.pop("statusLine", None)
         if settings:
             _write_user_settings(settings)
-        elif user_claude_settings_path().is_file() and settings == {}:
-            try:
-                user_claude_settings_path().unlink()
-            except OSError:
-                _write_user_settings(settings)
+        elif user_claude_settings_path().is_file():
+            _write_user_settings(settings)
         _cleanup_files()
         return "removed"
     if meta.get("had_original") and isinstance(meta.get("original_statusline"), dict):
@@ -234,21 +352,18 @@ def uninstall_statusline() -> str:
     if settings:
         _write_user_settings(settings)
     else:
-        path = user_claude_settings_path()
-        try:
-            if path.is_file() and _read_json(path) == {"statusLine": settings.get("statusLine")}:
-                path.unlink()
-            else:
-                _write_user_settings(settings)
-        except OSError:
-            _write_user_settings(settings)
+        _write_user_settings(settings)
     _cleanup_files()
     return "removed"
 
 
 def _cleanup_files() -> None:
+    import re
     folder = claude_dir()
-    for path in (wrapper_script_path(), integration_path(), folder / "session.salt"):
+    owned = [wrapper_script_path(), integration_path(), folder / "session.salt", folder / "bridge.log"]
+    owned.extend(path for path in folder.glob(".*.tmp")
+                 if re.fullmatch(r"\.(integration\.json|statusline_bridge\.py)\.\d+\.tmp", path.name))
+    for path in owned:
         try:
             path.unlink(missing_ok=True)
         except OSError:
@@ -256,6 +371,8 @@ def _cleanup_files() -> None:
     sessions = sessions_dir()
     if sessions.is_dir():
         for item in sessions.glob("*"):
+            if not re.fullmatch(r"[0-9a-f]{64}\.json|\.[0-9a-f]{64}\.json\.\d+\.tmp", item.name):
+                continue
             try:
                 item.unlink()
             except OSError:
@@ -276,12 +393,13 @@ def ensure_bridge_copy() -> None:
 
 
 def integration_label() -> str:
-    ready, detail = claude_ready()
+    ready, detail = claude_ready(background=True)
     state = conflict_state()
     if not ready:
         return detail
     labels = {
-        "installed": "연동됨 · 대화형 Claude Code 사용량",
+        "installed": "연동 설정됨 · 사용량 기능은 응답 수신 후 확인",
+        "recovery": "연동 파일 복구 필요 · 원본 백업 확인 후 재연동",
         "missing": "연동 설정이 사라졌습니다",
         "conflict": "사용자가 statusLine을 변경함 · 자동 원복 안 함",
         "unmanaged": "기존 statusLine 있음 · 연동 시 tee wrapper 사용",

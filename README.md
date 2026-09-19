@@ -1,10 +1,10 @@
 # AI Usage
 
-Windows에서 GPT·Cursor·Claude 잔여 사용량을 보는 작은 위젯입니다.
+Windows에서 Codex·Cursor 잔여 사용량을 보는 작은 위젯입니다.
 
 [![version](https://img.shields.io/github/v/release/Ceylontea96/AIUsageWidget?label=version)](https://github.com/Ceylontea96/AIUsageWidget/releases/latest)
 
-이 위젯은 OpenAI(ChatGPT·Codex)·Cursor·Anthropic과 제휴되지 않은 비공식 도구입니다. 공식 앱이 아니며, 사용량 조회는 언제든 실패하거나 바뀔 수 있습니다. 소스 라이선스는 [LICENSE](LICENSE)(MIT)입니다.
+이 위젯은 OpenAI(ChatGPT·Codex)·Cursor와 제휴되지 않은 비공식 도구입니다. 공식 앱이 아니며, 사용량 조회는 언제든 실패하거나 바뀔 수 있습니다. 소스 라이선스는 [LICENSE](LICENSE)(MIT)입니다.
 
 현재 버전은 [Releases](https://github.com/Ceylontea96/AIUsageWidget/releases/latest)의 최신 태그입니다.
 
@@ -15,9 +15,6 @@ Windows에서 GPT·Cursor·Claude 잔여 사용량을 보는 작은 위젯입니
 3. 한 번 실행한 뒤에는 실행 파일만 다른 곳으로 복사해도 됩니다. 원래 폴더는 그대로 두세요.
 4. Python이 없으면 처음 한 번 설치를 시도합니다.
 5. Codex는 Codex CLI 로그인, Cursor는 Cursor 앱 로그인이 필요합니다.
-6. Claude 사용량은 우클릭 → 표시할 서비스에서 **Claude 연동**을 켠 뒤 표시됩니다. statusLine 캐시를 2초마다 읽으며, 값이 없거나 오래되면 공식 Claude CLI에 60초 간격으로 사용량만 조회합니다. 두 소스는 freshness·실제 관측 시각으로 선택하고 동률이면 statusLine을 우선합니다. 프롬프트는 보내지 않으며 Additional/Billing은 아직 없습니다.
-
-Claude 세션 캐시는 `source`, `schema_version`, `session_key`(해시), `claude_code_version`, `bridge_seen_at`, `quota_observed_at`, `five_hour`, `seven_day`, `last_transcript_mtime`, `last_window_fingerprint`만 저장합니다. 각 window는 `used_percent`, `remaining_percent`, `resets_at`만 허용합니다. transcript 경로·본문은 저장하지 않습니다. 별도 위젯 snapshot 캐시의 CLI metadata는 `source`, `quota_observed_at`, `subscription_type`입니다.
 
 새 버전이 올라가면 위젯의 **업데이트** 버튼이 켜집니다.
 

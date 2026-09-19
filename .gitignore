@@ -6,3 +6,4 @@ GPT_HANDOFF.txt
 .cursor/
 *.zip
 error.log
+dist/

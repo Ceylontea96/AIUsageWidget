@@ -15,6 +15,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from quota_policy import (
+    FIVE_HOURS,
+    FIVE_HOUR_TOLERANCE,
+    ONE_WEEK,
+    ONE_WEEK_TOLERANCE,
+    select_hero_items,
+)
+
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
@@ -119,9 +127,17 @@ class ProviderSnapshot:
 
     def __post_init__(self) -> None:
         if not self.main_limits and self.bars:
-            self.main_limits = [quota_item_from_bar(self.key, bar) for bar in self.bars]
+            self.main_limits = [
+                quota_item_from_bar(self.key, bar, index) for index, bar in enumerate(self.bars)
+            ]
         elif self.main_limits and not self.bars:
-            self.bars = [bar_from_quota_item(item) for item in self.main_limits]
+            # Legacy adapter boundary: only global main quota is exposed as
+            # bars. Scoped and additional quota never leak into this view.
+            self.bars = [
+                bar_from_quota_item(item)
+                for item in self.main_limits
+                if item.category == "main" and item.scope == "global"
+            ]
 
 
 def jwt_payload(token: str) -> dict[str, Any]:
@@ -277,23 +293,48 @@ def json_safe_value(value: Any) -> Any:
     return value
 
 
-def _scope_window_seconds(scope: str) -> float | None:
-    text = str(scope or "").strip()
-    if not text:
-        return None
-    try:
-        parsed = json.loads(text)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return None
-    if isinstance(parsed, list) and len(parsed) >= 2:
-        seconds = to_float(parsed[1])
-        return seconds if seconds is not None and seconds > 0 else None
-    return None
+# Identity is built from fields a provider owns, never from a display string,
+# a reset timestamp or the current clock, so the same quota keeps one id while
+# its label, its reset or its remaining percentage change.
+RAW_ID_FIELDS = ("limit_id", "id", "window_id", "metered_feature", "slug", "key")
 
 
-def quota_item_from_bar(source: str, bar: QuotaBar) -> QuotaItem:
-    seconds = _scope_window_seconds(bar.usage_scope)
-    raw = f"window:{int(seconds)}" if seconds is not None else (bar.usage_scope or f"label:{bar.label}")
+def raw_identifier(raw: Any, structural_key: str) -> str:
+    """Prefer an identifier the provider owns; fall back to structural position."""
+    raw = raw if isinstance(raw, dict) else {}
+    for field_name in RAW_ID_FIELDS:
+        value = raw.get(field_name)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+    return str(structural_key)
+
+
+def unique_identifier(taken: dict[str, int], candidate: str, structural_key: str) -> str:
+    """Keep two quotas apart when a provider reuses one raw id.
+
+    The disambiguator is the structural key, which is deterministic across
+    polls, rather than a counter that depends on arrival order.
+    """
+    taken[candidate] = taken.get(candidate, 0) + 1
+    if taken[candidate] == 1:
+        return candidate
+    combined = f"{candidate}@{structural_key}"
+    taken[combined] = taken.get(combined, 0) + 1
+    return combined if taken[combined] == 1 else f"{combined}#{taken[combined]}"
+
+
+def quota_item_from_bar(source: str, bar: QuotaBar, index: int = 0) -> QuotaItem:
+    """Migration adapter for 3.4.x caches, which stored only legacy bars.
+
+    This is the one place where legacy display state is turned back into
+    canonical state. Identity comes from the bar's position, which is stable
+    across restarts, never from its label. Live fetches never take this path.
+    """
+    reset_at, seconds = _legacy_scope_parts(bar.usage_scope)
+    seconds = seconds if seconds is not None and seconds > 0 else None
+    raw = f"legacy[{int(index)}]"
     return QuotaItem(
         quota_id=f"{source}:main:{raw}",
         source=source,
@@ -304,18 +345,48 @@ def quota_item_from_bar(source: str, bar: QuotaBar) -> QuotaItem:
         window_label=bar.label,
         used_percent=bar.used_percent,
         remaining_percent=bar.remaining_percent,
+        reset_at=reset_at,
         scope="global",
+        metadata={"legacy_bar": True},
     )
 
 
+def _legacy_scope_parts(scope: str) -> tuple[float | None, float | None]:
+    try:
+        parsed = json.loads(str(scope or ""))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None, None
+    if not isinstance(parsed, list) or len(parsed) < 2:
+        return None, None
+    return to_float(parsed[0]), to_float(parsed[1])
+
+
+def exhausted_names(items: list[QuotaItem]) -> list[str]:
+    """Names of the account-wide quota that have run out.
+
+    Only global main quota is considered, so a scoped feature limit can never
+    declare the whole provider unusable.
+    """
+    return [
+        item.display_name
+        for item in items
+        if item.category == "main"
+        and item.scope == "global"
+        and item.remaining_percent is not None
+        and item.remaining_percent <= 0
+    ]
+
+
+def legacy_detail(remaining: float | None) -> str:
+    return "잔여 --" if remaining is None else f"잔여 {remaining:.0f}%"
+
+
 def bar_from_quota_item(item: QuotaItem) -> QuotaBar:
-    remaining = item.remaining_percent
-    detail = "잔여 --" if remaining is None else f"잔여 {remaining:.0f}%"
     return QuotaBar(
         label=item.display_name or item.window_label,
         remaining_percent=item.remaining_percent,
         used_percent=item.used_percent,
-        detail=detail,
+        detail=legacy_detail(item.remaining_percent),
         reset_text=fmt_local(item.reset_at, "reset") if item.reset_at else "",
         usage_scope=json.dumps([item.reset_at, item.window_seconds]),
     )
@@ -470,7 +541,9 @@ def snapshot_to_dict(snap: ProviderSnapshot) -> dict[str, Any]:
 def snapshot_from_dict(data: dict[str, Any]) -> ProviderSnapshot:
     bars = []
     raw_bars = data.get("bars")
-    for raw in (raw_bars if isinstance(raw_bars, list) else [])[:8]:
+    # No arbitrary cap: dropping a cached quota here would hide it from risk
+    # detection as well as from the card.
+    for raw in raw_bars if isinstance(raw_bars, list) else []:
         if not isinstance(raw, dict):
             continue
         bars.append(
@@ -485,7 +558,7 @@ def snapshot_from_dict(data: dict[str, Any]) -> ProviderSnapshot:
         )
     info_rows = []
     raw_rows = data.get("info_rows")
-    for raw in (raw_rows if isinstance(raw_rows, list) else [])[:8]:
+    for raw in raw_rows if isinstance(raw_rows, list) else []:
         if not isinstance(raw, dict):
             continue
         info_rows.append(
@@ -696,6 +769,9 @@ def fetch_cursor() -> ProviderSnapshot:
     plan_usage = usage.get("planUsage") if isinstance(usage.get("planUsage"), dict) else {}
     auto_used = to_float(plan_usage.get("autoPercentUsed"))
     api_used = to_float(plan_usage.get("apiPercentUsed"))
+    # Reference only. Cursor's own overall figure is kept for diagnostics and
+    # never becomes quota: no hero, badge, alert, poll interval or history
+    # reads it.
     total_used = to_float(plan_usage.get("totalPercentUsed"))
     reset_at = to_float(usage.get("billingCycleEnd"))
     reset_text = fmt_local(reset_at, "reset")
@@ -719,9 +795,7 @@ def fetch_cursor() -> ProviderSnapshot:
         for raw_id, label, used in pools
         if used is not None
     ]
-    hero = next((item for item in main_limits if item.raw_identifier == "autoPercentUsed"), None)
-    if hero is None and main_limits:
-        hero = main_limits[0]
+    hero = select_hero_items("cursor", main_limits)
     if hero is None:
         raise RuntimeError("Cursor 모델 한도 정보를 확인할 수 없습니다.")
     bonus = to_float(plan_usage.get("bonusSpend"))
@@ -778,10 +852,6 @@ def fetch_cursor() -> ProviderSnapshot:
     )
 
 
-FIVE_HOURS = 5 * 60 * 60
-ONE_WEEK = 7 * 24 * 60 * 60
-
-
 def _window_duration(window: dict[str, Any] | None) -> float | None:
     if not isinstance(window, dict):
         return None
@@ -792,9 +862,9 @@ def _window_duration(window: dict[str, Any] | None) -> float | None:
 def _duration_label(seconds: float | None, unknown_index: int = 1) -> str:
     if seconds is None:
         return "기간 미상" if unknown_index <= 1 else f"기간 미상 {unknown_index}"
-    if abs(seconds - FIVE_HOURS) <= 60:
+    if abs(seconds - FIVE_HOURS) <= FIVE_HOUR_TOLERANCE:
         return "5시간"
-    if abs(seconds - ONE_WEEK) <= 900:
+    if abs(seconds - ONE_WEEK) <= ONE_WEEK_TOLERANCE:
         return "주간"
     days = seconds / 86400
     hours = seconds / 3600
@@ -917,7 +987,7 @@ def additional_groups_from_payload(source: str, body: dict[str, Any] | None) -> 
             )
         ]
     groups: list[LimitGroup] = []
-    seen: dict[str, int] = {}
+    seen: dict[str, int] = {}  # raw ids already taken, so reuse cannot merge groups
     for index, raw in enumerate(raw_groups):
         if not isinstance(raw, dict):
             groups.append(
@@ -949,18 +1019,14 @@ def additional_groups_from_payload(source: str, body: dict[str, Any] | None) -> 
             or raw.get("name")
             or ""
         ).strip()
-        raw_id = str(
-            raw.get("limit_id")
-            or raw.get("metered_feature")
-            or raw.get("limit_name")
-            or f"additional-{index}"
-        ).strip() or f"additional-{index}"
+        # display_name is never part of identity, so renaming "Spark" to
+        # "Spark Model" keeps the group's id and its saved state.
+        raw_id = unique_identifier(
+            seen, raw_identifier(raw, f"additional-{index}"), f"additional-{index}"
+        )
         group_id = f"{source}:additional:{raw_id}"
-        seen[group_id] = seen.get(group_id, 0) + 1
-        if seen[group_id] > 1:
-            group_id = f"{group_id}:{seen[group_id]}"
         if not display:
-            display = raw_id
+            display = str(raw.get("limit_name") or raw.get("name") or raw_id)
         rate = raw.get("rate_limit") if isinstance(raw.get("rate_limit"), dict) else raw
         unknown = 0
         limits: list[QuotaItem] = []
@@ -973,10 +1039,10 @@ def additional_groups_from_payload(source: str, body: dict[str, Any] | None) -> 
             if duration is None:
                 unknown += 1
             label = _duration_label(duration, unknown)
-            item_raw = f"window:{int(duration)}" if duration is not None else window_key
-            seen_items[item_raw] = seen_items.get(item_raw, 0) + 1
-            if seen_items[item_raw] > 1:
-                item_raw = f"{item_raw}:{seen_items[item_raw]}"
+            # The structural window key is deterministic across polls, so an
+            # unknown-duration window keeps one id instead of a new one each
+            # time, and two same-length windows never collapse into one.
+            item_raw = unique_identifier(seen_items, raw_identifier(window, window_key), window_key)
             leftover = {
                 key: json_safe_value(value)
                 for key, value in window.items()
@@ -1028,48 +1094,71 @@ def _chatgpt_additional_groups(body: dict[str, Any]) -> list[LimitGroup]:
     return additional_groups_from_payload("chatgpt", body)
 
 
-def _window_bar(label: str, window: dict[str, Any] | None) -> QuotaBar:
-    window = window or {}
-    used = to_float(window.get("used_percent"))
-    reset_at = _window_reset_at(window)
-    reset = fmt_local(reset_at, "reset")
-    remaining = remaining_from_used(used)
-    detail = "잔여 --" if remaining is None else f"잔여 {remaining:.0f}%"
-    scope = json.dumps([window.get("reset_at") or reset, window.get("limit_window_seconds")])
-    return QuotaBar(label, remaining, used, detail, reset, scope)
+# Display order for main quota, decided by measured duration alone. Position in
+# the payload never decides what a window means.
+NAMED_MAIN_WINDOWS = ((FIVE_HOURS, FIVE_HOUR_TOLERANCE), (ONE_WEEK, ONE_WEEK_TOLERANCE))
 
 
-def _chatgpt_windows(rate: dict[str, Any]) -> list[QuotaBar]:
-    raw = []
-    for key in ("primary_window", "secondary_window"):
-        window = rate.get(key)
-        if isinstance(window, dict) and window:
-            raw.append(window)
+def _window_rank(seconds: float | None) -> tuple[float, float]:
+    if seconds is None:
+        # Unknown duration sorts last and keeps its payload order. It is never
+        # guessed into a five-hour or weekly window.
+        return (2.0, 0.0)
+    for rank, (target, tolerance) in enumerate(NAMED_MAIN_WINDOWS):
+        if abs(seconds - target) <= tolerance:
+            return (0.0, float(rank))
+    return (1.0, float(seconds))
+
+
+def _chatgpt_main_limits(rate: Any) -> list[QuotaItem]:
+    """Collect every main window the payload carries, however many there are.
+
+    The number of windows is not fixed at two: a third or tenth window is
+    preserved as its own QuotaItem rather than dropped or written over the
+    second one. Only the card's display policy decides how many are drawn.
+    """
+    windows = _iter_rate_windows(rate)
+    if not windows and _looks_like_window(rate):
+        windows = [("rate_limit", rate)]
+    ordered = sorted(
+        enumerate(windows),
+        key=lambda pair: (_window_rank(_window_duration(pair[1][1])), pair[0]),
+    )
     unknown = 0
-    # Keep labels stable and unique if a provider unexpectedly returns two
-    # windows with the same duration.
-    seen = {}
-    items = []
-    order = {"5시간": 0, "주간": 1}
-    for index, window in enumerate(raw):
+    taken: dict[str, int] = {}
+    items: list[QuotaItem] = []
+    for _, (structural_key, window) in ordered:
         duration = _window_duration(window)
         if duration is None:
             unknown += 1
         label = _duration_label(duration, unknown)
-        seen[label] = seen.get(label, 0) + 1
-        unique = label if seen[label] == 1 else f"{label} {seen[label]}"
-        items.append((order.get(label, 2), duration or float('inf'), index,
-                      _window_bar(unique, window)))
-    return [item[-1] for item in sorted(items, key=lambda item: item[:-1])]
-
-
-def _chatgpt_hero_bar(bars: list[QuotaBar]) -> QuotaBar | None:
-    known = [bar for bar in bars if bar.remaining_percent is not None]
-    if not known:
-        return None
-    return (next((bar for bar in known if bar.label == "5시간"), None)
-            or next((bar for bar in known if bar.label == "주간"), None)
-            or known[0])
+        raw_id = unique_identifier(taken, raw_identifier(window, structural_key), structural_key)
+        leftover = {
+            key: json_safe_value(value)
+            for key, value in window.items()
+            if key not in ("used_percent", "limit_window_seconds", "reset_at", "reset_after_seconds")
+        }
+        items.append(
+            _quota_item_from_window(
+                quota_id=f"chatgpt:main:{raw_id}",
+                source="chatgpt",
+                category="main",
+                display_name=label,
+                raw_identifier=raw_id,
+                window=window,
+                scope="global",
+                metadata={"window_key": structural_key, "raw": leftover},
+            )
+        )
+    seen: dict[str, int] = {}
+    for item in items:
+        seen[item.display_name] = seen.get(item.display_name, 0) + 1
+        if seen[item.display_name] > 1:
+            # Two windows of the same length still need distinct captions; the
+            # suffix is display only and never reaches quota_id.
+            item.display_name = f"{item.display_name} {seen[item.display_name]}"
+            item.window_label = item.display_name
+    return items
 
 
 def fetch_chatgpt() -> ProviderSnapshot:
@@ -1100,27 +1189,36 @@ def fetch_chatgpt() -> ProviderSnapshot:
             getattr(body, "retry_after", ""),
         )
     rate = body.get("rate_limit") or {}
-    bars = _chatgpt_windows(rate) if isinstance(rate, dict) else []
+    main_limits = _chatgpt_main_limits(rate)
     additional_groups = _chatgpt_additional_groups(body if isinstance(body, dict) else {})
+    billing: list[BillingItem] = []
     extras = []
     credits = body.get("credits") or {}
     if credits.get("has_credits"):
-        extras.append(f"크레딧 {credits.get('balance') or 0}")
+        balance = credits.get("balance") or 0
+        billing.append(BillingItem("chatgpt:billing:credits", "chatgpt", "credits", json_safe_value(balance)))
+        extras.append(f"크레딧 {balance}")
     reset_credits = body.get("rate_limit_reset_credits") or {}
     available = to_int(reset_credits.get("available_count"))
     if available:
+        billing.append(
+            BillingItem("chatgpt:billing:reset_credits", "chatgpt", "reset_credits", available)
+        )
         extras.append(f"리셋권 {available}")
     plan = str(body.get("plan_type") or "ChatGPT").title()
-    reached = bool(rate.get("limit_reached")) if isinstance(rate, dict) else False
-    hero = _chatgpt_hero_bar(bars)
-    known = [bar for bar in bars if bar.remaining_percent is not None]
+    # rate_limit may arrive as a list of windows; read its flags defensively.
+    flags = rate if isinstance(rate, dict) else {}
+    hero = select_hero_items("chatgpt", main_limits)
     if hero is None:
         raise RuntimeError("사용량 응답에 한도 정보가 없습니다.")
-    exhausted = [b.label for b in known if b.remaining_percent <= 0]
-    blocked = reached or bool(exhausted) or rate.get("allowed") is False
-    caption = f"{hero.label} 소진" if hero.remaining_percent <= 0 else f"{hero.label} 기준 잔여"
-    footer = ""
-    info_rows = [InfoRow(bar.label, bar.detail) for bar in bars]
+    exhausted = exhausted_names(main_limits)
+    blocked = (bool(flags.get("limit_reached")) or bool(exhausted)
+               or flags.get("allowed") is False)
+    caption = (f"{' · '.join(exhausted)} 소진" if exhausted else
+               "사용 제한 · 상세 확인" if blocked else f"{hero.display_name} 기준 잔여")
+    info_rows = [
+        InfoRow(item.display_name, legacy_detail(item.remaining_percent)) for item in main_limits
+    ]
     if extras:
         info_rows.append(InfoRow("추가", " · ".join(extras)))
     return ProviderSnapshot(
@@ -1131,10 +1229,11 @@ def fetch_chatgpt() -> ProviderSnapshot:
         hero_percent=hero.remaining_percent,
         blocked=blocked,
         hero_caption=caption,
-        bars=bars,
+        main_limits=main_limits,
         additional_groups=additional_groups,
         info_rows=info_rows,
-        footer=footer,
+        footer="",
+        billing=billing,
         dashboard_url="https://chatgpt.com/codex/settings/usage",
         fetched_at=time.time(),
     )
@@ -1166,7 +1265,9 @@ def _claude_quota_item(
     return QuotaItem(
         quota_id=f"claude:{raw_id}",
         source=source,
-        category=str(spec["category"]),
+        # category says where a quota belongs (main vs additional); the meter
+        # kind the CLI reports is metadata, not a placement.
+        category="main",
         display_name=str(spec["display_name"]),
         raw_identifier=raw_id,
         window_seconds=float(spec["window_seconds"]),
@@ -1175,6 +1276,7 @@ def _claude_quota_item(
         remaining_percent=remaining,
         reset_at=reset,
         scope="global",
+        metadata={"kind": str(spec["category"])},
     )
 
 
@@ -1203,9 +1305,7 @@ def _claude_snapshot(
     """Shared card shape for both Claude sources, so hero and captions match."""
     meta = {"quota_observed_at": observed, "source": source}
     meta.update(internal or {})
-    five = next((item for item in items if item.raw_identifier == "five_hour"), None)
-    week = next((item for item in items if item.raw_identifier == "seven_day"), None)
-    hero = five or week
+    hero = select_hero_items("claude", items)
     if hero is None:
         return ProviderSnapshot(
             key="claude",
@@ -1222,9 +1322,10 @@ def _claude_snapshot(
             internal=meta,
         )
     remaining = hero.remaining_percent
+    exhausted = exhausted_names(items)
     caption = (
-        f"{hero.display_name} 소진"
-        if remaining is not None and remaining <= 0
+        f"{' · '.join(exhausted)} 소진"
+        if exhausted
         else f"{hero.display_name} 기준 잔여"
     )
     return ProviderSnapshot(
@@ -1235,7 +1336,7 @@ def _claude_snapshot(
         hero_percent=remaining,
         hero_caption=caption,
         main_limits=items,
-        blocked=remaining is not None and remaining <= 0,
+        blocked=bool(exhausted),
         stale=stale,
         footer=footer,
         dashboard_url=CLAUDE_DASHBOARD_URL,
@@ -1370,7 +1471,8 @@ def claude_usage_from_control_output(raw_text: str, now: float | None = None) ->
         if not isinstance(record, dict) or record.get("type") != "control_response":
             continue
         response = record.get("response")
-        if not isinstance(response, dict) or response.get("subtype") != "success":
+        if (not isinstance(response, dict) or response.get("subtype") != "success"
+                or response.get("request_id", "usage") != "usage"):
             continue
         inner = response.get("response")
         if isinstance(inner, dict):
@@ -1382,7 +1484,7 @@ def claude_usage_from_control_output(raw_text: str, now: float | None = None) ->
             "Claude Code가 사용량을 돌려주지 않았습니다. 자동 재시도합니다.",
             CLAUDE_DASHBOARD_URL,
         )
-    if not body.get("rate_limits_available", True):
+    if body.get("rate_limits_available") is False:
         return error_snapshot(
             "claude",
             "Claude",
@@ -1390,6 +1492,10 @@ def claude_usage_from_control_output(raw_text: str, now: float | None = None) ->
             CLAUDE_DASHBOARD_URL,
         )
     windows = claude_windows_from_rate_limits(body.get("rate_limits"), body.get("limits"))
+    if not windows or body.get("rate_limits_available", True) is not True:
+        snap = error_snapshot("claude", "Claude", "Claude Code 사용량 형식을 확인할 수 없습니다. 지원되는 응답을 기다립니다.", CLAUDE_DASHBOARD_URL)
+        snap.internal["feature_available"] = False
+        return snap
     items = _claude_items(windows, current, "claude_cli")
     return _claude_snapshot(
         items,
@@ -1397,29 +1503,23 @@ def claude_usage_from_control_output(raw_text: str, now: float | None = None) ->
         stale=False,
         footer="",
         source="claude_cli",
-        internal={"subscription_type": str(body.get("subscription_type") or "")},
+        internal={"feature_available": bool(items)},
     )
 
 
 def _claude_cli_executable() -> Path | None:
     from claude_integration import resolve_claude_executable
 
-    found = resolve_claude_executable()
-    if found is not None:
-        return found
-    roaming = os.environ.get("APPDATA")
-    if roaming:
-        builds = sorted((Path(roaming) / "Claude" / "claude-code").glob("*/claude.exe"))
-        if builds:
-            return builds[-1]
-    return None
+    return resolve_claude_executable()
 
 
 def fetch_claude_cli(now: float | None = None) -> ProviderSnapshot:
     """Ask the installed Claude Code for plan usage. No prompt, so no token spend."""
     import subprocess
+    from claude_integration import claude_ready
 
     current = time.time() if now is None else float(now)
+    deadline = time.monotonic() + CLAUDE_CLI_TIMEOUT
     executable = _claude_cli_executable()
     if executable is None:
         return error_snapshot(
@@ -1428,6 +1528,9 @@ def fetch_claude_cli(now: float | None = None) -> ProviderSnapshot:
             "Claude Code를 찾지 못했습니다. 설치 후 다시 시도하세요.",
             CLAUDE_DASHBOARD_URL,
         )
+    ready, detail = claude_ready(executable=executable)
+    if not ready:
+        return error_snapshot("claude", "Claude", detail, CLAUDE_DASHBOARD_URL)
     request = json.dumps(
         {
             "type": "control_request",
@@ -1448,7 +1551,7 @@ def fetch_claude_cli(now: float | None = None) -> ProviderSnapshot:
             input=(request + "\n").encode("utf-8"),
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            timeout=CLAUDE_CLI_TIMEOUT,
+            timeout=max(0.1, deadline - time.monotonic()),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except subprocess.TimeoutExpired:
@@ -1466,7 +1569,23 @@ def fetch_claude_cli(now: float | None = None) -> ProviderSnapshot:
             CLAUDE_DASHBOARD_URL,
         )
     text = (completed.stdout or b"").decode("utf-8", "replace")
-    return claude_usage_from_control_output(text, current)
+    snap = claude_usage_from_control_output(text, current)
+    if not snap.ok:
+        # get_usage reports rate_limits_available=false for both signed-out
+        # and unsupported accounts. Ask the CLI rather than reading credentials.
+        try:
+            status = subprocess.run(
+                [str(executable), "auth", "status"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            auth = json.loads(status.stdout)
+            if isinstance(auth, dict) and auth.get("loggedIn") is False:
+                snap.error = "Claude Code 로그인이 필요합니다. 우클릭 → Claude 로그인에서 연결하세요."
+                snap.internal["requires_login"] = True
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            pass
+    return snap
 
 
 def fetch_claude(now: float | None = None) -> ProviderSnapshot:
@@ -1477,7 +1596,7 @@ def fetch_claude(now: float | None = None) -> ProviderSnapshot:
         select_session_cache,
         session_inactive,
     )
-    from claude_integration import claude_ready, is_installed
+    from claude_integration import is_installed
 
     current = time.time() if now is None else float(now)
     if not is_installed():
@@ -1487,9 +1606,8 @@ def fetch_claude(now: float | None = None) -> ProviderSnapshot:
             "Claude 연동을 켜면 대화형 Claude Code 사용량을 표시합니다.",
             CLAUDE_DASHBOARD_URL,
         )
-    ready, detail = claude_ready()
-    if not ready:
-        return error_snapshot("claude", "Claude", detail, CLAUDE_DASHBOARD_URL)
+    # This two-second UI path reads only validated cache. Version and schema
+    # are established by the statusLine payload, or by the separate CLI worker.
     selected = select_session_cache(list_session_caches(current), current)
     if selected is None:
         # statusLine only runs in terminal Claude Code, so the widget asks the

@@ -4,7 +4,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import os
+import re
+import shlex
 import subprocess
 import sys
 import time
@@ -39,6 +42,8 @@ CACHE_READ_INTERVAL = 2.0
 # bridge.log records each call so a silent statusLine is diagnosable. Only the
 # terminal TUI runs statusLine; stream-json sessions never call the bridge.
 BRIDGE_LOG_LIMIT = 64 * 1024
+MAX_TIMESTAMP = 253402300799.0  # Last second before year 10000, in seconds.
+FUTURE_TOLERANCE = 60.0
 ALLOWED_CACHE_KEYS = {
     "source",
     "schema_version",
@@ -52,25 +57,6 @@ ALLOWED_CACHE_KEYS = {
     "last_window_fingerprint",
 }
 ALLOWED_WINDOW_KEYS = {"used_percent", "remaining_percent", "resets_at"}
-FORBIDDEN_SUBSTRINGS = (
-    "session_id",
-    "transcript_path",
-    "transcript",
-    "prompt",
-    "cwd",
-    "project",
-    "repo",
-    "worktree",
-    "email",
-    "account",
-    "credential",
-    "token",
-    "cookie",
-    "authorization",
-    "oauth",
-    "model",
-    "cost",
-)
 
 
 def app_root() -> Path:
@@ -101,11 +87,11 @@ def integration_path() -> Path:
 
 
 def _to_float(value: Any) -> float | None:
-    if value is None or value is False:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if number != number or number in (float("inf"), float("-inf")):
         return None
@@ -118,7 +104,7 @@ def parse_unix_seconds(value: Any) -> float | None:
         return None
     if number > 10_000_000_000:
         number /= 1000.0
-    if number <= 0:
+    if number <= 0 or number > MAX_TIMESTAMP:
         return None
     return number
 
@@ -134,26 +120,13 @@ def parse_used_percentage(value: Any) -> float | None:
     if number is None:
         return None
     if number < 0 or number > 100:
-        return max(0.0, min(100.0, number))
+        return None
     return number
 
 
 def parse_claude_version(text: str) -> tuple[int, int, int] | None:
-    digits = []
-    current = ""
-    for char in str(text or ""):
-        if char.isdigit():
-            current += char
-        elif current:
-            digits.append(int(current))
-            current = ""
-            if len(digits) == 3:
-                break
-    if current and len(digits) < 3:
-        digits.append(int(current))
-    if len(digits) < 3:
-        return None
-    return digits[0], digits[1], digits[2]
+    match = re.search(r"(?<!\d)(\d{1,6})\.(\d{1,6})\.(\d{1,6})(?!\d)", str(text or ""))
+    return tuple(map(int, match.groups())) if match else None
 
 
 def version_supported(version: tuple[int, int, int] | None) -> bool:
@@ -167,7 +140,7 @@ def window_view(raw: Any) -> dict[str, float] | None:
     if used is None:
         used = parse_used_percentage(raw.get("used_percent"))
     reset = parse_unix_seconds(raw.get("resets_at"))
-    if used is None and reset is None:
+    if used is None or reset is None:
         return None
     remaining = remaining_from_used(used)
     view = {}
@@ -188,9 +161,9 @@ def extract_whitelist(data: Any) -> dict[str, Any]:
             parsed = window_view(rate_limits.get(key))
             if parsed is not None:
                 windows[key] = parsed
-    version = payload.get("version")
+    version = parse_claude_version(payload.get("version"))
     return {
-        "claude_code_version": str(version) if version not in (None, "") else "",
+        "claude_code_version": ".".join(map(str, version)) if version else "",
         "windows": windows,
         "has_rate_limits": isinstance(rate_limits, dict),
     }
@@ -212,18 +185,18 @@ def window_fingerprint(windows: dict[str, Any]) -> str:
 def _load_json(path: Path) -> dict[str, Any] | None:
     try:
         raw = path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeError):
         return None
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError:
+    except (ValueError, RecursionError):
         return None
     return data if isinstance(data, dict) else None
 
 
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    encoded = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+    encoded = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), allow_nan=False)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
         with tmp.open("w", encoding="utf-8", newline="\n") as handle:
@@ -240,23 +213,56 @@ def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def sanitize_cache(payload: dict[str, Any]) -> dict[str, Any]:
-    clean: dict[str, Any] = {}
-    for key, value in payload.items():
-        name = str(key)
-        if name not in ALLOWED_CACHE_KEYS:
-            continue
-        if name in WINDOW_KEYS:
-            if not isinstance(value, dict):
-                continue
-            window = {
-                field: value[field]
-                for field in ALLOWED_WINDOW_KEYS
-                if field in value and _to_float(value[field]) is not None
-            }
-            if window:
-                clean[name] = window
-            continue
-        clean[name] = value
+    """Project onto the persisted whitelist; do not copy unvalidated strings."""
+    clean = {"source": SOURCE, "schema_version": SCHEMA_VERSION}
+    key = payload.get("session_key")
+    if isinstance(key, str) and re.fullmatch(r"[0-9a-f]{64}", key):
+        clean["session_key"] = key
+    version = parse_claude_version(payload.get("claude_code_version"))
+    clean["claude_code_version"] = ".".join(map(str, version)) if version else ""
+    for field in ("bridge_seen_at", "quota_observed_at", "last_transcript_mtime"):
+        number = _to_float(payload.get(field))
+        if number is not None and 0 < number <= MAX_TIMESTAMP:
+            clean[field] = number
+    for key in WINDOW_KEYS:
+        window = validate_cache_window(payload.get(key))
+        if window:
+            clean[key] = window
+    clean["last_window_fingerprint"] = window_fingerprint(clean)
+    return clean
+
+
+def validate_cache_window(value: Any) -> dict[str, float] | None:
+    if not isinstance(value, dict):
+        return None
+    used = parse_used_percentage(value.get("used_percent"))
+    remaining = parse_used_percentage(value.get("remaining_percent"))
+    reset = _to_float(value.get("resets_at"))
+    if (used is None or remaining is None or reset is None
+            or not 0 < reset <= MAX_TIMESTAMP
+            or not math.isclose(used + remaining, 100.0, abs_tol=1e-6)):
+        return None
+    return {"used_percent": used, "remaining_percent": remaining, "resets_at": reset}
+
+
+def validate_session_cache(data: Any, now: float | None = None) -> dict[str, Any] | None:
+    current = time.time() if now is None else now
+    if not isinstance(data, dict):
+        return None
+    if (type(data.get("schema_version")) is not int or data["schema_version"] != SCHEMA_VERSION
+            or data.get("source") != SOURCE
+            or not isinstance(data.get("session_key"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", data["session_key"])):
+        return None
+    seen = _to_float(data.get("bridge_seen_at"))
+    if seen is None or not 0 < seen <= min(MAX_TIMESTAMP, current + FUTURE_TOLERANCE):
+        return None
+    clean = sanitize_cache(data)
+    observed = _to_float(data.get("quota_observed_at"))
+    if observed is None or not 0 < observed <= seen:
+        clean.pop("quota_observed_at", None)
+        for key in WINDOW_KEYS:
+            clean.pop(key, None)
     return clean
 
 
@@ -326,9 +332,12 @@ def transcript_mtime(path_text: str) -> float | None:
 
 
 def load_session(session_key: str) -> dict[str, Any] | None:
+    if not re.fullmatch(r"[0-9a-f]{64}", session_key):
+        return None
     path = sessions_dir() / f"{session_key}.json"
     data = _load_json(path)
-    return sanitize_cache(data) if data else None
+    clean = validate_session_cache(data)
+    return clean if clean and clean["session_key"] == session_key else None
 
 
 def list_session_caches(now: float | None = None) -> list[dict[str, Any]]:
@@ -342,10 +351,9 @@ def list_session_caches(now: float | None = None) -> list[dict[str, Any]]:
         data = _load_json(path)
         if not data:
             continue
-        try:
-            items.append(sanitize_cache(data))
-        except Exception:
-            continue
+        clean = validate_session_cache(data, now)
+        if clean and path.stem == clean["session_key"]:
+            items.append(clean)
     return items
 
 
@@ -374,7 +382,10 @@ def select_session_cache(caches: list[dict[str, Any]], now: float | None = None)
     current = time.time() if now is None else float(now)
     ranked = []
     for cache in caches:
-        if not isinstance(cache, dict):
+        cache = validate_session_cache(cache, current)
+        if not cache or not version_supported(parse_claude_version(cache.get("claude_code_version"))):
+            continue
+        if not any(key in cache and not window_expired(cache[key], current) for key in WINDOW_KEYS):
             continue
         observed = _to_float(cache.get("quota_observed_at")) or 0.0
         seen = _to_float(cache.get("bridge_seen_at")) or 0.0
@@ -392,6 +403,7 @@ def _should_refresh_quota(
     previous: dict[str, Any] | None,
     windows: dict[str, Any],
     mtime: float | None,
+    now: float,
 ) -> bool:
     if not windows:
         return False
@@ -408,9 +420,16 @@ def _should_refresh_quota(
     previous_mtime = _to_float(previous.get("last_transcript_mtime"))
     same_quota = bool(previous_fp) and previous_fp == current_fp
     if same_quota:
+        # A filesystem write is only a heuristic. Require a recent statusLine
+        # observation in an already-active session; an idle session's old file
+        # touch must not revive an unchanged quota. No transcript content read.
+        seen = _to_float(previous.get("bridge_seen_at"))
         return (
             mtime is not None
             and previous_mtime is not None
+            and seen is not None
+            and 0 <= now - seen <= SESSION_INACTIVE_AFTER_SECONDS
+            and seen <= mtime <= now + FUTURE_TOLERANCE
             and mtime > previous_mtime + 1e-6
         )
     prev_windows = {key: previous.get(key) for key in WINDOW_KEYS}
@@ -437,7 +456,7 @@ def build_session_cache(
     now: float,
 ) -> dict[str, Any]:
     windows = dict(whitelist.get("windows") or {})
-    refresh = _should_refresh_quota(previous, windows, transcript_mtime_value)
+    refresh = _should_refresh_quota(previous, windows, transcript_mtime_value, now)
     observed = now if refresh else (_to_float((previous or {}).get("quota_observed_at")) or None)
     payload = {
         "source": SOURCE,
@@ -470,6 +489,8 @@ def build_session_cache(
 
 
 def write_session_cache(session_key: str, payload: dict[str, Any]) -> None:
+    if not re.fullmatch(r"[0-9a-f]{64}", session_key):
+        raise ValueError("Invalid session key")
     path = sessions_dir() / f"{session_key}.json"
     atomic_write_json(path, sanitize_cache(payload))
 
@@ -546,20 +567,36 @@ def format_status_line(payload: dict[str, Any] | None) -> str:
     return " · ".join(parts)
 
 
+def command_references_wrapper(command: Any) -> bool:
+    """Recognize our exact script path, including a Python installation change."""
+    if not isinstance(command, str):
+        return False
+    paths = {str(claude_dir() / "statusline_bridge.py"), str(Path(__file__).resolve())}
+    normalized = {os.path.normcase(os.path.abspath(path)) for path in paths}
+    try:
+        tokens = shlex.split(command, posix=False)
+    except ValueError:
+        # Broken shell commands are never safe to forward.
+        return True
+    return any(os.path.normcase(os.path.abspath(token.strip('\"\''))) in normalized for token in tokens)
+
+
 def load_original_command() -> str:
     data = _load_json(integration_path()) or {}
     original = data.get("original_statusline")
     if isinstance(original, dict):
         command = original.get("command")
-        if isinstance(command, str) and command.strip():
+        if isinstance(command, str) and command.strip() and not command_references_wrapper(command):
             return command.strip()
     command = data.get("original_command")
-    if isinstance(command, str) and command.strip():
+    if isinstance(command, str) and command.strip() and not command_references_wrapper(command):
         return command.strip()
     return ""
 
 
 def _forward_original(command: str, raw: bytes) -> int:
+    if command_references_wrapper(command) or os.environ.get("AIUSAGE_CLAUDE_FORWARDING") == "1":
+        return 0
     try:
         completed = subprocess.run(
             command,
@@ -568,8 +605,10 @@ def _forward_original(command: str, raw: bytes) -> int:
             stderr=subprocess.PIPE,
             shell=True,
             check=False,
+            env={**os.environ, "AIUSAGE_CLAUDE_FORWARDING": "1"},
+            timeout=5,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return 0
     try:
         sys.stdout.buffer.write(completed.stdout or b"")

@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from providers import snapshot_from_dict
+from quota_policy import limiting_quota as canonical_limiting_quota
 
 
 def auth_paths():
@@ -153,9 +154,17 @@ class AlertGate:
         self.state = {k: v for k, v in (state or {}).items() if isinstance(v, int) and 0 <= v <= 2}
 
     def observe(self, key, snap):
-        if not snap.ok or snap.stale or snap.hero_percent is None:
+        """Alert on the whole provider, judged by every global main quota.
+
+        Scoped quota is deliberately absent: one exhausted feature must not
+        announce that the provider itself is finished.
+        """
+        if not snap.ok or snap.stale:
             return None
-        remaining, _ = limiting_quota(snap)
+        quota = canonical_limiting_quota(snap)
+        if quota is None:
+            return None
+        remaining = float(quota.remaining_percent)
         severity = 2 if snap.blocked or remaining <= 0 else 1 if remaining <= 10 else 0
         previous = self.state.get(key, 0)
         # Rearm only after clear recovery, avoiding repeated 10% boundary noise.
@@ -169,11 +178,11 @@ class AlertGate:
 
 
 def limiting_quota(snap):
-    values = [(bar.remaining_percent, bar.label) for bar in snap.bars
-              if bar.remaining_percent is not None]
-    if not values and snap.hero_percent is not None:
-        values.append((snap.hero_percent, snap.hero_caption))
-    return min(values, key=lambda value: value[0])
+    """Legacy tuple view of the canonical alert target."""
+    quota = canonical_limiting_quota(snap)
+    if quota is None:
+        return snap.hero_percent, snap.hero_caption
+    return quota.remaining_percent, quota.display_name
 
 
 @dataclass

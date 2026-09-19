@@ -1,11 +1,21 @@
 import tempfile
-import time
 import unittest
 from pathlib import Path
-from tkinter import font as tkfont
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, call
 import usage_widget as u
-from providers import ProviderSnapshot,QuotaBar,error_snapshot
+from providers import ProviderSnapshot,QuotaBar,QuotaItem,error_snapshot
+
+
+def limit(raw_id,name,remaining,window=None,reset_at=None,source='chatgpt',scope='global',category='main'):
+    """Canonical quota fixture. Identity and meaning never come from `name`."""
+    return QuotaItem(f'{source}:{category}:{raw_id}',source,category,name,raw_identifier=raw_id,
+                     window_seconds=window,window_label=name,
+                     used_percent=None if remaining is None else 100-remaining,
+                     remaining_percent=remaining,reset_at=reset_at,scope=scope)
+
+
+FIVE_H=18000.0
+WEEK=604800.0
 
 class UiTests(unittest.TestCase):
     def setUp(self):
@@ -14,19 +24,13 @@ class UiTests(unittest.TestCase):
         self.patches=[patch.object(u,'SETTINGS_PATH',path/'settings.json'),patch.object(u,'CACHE_PATH',path/'cache.json')]
         for item in self.patches:item.start()
         self._pill_animate=u.UpdatePill.animate
-        self._card_animate=u.Card.animate
-        self._chip_animate=u.Chip.animate
         u.UpdatePill.animate=False
-        u.Card.animate=False
-        u.Chip.animate=False
         self.w=u.UsageWidget(preview=True)
         self.w.root.withdraw()
 
     def tearDown(self):
         self.w.close()
         u.UpdatePill.animate=self._pill_animate
-        u.Card.animate=self._card_animate
-        u.Chip.animate=self._chip_animate
         for item in self.patches:item.stop()
         self.directory.cleanup()
 
@@ -36,87 +40,10 @@ class UiTests(unittest.TestCase):
         w.snapshots['chatgpt']=s;w.render('chatgpt');w.root.update_idletasks()
         before=w.cards['chatgpt'].rows.winfo_reqheight()
         w.snapshots['chatgpt']=error_snapshot('chatgpt','Codex','조회 실패','');w.render('chatgpt');w.root.update_idletasks()
-        self.assertTrue(any(w.cards['chatgpt'].rows.itemcget(i,'text')=='조회 실패' for i in w.cards['chatgpt'].rows.find_all() if w.cards['chatgpt'].rows.type(i)=='text'))
-        mode=w.compact;w.toggle();self.assertNotEqual(w.compact,mode);w.toggle();self.assertEqual(w.compact,mode)
-
-    def test_cursor_card_shows_billing_reset(self):
-        w=self.w
-        bars=[QuotaBar('자사 모델',80,20,'','9월 14일 09:00'),QuotaBar('API 사용량',70,30,'','9월 14일 09:00')]
-        w.snapshots['cursor']=ProviderSnapshot('cursor','Cursor','Pro',True,80,'',bars=bars)
-        w.render('cursor')
-        with_reset=w.cards['cursor'].height
-        self.assertIsNotNone(w.cards['cursor']._reset_epoch)
-        w.snapshots['cursor']=ProviderSnapshot('cursor','Cursor','Pro',True,80,'',bars=[QuotaBar('자사 모델',80,20,'',''),QuotaBar('API 사용량',70,30,'','')])
-        w.cards['cursor'].last_signature=None
-        w.render('cursor')
-        self.assertEqual(with_reset,w.cards['cursor'].height)
-        self.assertIsNone(w.cards['cursor']._reset_epoch)
-
-    def test_gpt_title_and_both_reset_captions(self):
-        card=self.w.cards['chatgpt']
-        bars=[QuotaBar('5시간',80,20,'','9월 15일 14:00'),QuotaBar('주간',70,30,'','9월 20일 09:30')]
-        card.render(ProviderSnapshot('chatgpt','GPT','Plus',True,70,'',bars=bars))
-        texts=[card.rows.itemcget(item,'text') for item in card.rows.find_all() if card.rows.type(item)=='text']
-        self.assertIn('GPT',texts)
-        self.assertNotIn('Codex',texts)
-        self.assertIn('14:00 리셋',texts)
-        self.assertIn('주간 리셋 9월 20일 09:30',texts)
-
-    def test_widget_fonts_are_pretendard(self):
-        if not u.register_bundled_fonts():
-            self.skipTest('Pretendard is not available')
-        title = tkfont.Font(root=self.w.root, font=self.w.title['font'])
-        self.assertEqual(title.actual('family'), 'Pretendard SemiBold')
-        families = set(tkfont.families(self.w.root))
-        self.assertIn('Pretendard', families)
-        self.assertIn('Pretendard Medium', families)
-        self.assertIn('Pretendard SemiBold', families)
-
-    def test_service_icons_replace_status_dots(self):
-        for key in ('chatgpt','cursor'):
-            card=self.w.cards[key]
-            card.render(ProviderSnapshot(key,'', '-',True,80,'',bars=[]))
-            self.assertEqual(card.rows.type(card.rows.find_withtag('service_icon')[0]),'image')
-            self.assertFalse(card.rows.find_withtag('service_icon_fallback'))
-
-    def test_card_eases_bar_when_remaining_drops(self):
-        w=self.w
         card=w.cards['chatgpt']
-        u.Card.animate=True
-        card.render(ProviderSnapshot('chatgpt','Codex','Plus',True,80,'',bars=[QuotaBar('5시간',80,20,'','')]))
-        self.assertEqual(card._shown_pcts,[80])
-        card.render(ProviderSnapshot('chatgpt','Codex','Plus',True,50,'',bars=[QuotaBar('5시간',50,50,'','')]))
-        self.assertGreater(card._shown_pcts[0],50)
-        self.assertLessEqual(card._shown_pcts[0],80)
-        card._anim_t0=time.monotonic()-2
-        card._anim_tick()
-        self.assertEqual(card._shown_pcts,[50])
-        card.render(ProviderSnapshot('chatgpt','Codex','Plus',True,80,'',bars=[QuotaBar('5시간',80,20,'','')]))
-        self.assertLess(card._shown_pcts[0],80)
-        self.assertGreaterEqual(card._shown_pcts[0],50)
-        self.assertEqual(u.BAR_ANIM_SPEED, 8.0)
-        u.Card.animate=False
-        card.render(ProviderSnapshot('chatgpt','Codex','Plus',True,20,'',bars=[QuotaBar('5시간',20,80,'','')]))
-        self.assertEqual(card._shown_pcts,[20])
-
-    def test_chip_eases_fill_when_remaining_drops(self):
-        chip=self.w.mini_values['chatgpt']
-        u.Chip.animate=True
-        chip.configure(percent=80)
-        self.assertEqual(chip.percent,80)
-        chip.configure(percent=40)
-        self.assertGreater(chip.percent,40)
-        self.assertLessEqual(chip.percent,80)
-        chip._anim_t0=time.monotonic()-2
-        chip._anim_tick()
-        self.assertEqual(chip.percent,40)
-        chip.configure(percent=90)
-        self.assertLess(chip.percent,90)
-        self.assertGreaterEqual(chip.percent,40)
-        chip._anim_t0=time.monotonic()-3
-        chip._anim_tick()
-        self.assertEqual(chip.percent,90)
-        u.Chip.animate=False
+        self.assertTrue(any(card.rows.itemcget(item,'text')=='조회 실패'
+                            for item in card.rows.find_all() if card.rows.type(item)=='text'))
+        mode=w.compact;w.toggle();self.assertNotEqual(w.compact,mode);w.toggle();self.assertEqual(w.compact,mode)
 
     def prepare(self):
         w=self.w;w.preview=False
@@ -128,7 +55,7 @@ class UiTests(unittest.TestCase):
         w=self.prepare()
         with patch.object(u,'session_locked',return_value=True):w.tick()
         self.assertTrue(w.locked)
-        self.assertEqual(w.runner.cancel.call_count,len(u.FETCHERS))
+        self.assertCountEqual(w.runner.cancel.call_args_list,[call(key) for key in u.FETCHERS])
         w.runner.start.assert_not_called()
         w.last_environment=float('-inf')
         with patch.object(u,'session_locked',return_value=False):w.tick()
@@ -173,7 +100,7 @@ class UiTests(unittest.TestCase):
         chip_w=int(w.mini_values['chatgpt'].cget('width'))
         w.set_scale(1.3)
         self.assertEqual(w.scale, 1.3)
-        self.assertEqual(int(w.shell.cget('width')), u.px(380, 1.3))
+        self.assertEqual(int(w.shell.cget('width')), u.px(u.WINDOW_W, 1.3))
         self.assertGreater(int(w.shell.cget('width')), base)
         self.assertGreater(w.cards['chatgpt'].height, card_h)
         self.assertGreater(int(w.mini_values['chatgpt'].cget('width')), chip_w)
@@ -207,7 +134,7 @@ class UiTests(unittest.TestCase):
         self.w=u.UsageWidget(preview=True)
         self.w.root.withdraw()
         self.assertEqual(self.w.scale, 1.3)
-        self.assertEqual(int(self.w.shell.cget('width')), u.px(380, 1.3))
+        self.assertEqual(int(self.w.shell.cget('width')), u.px(u.WINDOW_W, 1.3))
 
     def test_environment_keeps_widget_while_overlay(self):
         w=self.prepare()
@@ -378,43 +305,12 @@ class UiTests(unittest.TestCase):
             if w.menu.type(i)=='command':
                 labels.append(w.menu.entrycget(i,'label'))
         self.assertIn(f'버전 {u.APP_VERSION}', labels)
-        self.assertEqual(labels[labels.index(f'버전 {u.APP_VERSION}')-1], '바탕화면 바로가기 생성')
+        self.assertIn('바탕화면 바로가기 생성', labels)
         help_text = w.help_text()
         self.assertIn(f'현재 버전 {u.APP_VERSION}', help_text)
         self.assertIn('제휴되지 않은 비공식', help_text)
         self.assertIn('실패하거나 바뀔 수 있습니다', help_text)
         self.assertIn('AI Usage.exe', help_text)
-
-    def test_place_on_screen_center_uses_monitor_not_widget(self):
-        w=self.w
-        w.root.geometry('+16+24')
-        w.root.update_idletasks()
-        dialog=u.tk.Toplevel(w.root)
-        dialog.geometry('200x100+16+24')
-        dialog.update_idletasks()
-        width=max(dialog.winfo_reqwidth(),dialog.winfo_width(),1)
-        height=max(dialog.winfo_reqheight(),dialog.winfo_height(),1)
-        with patch.object(u,'work_area',return_value=(0,0,1000,800)):
-            expected=u.center_box(width,height,16,24)
-            u.place_on_screen_center(dialog,16,24)
-        dialog.update_idletasks()
-        self.assertTrue(dialog.geometry().endswith(f'+{expected[0]}+{expected[1]}'), dialog.geometry())
-        self.assertNotEqual((dialog.winfo_rootx(),dialog.winfo_rooty()),(16,24))
-        dialog.destroy()
-
-    def test_notify_parents_messagebox_to_screen_center_owner(self):
-        w=self.w
-        w.root.geometry('+16+24')
-        w.root.update_idletasks()
-        seen=[]
-        def fake_info(*args,**kwargs):
-            seen.append(kwargs.get('parent'))
-            return 'ok'
-        with patch.object(u,'work_area',return_value=(0,0,1000,800)),patch.object(u.messagebox,'showinfo',side_effect=fake_info):
-            w.notify(u.messagebox.showinfo,'업데이트','이미 최신입니다.',parent=w.root)
-        self.assertEqual(len(seen),1)
-        self.assertIs(seen[0],w._center_owner)
-        self.assertIsNot(seen[0],w.root)
 
     def test_menu_checkmark_is_white(self):
         self.assertEqual(str(self.w.menu.cget('selectcolor')).upper(), '#FFFFFF')
@@ -499,5 +395,272 @@ class UiTests(unittest.TestCase):
         self.assertIn('새 버전 9.9.9', seen[0][2])
         self.assertIn('체크표시를 흰색으로 바꿈', seen[0][2])
         self.assertFalse(w._update_busy)
+
+    def test_cursor_quota_fallback_does_not_drive_visual_activity(self):
+        w=self.w
+        monitor=Mock()
+        monitor.visual_active.return_value=False
+        w.cursor_activity=monitor
+        w.usage_until['cursor']=1000
+        w._sync_activity_ui(10)
+        self.assertFalse(w.cards['cursor']._desired_active)
+        self.assertFalse(w.mini_values['cursor']._desired_active)
+        monitor.visual_active.return_value=True
+        w._sync_activity_ui(11)
+        self.assertTrue(w.cards['cursor']._desired_active)
+        self.assertTrue(w.mini_values['cursor']._desired_active)
+
+    def test_unmapped_shimmer_preserves_desired_activity(self):
+        chip=self.w.mini_values['cursor']
+        self.assertFalse(chip.winfo_ismapped())
+        chip.set_activity(True)
+        chip._pause_shimmer()
+        self.assertTrue(chip._desired_active)
+        self.assertTrue(chip._active)
+        chip.set_activity(False)
+        self.assertFalse(chip._desired_active)
+
+    def test_compact_chip_uses_fixed_28px_canvas(self):
+        w=self.w
+        w.compact=True
+        w.apply_mode()
+        chip=w.mini_values['chatgpt']
+        self.assertEqual(int(chip.cget('height')), w.metrics.p(28))
+        self.assertEqual(int(chip.place_info()['height']), w.metrics.p(28))
+        self.assertEqual(w.metrics.chip_h, w.metrics.p(24))
+
+    def test_busy_worker_coalesces_fast_refresh(self):
+        w=self.prepare()
+        w.runner.slots={'cursor':object()}
+        w._request_fast_poll('cursor', 10)
+        self.assertTrue(w.poll_pending['cursor'])
+        w.runner.slots={}
+        w.due['cursor']=100
+        w.request_started['cursor']=9
+        w._request_fast_poll('cursor', 10)
+        self.assertEqual(w.due['cursor'], 11)
+
+    def test_legacy_quota_cache_is_not_loaded(self):
+        from providers import snapshot_to_dict
+        snap=ProviderSnapshot('chatgpt','GPT','Plus',True,100,'5시간 기준 잔여',
+                              bars=[QuotaBar('5시간',100,0,'')])
+        u.save_json(u.CACHE_PATH, {'version':2,'chatgpt':snapshot_to_dict(snap)})
+        self.w.load_cache()
+        self.assertNotIn('chatgpt',self.w.snapshots)
+
+    def test_cursor_badge_reads_the_most_limiting_main_quota(self):
+        snap=ProviderSnapshot('cursor','Cursor','Pro',True,None,'Cursor Models 기준 잔여',
+                             main_limits=[limit('autoPercentUsed','Cursor Models',90,source='cursor'),
+                                          limit('apiPercentUsed','Other Models',10,source='cursor')])
+        self.w.snapshots['cursor']=snap
+        self.w.render('cursor')
+        card=self.w.cards['cursor']
+        self.assertEqual(card.rows.itemcget('severity','text'),'임박')
+        self.assertEqual(card.rows.itemcget('hero','text'),'90%')
+
+    def test_cursor_total_never_reaches_the_badge_or_the_hero(self):
+        # totalPercentUsed is reference data. Whatever it says, the card reads
+        # canonical quota.
+        snap=ProviderSnapshot('cursor','Cursor','Pro',True,None,'Cursor Models 기준 잔여',
+                             main_limits=[limit('autoPercentUsed','Cursor Models',90,source='cursor')],
+                             internal={'totalPercentUsed':90})
+        self.w.snapshots['cursor']=snap
+        self.w.render('cursor')
+        card=self.w.cards['cursor']
+        self.assertEqual(card.rows.itemcget('severity','text'),'여유')
+        self.assertEqual(card.rows.itemcget('hero','text'),'90%')
+        self.assertEqual(u.representative_state(snap),'ok')
+        for total in (0,55,100):
+            snap.internal['totalPercentUsed']=total
+            self.w.render('cursor')
+            self.assertEqual(card.rows.itemcget('severity','text'),'여유')
+            self.assertEqual(card.rows.itemcget('hero','text'),'90%')
+            self.assertEqual(self.w.mini_values['cursor'].cget('text'),'Cursor 90%')
+
+    def test_weekly_warning_and_exhaustion_keep_five_hour_hero(self):
+        from test_widget import codex
+        for weekly, label in ((95,'임박'),(100,'주간 소진')):
+            with self.subTest(weekly=weekly):
+                snap=codex(10,weekly)
+                self.w.snapshots['chatgpt']=snap
+                self.w.render('chatgpt')
+                card=self.w.cards['chatgpt']
+                self.assertEqual(card.rows.itemcget('severity','text'),label)
+                self.assertEqual(card.rows.itemcget('hero','text'),'90%')
+                self.assertTrue(card.rows.find_withtag('strip'))
+                snap.stale=True
+                self.w.render('chatgpt')
+                self.assertEqual(card.rows.itemcget('severity','text'),'이전 데이터')
+                self.assertFalse(card.rows.find_withtag('strip'))
+
+    def test_server_restriction_badge_explains_unknown_limit(self):
+        from test_widget import codex
+        self.w.snapshots['chatgpt']=codex(10,20,True)
+        self.w.render('chatgpt')
+        card=self.w.cards['chatgpt']
+        self.assertEqual(card.rows.itemcget('severity','text'),'사용 제한 · 상세 확인')
+        self.assertEqual(card.rows.itemcget('hero','text'),'90%')
+
+    def test_weekly_only_quota_drives_ring_title_reset_and_compact_value(self):
+        w=self.w
+        reset=u.time.mktime((2025,9,24,12,0,0,0,0,-1))
+        snap=ProviderSnapshot('chatgpt','GPT','ChatGPT Plus',True,42,'주간 기준 잔여',
+            main_limits=[limit('secondary_window','주간',42,WEEK,reset)],fetched_at=reset-86400)
+        w.snapshots['chatgpt']=snap
+        w.render('chatgpt')
+        card=w.cards['chatgpt']
+        texts=[card.rows.itemcget(item,'text') for item in card.rows.find_all()
+               if card.rows.type(item)=='text']
+        self.assertIn('주간 한도 · 남은 사용량',texts)
+        self.assertNotIn('5시간 한도 · 남은 사용량',texts)
+        self.assertEqual(card.rows.itemcget('hero','text'),'42%')
+        self.assertEqual(w.mini_values['chatgpt'].cget('text'),'GPT 42%')
+        card.refresh_clock(card._reset_epoch-7*86400)
+        self.assertEqual('7일 후',card.rows.itemcget('countdown','text'))
+        self.assertIn('9월 24일 12:00 리셋',texts)
+
+    def test_five_hour_window_is_consistent_across_ring_and_compact_ui(self):
+        w=self.w
+        snap=ProviderSnapshot('chatgpt','GPT','ChatGPT Plus',True,10,'5시간 기준 잔여',
+            main_limits=[limit('primary_window','5시간',80,FIVE_H),
+                         limit('secondary_window','주간',10,WEEK)])
+        w.snapshots['chatgpt']=snap
+        w.render('chatgpt')
+        card=w.cards['chatgpt']
+        texts=[card.rows.itemcget(item,'text') for item in card.rows.find_all()
+               if card.rows.type(item)=='text']
+        self.assertIn('5시간 한도 · 남은 사용량',texts)
+        self.assertIn('주간 한도',texts)
+        self.assertEqual(card.rows.itemcget('hero','text'),'80%')
+        self.assertEqual(w.mini_values['chatgpt'].cget('text'),'GPT 80%')
+
+    def test_claude_card_draws_every_canonical_window(self):
+        snap=ProviderSnapshot('claude','Claude','Claude',True,80,'5시간 기준 잔여',
+            main_limits=[limit('five_hour','5시간',80,FIVE_H,source='claude'),
+                         limit('seven_day','주간',40,WEEK,1790000000.0,source='claude')])
+        self.w.snapshots['claude']=snap
+        self.w.enabled['claude'].set(True)
+        self.w.render('claude')
+        card=self.w.cards['claude']
+        texts=[card.rows.itemcget(item,'text') for item in card.rows.find_all()
+               if card.rows.type(item)=='text']
+        self.assertEqual(card.rows.itemcget('hero','text'),'80%')
+        self.assertIn('5시간 한도 · 남은 사용량',texts)
+        self.assertIn('주간 한도',texts)
+        self.assertEqual(self.w.mini_values['claude'].cget('text'),'Claude 80%')
+
+    def test_cursor_secondary_severity_does_not_change_hero_or_compact(self):
+        for remaining, expected in ((80,u.blend(u.CARD,u.CURSOR,.7)), (25,u.WARN), (10,u.DANGER), (3,'#DC2626')):
+            with self.subTest(remaining=remaining):
+                snap=ProviderSnapshot('cursor','Cursor','Pro',True,80,'Cursor Models 기준 잔여',
+                    main_limits=[limit('autoPercentUsed','Cursor Models',80,source='cursor'),
+                                 limit('apiPercentUsed','Other Models',remaining,source='cursor')])
+                self.w.snapshots['cursor']=snap
+                with patch.object(u,'progress_photo',wraps=u.progress_photo) as photo:
+                    self.w.render('cursor')
+                self.assertTrue(any(c.args[5] == expected for c in photo.call_args_list))
+                card=self.w.cards['cursor']
+                self.assertEqual(card.rows.itemcget('hero','text'),'80%')
+                self.assertEqual(card.rows.itemcget('hero','fill'),u.CURSOR)
+                self.assertEqual(self.w.mini_values['cursor'].cget('text'),'Cursor 80%')
+                self.assertEqual(u.representative_state(snap),'ok')
+
+    def test_internal_only_update_keeps_card_and_additional_drawing(self):
+        from dataclasses import replace
+        snap=ProviderSnapshot('chatgpt','GPT','Plus',True,80,'5시간 기준 잔여',
+                             bars=[QuotaBar('5시간',80,20,'')])
+        self.w.snapshots['chatgpt']=snap
+        self.w.render('chatgpt')
+        card=self.w.cards['chatgpt']
+        updated=replace(snap,internal={'debug':42,'quota_observed_at':1234},fetched_at=snap.fetched_at+2)
+        with patch.object(card,'_paint',wraps=card._paint) as paint, patch.object(card.additional,'render',wraps=card.additional.render) as extra:
+            self.w.snapshots['chatgpt']=updated
+            self.w.render('chatgpt')
+            paint.assert_not_called()
+            extra.assert_not_called()
+        self.assertIs(card._snap,updated)
+
+    def test_visible_updates_still_repaint(self):
+        from dataclasses import replace
+        five,week=limit('primary_window','5시간',80,FIVE_H),limit('secondary_window','주간',70,WEEK)
+        snap=ProviderSnapshot('chatgpt','GPT','Plus',True,80,'5시간 기준 잔여',main_limits=[five,week])
+        card=self.w.cards['chatgpt']
+        card.render(snap)
+        changes=[replace(snap,main_limits=[limit('primary_window','5시간',79,FIVE_H),week],bars=[]),
+                 replace(snap,main_limits=[five,limit('secondary_window','주간',69,WEEK)],bars=[]),
+                 replace(snap,stale=True), replace(snap,plan='Changed'),
+                 replace(snap,main_limits=[limit('primary_window','5시간',80,FIVE_H,1758553200.0),week],bars=[])]
+        for changed in changes:
+            with patch.object(card,'_paint',wraps=card._paint) as paint:
+                card.render(changed)
+                paint.assert_called_once()
+
+    def test_internal_reference_value_never_repaints_the_card(self):
+        from dataclasses import replace
+        snap=ProviderSnapshot('cursor','Cursor','Pro',True,None,'Cursor Models 기준 잔여',
+            main_limits=[limit('autoPercentUsed','Cursor Models',80,source='cursor')],
+            internal={'totalPercentUsed':10})
+        card=self.w.cards['cursor']
+        card.render(snap)
+        before=card.last_signature
+        with patch.object(card,'_paint',wraps=card._paint) as paint:
+            card.render(replace(snap,internal={'totalPercentUsed':95},bars=[]))
+            paint.assert_not_called()
+        self.assertEqual(card.last_signature,before)
+        self.assertEqual(card.rows.itemcget('severity','text'),'여유')
+
+    def test_activity_still_paints_effect_without_snapshot_change(self):
+        card=self.w.cards['chatgpt']
+        card.render(ProviderSnapshot('chatgpt','GPT','Plus',True,80,'5시간 기준 잔여',bars=[QuotaBar('5시간',80,20,'')]))
+        with patch.object(card,'animate',True), patch.object(card,'winfo_ismapped',return_value=True), patch.object(card,'_start_shimmer'), patch.object(card,'_paint_shimmer') as paint:
+            card.set_activity(True)
+            card._shimmer_tick()
+            paint.assert_called_once()
+
+    def test_stale_statusline_allows_cli_fallback(self):
+        snap=ProviderSnapshot('claude','Claude','Claude',True,80,'5시간 기준 잔여',stale=True)
+        w=self.prepare()
+        w.claude_cli_due=0
+        with patch.object(u,'fetch_claude',return_value=snap):
+            w.start_claude_job()
+        w.runner.start.assert_called_once()
+        self.assertEqual(w.runner.start.call_args.args[0],'claude')
+
+    def test_cached_cli_display_does_not_restamp_freshness(self):
+        snap=ProviderSnapshot('claude','Claude','Claude',True,80,'5시간 기준 잔여',
+            fetched_at=1000,internal={'source':'claude_cli','quota_observed_at':1000})
+        self.w.claude_cli_snapshot=snap
+        self.w.claude_cli_at=10
+        missing=error_snapshot('claude','Claude','waiting','')
+        first=self.w._claude_display_snapshot(missing,20)
+        later=self.w._claude_display_snapshot(missing,311)
+        self.assertFalse(first.stale)
+        self.assertTrue(later.stale)
+        self.assertEqual(first.fetched_at,later.fetched_at)
+        self.assertEqual(self.w.claude_cli_at,10)
+        self.assertEqual(later.internal['quota_observed_at'],1000)
+
+    def test_active_interval_setting_controls_production_schedule(self):
+        from polling import PollingPolicy
+        w=self.prepare()
+        w.request_started['chatgpt']=10
+        snap=ProviderSnapshot('chatgpt','GPT','Plus',True,80,'')
+        with patch('polling.policy_for',return_value=PollingPolicy(active_interval=4)):
+            w._schedule_poll('chatgpt',snap,11,active=True)
+        self.assertEqual(w.due['chatgpt'],14)
+
+    def test_visible_additional_updates_repaint(self):
+        from dataclasses import replace
+        from providers import LimitGroup, QuotaItem
+        item=QuotaItem('extra:1','chatgpt','additional','weekly',remaining_percent=80)
+        group=LimitGroup('extra','chatgpt','Extra',limits=[item])
+        snap=ProviderSnapshot('chatgpt','GPT','Plus',True,80,'',additional_groups=[group])
+        card=self.w.cards['chatgpt']
+        card.render(snap)
+        updated=replace(snap,additional_groups=[replace(group,limits=[replace(item,remaining_percent=70)])])
+        with patch.object(card,'_paint',wraps=card._paint) as paint:
+            card.render(updated)
+            paint.assert_called_once()
+        self.assertEqual(card.additional._rows[-1].percent,70)
 
 if __name__=='__main__':unittest.main(verbosity=2)

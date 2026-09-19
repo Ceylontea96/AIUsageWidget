@@ -25,6 +25,19 @@ class AdditionalRow:
     warn: bool = False
     group_id: str = ""
     quota_id: str = ""
+    stale: bool = False
+
+
+# Expanded height policy, in one place. The card never scrolls as a whole;
+# only this body does, and it never reaches past the monitor's work area.
+MAX_BODY_LOGICAL = 480
+MAX_BODY_WORKAREA_SHARE = 0.5
+
+
+def expanded_body_budget(work_height: int, used_height: int, scale_px) -> int:
+    """Logical cap, halved work area, then whatever the card has left over."""
+    ceiling = min(scale_px(MAX_BODY_LOGICAL), max(1, int(work_height)) * MAX_BODY_WORKAREA_SHARE)
+    return max(0, int(ceiling - int(used_height)))
 
 
 def additional_count(groups) -> int:
@@ -49,9 +62,12 @@ def _reset_stamp(item) -> str:
     return ""
 
 
-def layout_additional(groups) -> list[AdditionalRow]:
+def layout_additional(groups, stale_flags=None) -> list[AdditionalRow]:
+    """Lay out groups generically. Freshness is passed in, never inferred here."""
+    flags = list(stale_flags or [])
     rows: list[AdditionalRow] = []
-    for group in groups or []:
+    for index, group in enumerate(groups or []):
+        stale = bool(flags[index]) if index < len(flags) else False
         limits = list(getattr(group, "limits", None) or [])
         heading = str(getattr(group, "display_name", "") or "").strip()
         group_id = str(getattr(group, "group_id", "") or "")
@@ -61,9 +77,11 @@ def layout_additional(groups) -> list[AdditionalRow]:
             if not heading or heading == window_label:
                 show_heading = False
         if show_heading and heading:
-            rows.append(AdditionalRow("heading", heading, group_id=group_id))
+            label = f"{heading} · 이전 데이터" if stale else heading
+            rows.append(AdditionalRow("heading", label, group_id=group_id, stale=stale))
         if not limits:
-            rows.append(AdditionalRow("window", heading or "추가 한도", group_id=group_id, warn=False))
+            rows.append(AdditionalRow("window", heading or "추가 한도", group_id=group_id,
+                                      warn=False, stale=stale))
             continue
         for item in limits:
             label = str(getattr(item, "window_label", "") or getattr(item, "display_name", "") or "기간 미상")
@@ -78,6 +96,7 @@ def layout_additional(groups) -> list[AdditionalRow]:
                     warn=warn,
                     group_id=group_id,
                     quota_id=str(getattr(item, "quota_id", "") or ""),
+                    stale=stale,
                 )
             )
     return rows
@@ -128,11 +147,11 @@ class AdditionalBlock(tk.Frame):
     def set_metrics(self, metrics):
         self.metrics = metrics
 
-    def render(self, groups, *, expanded: bool, max_body: int, colors: dict):
+    def render(self, groups, *, expanded: bool, max_body: int, colors: dict, stale_flags=None):
         self.groups = list(groups or [])
         self.expanded = bool(expanded) and additional_count(self.groups) > 0
         self.max_body = max(0, int(max_body or 0))
-        self._rows = layout_additional(self.groups)
+        self._rows = layout_additional(self.groups, stale_flags)
         count = additional_count(self.groups)
         bg = colors.get("bg")
         muted = colors.get("muted")
@@ -185,7 +204,11 @@ class AdditionalBlock(tk.Frame):
                 y += m.p(HEADING_H)
                 continue
             color = muted
-            if row.percent is not None and row.percent <= DANGER_AT:
+            if row.stale:
+                # A group's own source being old is shown here and nowhere
+                # else: it never makes the provider's hero look stale.
+                color = dim or muted
+            elif row.percent is not None and row.percent <= DANGER_AT:
                 color = danger
             elif row.warn:
                 color = warn

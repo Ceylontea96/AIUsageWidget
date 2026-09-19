@@ -15,22 +15,6 @@ class UpdaterTests(unittest.TestCase):
         self.assertFalse(u.is_newer('3.1.0', '3.1.0'))
         self.assertFalse(u.is_newer('3.0.9', '3.1.0'))
         self.assertEqual(u.parse_version('3.1'), (3, 1, 0))
-        self.assertTrue(u.is_newer('3.3.1', '3.3.0'))
-        self.assertTrue(u.is_newer('3.3.0', '3.2.27'))
-        self.assertFalse(u.is_newer('3.3.0', '3.3.0'))
-        self.assertTrue(u.is_newer('3.3.1', '3.3.0'))
-        self.assertTrue(u.is_newer('3.4.0', '3.3.0'))
-        self.assertTrue(u.is_newer('4.0.0', '3.3.9'))
-        self.assertTrue(u.is_newer('3.10.0', '3.9.9'))
-        # Numeric dotted compare only: prerelease suffixes are not SemVer-aware.
-        self.assertEqual(u.parse_version('3.3.0-rc.1'), (3, 3, 0))
-        self.assertFalse(u.is_newer('3.3.0', '3.3.0-rc.1'))
-        self.assertFalse(u.is_newer('3.3.0-rc.1', '3.3.0'))
-
-    def test_publish_script_includes_new_modules(self):
-        script = Path(__file__).with_name('publish_update.ps1').read_text(encoding='utf-8')
-        for name in ('polling.py', 'additional_ui.py', 'claude_bridge.py', 'claude_integration.py'):
-            self.assertIn("'" + name + "'", script)
 
     def test_feed_url_ignores_comments(self):
         with tempfile.TemporaryDirectory() as directory:

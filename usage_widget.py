@@ -24,10 +24,30 @@ from dataclasses import replace
 from pathlib import Path
 from tkinter import messagebox, font as tkfont
 
-from additional_ui import AdditionalBlock, additional_count
+from additional_ui import AdditionalBlock, additional_count, expanded_body_budget, layout_additional
 from codex_activity import CodexActivityMonitor, FAST_INTERVAL, LOG
 from cursor_activity import CursorActivityMonitor
-from providers import error_snapshot, fetch_claude, snapshot_from_dict, snapshot_to_dict
+from providers import (
+    dollars,
+    error_snapshot,
+    fetch_claude,
+    fmt_local,
+    snapshot_from_dict,
+    snapshot_to_dict,
+    to_float,
+)
+from quota_policy import (
+    FIVE_HOURS,
+    FIVE_HOUR_TOLERANCE,
+    global_main_limits,
+    group_stale,
+    main_remaining_percents,
+    representative_blocked,
+    representative_percent,
+    select_hero,
+    service_remaining,
+    window_matches,
+)
 from runtime import AlertGate, AuthWatcher, PollRunner, ToastSender, limiting_quota, login_present, login_status, prepare_action, session_locked, start_tool_setup
 from updater import APP_VERSION, CHECK_EVERY, LAUNCHER_EXE, download_and_stage, fetch_latest, load_feed_url, start_apply, update_confirm_text
 
@@ -402,19 +422,36 @@ def create_desktop_shortcut(root=None, desktop=None):
     return desktop / SHORTCUT_NAME
 
 
-def visual_state(snap):
+def _state_for(snap, remaining, blocked):
     if snap.stale:
         return 'stale'
-    remaining = representative_percent(snap)
-    if not snap.ok or representative_blocked(snap) or (remaining is not None and remaining <= DANGER_AT):
+    if not snap.ok or blocked or (remaining is not None and remaining <= DANGER_AT):
         return 'danger'
     if remaining is not None and remaining <= WARN_AT:
         return 'warn'
     return 'ok'
 
 
+def service_state(snap):
+    """Risk channel: the most limiting quota, which may not be the hero.
+
+    Badges, the alert strip and the footer read this, so a quota the hero does
+    not speak for can still raise a warning.
+    """
+    return _state_for(snap, service_remaining(snap), representative_blocked(snap))
+
+
+def representative_state(snap):
+    """Representative channel: the same quota the big number comes from.
+
+    The ring and the compact chip read this, so their colour can never
+    disagree with the percentage printed next to it.
+    """
+    return _state_for(snap, representative_percent(snap), representative_blocked(snap))
+
+
 def color_for(snap):
-    state = visual_state(snap)
+    state = representative_state(snap)
     if state == 'stale':
         return STALE_HERO
     if state == 'warn':
@@ -424,33 +461,10 @@ def color_for(snap):
     return ACCENTS.get(getattr(snap, 'key', ''), CODEX)
 
 
-def strip_color(key, snap):
-    state = visual_state(snap)
-    if state == 'stale':
-        return STALE_STRIP
-    if state == 'warn':
-        return WARN
-    if state == 'danger':
-        return DANGER
-    return ACCENTS.get(key, MUTED)
-
-
-def bar_color(key, remaining, stale):
-    if remaining is None:
-        return TRACK
-    if stale:
-        return ACCENTS.get(key, MUTED)
-    if remaining <= DANGER_AT:
-        return DANGER
-    if remaining <= WARN_AT:
-        return WARN
-    return ACCENTS.get(key, MUTED)
-
-
 def chip_style(key, snap):
     if snap is None:
         return CHIP_STALE, CHIP_FG
-    state = visual_state(snap)
+    state = representative_state(snap)
     if state == 'stale':
         return CHIP_STALE, CHIP_FG
     if state == 'danger':
@@ -524,84 +538,50 @@ def dated_reset_stamp(text):
     return f'{clean} 리셋' if clean else ''
 
 
-def cursor_reset(text):
-    clean = str(text or '').replace(' 초기화', '').replace(' 재설정', '').strip()
-    return f'{clean} 초기화' if clean else ''
+def billing_value(snap, kind):
+    for item in getattr(snap, 'billing', None) or []:
+        if item.kind == kind:
+            return item.raw_value
+    return None
 
 
 def reset_credit(snap):
-    for row in snap.info_rows:
-        if row.label == '추가':
-            for part in row.value.replace(',', '·').split('·'):
-                part = part.strip()
-                if part.startswith('리셋권'):
-                    return part
-    return ''
+    available = to_float(billing_value(snap, 'reset_credits'))
+    return f'리셋권 {available:.0f}' if available else ''
 
 
 def included_amount(snap):
-    for row in snap.info_rows:
-        if row.label == '기본 포함량':
-            return row.value
-    return ''
+    limit = to_float(billing_value(snap, 'limit'))
+    if limit is None:
+        return ''
+    included = to_float(billing_value(snap, 'includedSpend')) or 0.0
+    return f'{dollars(included)} / {dollars(limit)}'
 
 
 def bonus_line(snap):
-    for part in (snap.footer or '').split('·'):
-        part = part.strip()
-        if part.startswith('보너스'):
-            return part
-    return ''
+    bonus = to_float(billing_value(snap, 'bonusSpend'))
+    return f'보너스 {dollars(bonus)}' if bonus else ''
 
 
-def chatgpt_hero_index(snap):
-    if snap is None or snap.key != 'chatgpt':
+def main_limits(snap):
+    """The card's rows: global main quota, in canonical order."""
+    return global_main_limits(snap) if snap is not None and snap.ok else []
+
+
+def hero_index(snap):
+    """Position of the hero within main_limits(snap), for painting only."""
+    hero = select_hero(snap) if snap is not None and snap.ok else None
+    if hero is None:
         return None
-    known = [(index, bar) for index, bar in enumerate(snap.bars)
-             if bar.remaining_percent is not None]
-    for wanted in ('5시간', '주간'):
-        for index, bar in known:
-            if bar.label == wanted:
-                return index
-    return known[0][0] if known else None
+    for index, item in enumerate(main_limits(snap)):
+        if item is hero:
+            return index
+    return None
 
 
-def hero_bar_index(snap):
-    if snap is None or not getattr(snap, 'bars', None):
-        return None
-    if snap.key in ('chatgpt', 'claude'):
-        return chatgpt_hero_index(snap) if snap.key == 'chatgpt' else _named_hero_index(snap, ('5시간', '주간'))
-    if snap.key == 'cursor':
-        for index, bar in enumerate(snap.bars):
-            if bar.label == 'Cursor Models':
-                return index
-        return 0
-    return 0
-
-
-def _named_hero_index(snap, wanted):
-    known = [(index, bar) for index, bar in enumerate(snap.bars)
-             if bar.remaining_percent is not None]
-    for label in wanted:
-        for index, bar in known:
-            if bar.label == label:
-                return index
-    return known[0][0] if known else None
-
-
-def representative_percent(snap):
-    if snap is None:
-        return None
-    index = hero_bar_index(snap)
-    if index is not None:
-        return snap.bars[index].remaining_percent
-    return snap.hero_percent
-
-
-def representative_blocked(snap):
-    # ChatGPT can be blocked by a secondary window. That remains alert-worthy,
-    # but the provider's representative UI state belongs to the Hero window.
-    return bool(snap and snap.blocked and snap.key not in ('chatgpt', 'claude'))
+def status_percent(snap):
+    """Service warnings can differ from the window chosen for the large number."""
+    return service_remaining(snap)
 
 
 def quota_alert_copy(key, severity, remaining, label):
@@ -616,6 +596,32 @@ def quota_window_title(label):
     return f'{label} 한도' if label else '사용량 한도'
 
 
+def quota_row_title(item):
+    """Time-boxed quota reads as a limit; a named pool keeps its own name.
+
+    The distinction is the measured window, not the provider or the label.
+    """
+    name = str(getattr(item, 'display_name', '') or getattr(item, 'window_label', '') or '')
+    if getattr(item, 'window_seconds', None) is None:
+        return name or '남은 사용량'
+    return quota_window_title(name)
+
+
+def quota_extras(snap):
+    parts = []
+    credits = to_float(billing_value(snap, 'credits'))
+    if credits is not None:
+        parts.append(f'크레딧 {credits:g}')
+    reset = reset_credit(snap)
+    if reset:
+        parts.append(reset)
+    return ' · '.join(parts)
+
+
+# How many secondary quota rows the card draws. This is a display budget so a
+# provider that starts reporting many windows cannot push the card off screen;
+# risk detection and alerts still read every one of them.
+MAX_SECONDARY_ROWS = 6
 ACTIVE_HOLD = 60
 # statusLine only runs in terminal Claude Code. When it is silent the widget
 # asks the CLI itself; that costs a process, not tokens, so keep it infrequent.
@@ -624,14 +630,10 @@ CLAUDE_CLI_STALE = 300.0
 
 
 def remaining_marks(snap):
+    """Every global main quota, so risk never misses a later one."""
     if not snap or not snap.ok:
         return []
-    marks = []
-    if snap.hero_percent is not None:
-        marks.append(bar_display_percent(snap.hero_percent))
-    marks.extend(bar_display_percent(bar.remaining_percent) for bar in snap.bars
-                 if bar.remaining_percent is not None)
-    return marks
+    return [bar_display_percent(value) for value in main_remaining_percents(snap)]
 
 
 def usage_dropped(previous, current):
@@ -653,7 +655,7 @@ def next_interval(snap, failures=0, active=False):
         policy,
         ok=bool(snap and snap.ok),
         blocked=bool(snap and getattr(snap, 'blocked', False)),
-        hero_percent=None if not snap else snap.hero_percent,
+        hero_percent=representative_percent(snap),
         main_remaining=remaining_marks(snap) if snap else [],
         failures=int(failures or 0),
         active=bool(active),
@@ -1626,34 +1628,6 @@ class UpdatePill(tk.Canvas):
         self.create_text(w / 2, h / 2, text=self.text, fill=fg, font=self.metrics.font(FONT_PILL))
 
 
-def usage_changes(previous, current):
-    """Return comparable rows and rows whose usage increased."""
-    if (previous is None or not previous.ok or previous.stale or not current.ok or current.stale
-            or previous.key != current.key or previous.plan != current.plan
-            or [bar.label for bar in previous.bars] != [bar.label for bar in current.bars]):
-        return set(), set()
-    before = {bar.label: bar for bar in previous.bars}
-    comparable = set()
-    consumed = set()
-    for index, bar in enumerate(current.bars):
-        old = before.get(bar.label)
-        if old is None or (old.reset_text, old.usage_scope) != (bar.reset_text, bar.usage_scope):
-            continue
-        pairs = ((old.used_percent, bar.used_percent, 1),
-                 (old.remaining_percent, bar.remaining_percent, -1))
-        for old_value, new_value, direction in pairs:
-            if (old_value is None or new_value is None
-                    or not math.isfinite(old_value) or not math.isfinite(new_value)):
-                continue
-            delta = (new_value - old_value) * direction
-            if delta >= -1e-9:
-                comparable.add(index)
-                if delta > 1e-9:
-                    consumed.add(index)
-            break
-    return comparable, consumed
-
-
 class BarShimmer:
     """Thickness and sweep follow activity state, not a fixed hold timer."""
 
@@ -1884,23 +1858,6 @@ def design_severity(value, stale=False, blocked=False):
     return 'ok', '여유', None
 
 
-def reset_epoch(text, reference=None):
-    # Provider reset captions omit the year. Resolve relative to the snapshot,
-    # not today's date, so cached expired resets never jump to next year.
-    found = re.search(r'(\d+)월 (\d+)일 (\d+):(\d+)', text or '')
-    if not found:
-        return None
-    ref = datetime.fromtimestamp(reference or time.time())
-    month, day, hour, minute = map(int, found.groups())
-    candidates = []
-    for year in (ref.year - 1, ref.year, ref.year + 1):
-        try:
-            candidates.append(datetime(year, month, day, hour, minute).timestamp())
-        except ValueError:
-            pass
-    return min(candidates, key=lambda t: abs(t - ref.timestamp())) if candidates else None
-
-
 def reset_countdown(reset, now=None, monthly=False):
     if reset is None:
         return '정보 없음'
@@ -1994,12 +1951,15 @@ class Card(BarShimmer, tk.Frame):
         self.additional.set_metrics(metrics)
 
     def set_additional_layout(self, expanded, max_body):
+        if (self._additional_expanded, self._additional_max_body) == (bool(expanded), max(0, int(max_body or 0))):
+            return
         self._additional_expanded = bool(expanded)
         self._additional_max_body = max(0, int(max_body or 0))
         self._sync_additional()
 
     def _sync_additional(self):
         groups = getattr(self._snap, 'additional_groups', []) if self._snap and self._snap.ok else []
+        stale_flags = [group_stale(group, self._snap) for group in groups]
         colors = {
             'bg': CARD, 'muted': MUTED, 'text': TEXT, 'warn': WARN, 'danger': DANGER,
             'track': TRACK, 'dim': DIM, 'font_meta': FONT_META, 'font_row': FONT_ROW,
@@ -2010,6 +1970,7 @@ class Card(BarShimmer, tk.Frame):
             expanded=self._additional_expanded,
             max_body=self._additional_max_body,
             colors=colors,
+            stale_flags=stale_flags,
         )
         if additional_count(groups):
             if not self.additional.winfo_ismapped():
@@ -2021,16 +1982,33 @@ class Card(BarShimmer, tk.Frame):
         self.configure(width=self.metrics.card_w, height=self.height)
 
     def render(self,snap):
-        visual = snapshot_to_dict(snap)
-        visual.pop('fetched_at',None)
+        visual = {field: getattr(snap, field) for field in (
+            'key', 'title', 'plan', 'ok', 'hero_caption',
+            'footer', 'error', 'dashboard_url', 'stale', 'blocked',
+        )}
+        limits = main_limits(snap)
+        visual['limits'] = [
+            [item.quota_id, item.display_name, item.remaining_percent, item.reset_at]
+            for item in limits
+        ]
+        visual['hero'] = hero_index(snap)
+        visual['hero_percent'] = representative_percent(snap)
+        visual['extras'] = [reset_credit(snap), included_amount(snap), bonus_line(snap)]
+        # Derived from canonical quota only. Nothing in snap.internal reaches
+        # this signature, so reference figures cannot repaint or recolour the
+        # card.
+        visual['service_remaining'] = status_percent(snap)
+        stale_flags = [group_stale(group, snap) for group in (snap.additional_groups or [])]
+        visual['additional'] = [
+            vars(row) for row in layout_additional(snap.additional_groups, stale_flags)
+        ]
         signature = json.dumps(visual,sort_keys=True)
+        self._snap = snap
         if signature == self.last_signature:
             return
         self.last_signature = signature
-        self._snap = snap
-        bars = list(snap.bars) if snap.ok else []
-        targets = [bar_display_percent(bar.remaining_percent) for bar in bars]
-        self._hero_target = bar_display_percent(snap.hero_percent)
+        targets = [bar_display_percent(item.remaining_percent) for item in limits]
+        self._hero_target = bar_display_percent(representative_percent(snap))
         if self.animate and snap.ok and self._shown_pcts and len(self._shown_pcts) == len(targets):
             self._anim_to = targets
             if self._anim_t0 is None:
@@ -2093,15 +2071,16 @@ class Card(BarShimmer, tk.Frame):
         return base + self.metrics.p(4) * self._emphasis
 
     def _hero_value(self):
-        index = hero_bar_index(self._snap)
+        index = hero_index(self._snap)
+        limits = main_limits(self._snap)
         if index is not None and index < len(self._shown_pcts):
-            bar = self._snap.bars[index]
-            return self._shown_pcts[index], index, bar.remaining_percent
-        return self._hero_shown, None, self._snap.hero_percent
+            return self._shown_pcts[index], index, limits[index].remaining_percent
+        return self._hero_shown, None, representative_percent(self._snap)
 
     def _paint_ring(self):
         snap, m = self._snap, self.metrics
         shown, _, actual = self._hero_value()
+        # The ring's colour is read from the same quota as its number.
         _, _, color = design_severity(actual, snap.stale or not snap.ok, representative_blocked(snap))
         color = color or ACCENTS[self.key]
         emphasis = self._emphasis if self.animate and self._shimmer_ready() else 0.0
@@ -2120,16 +2099,16 @@ class Card(BarShimmer, tk.Frame):
             return
         self._paint_ring()
         m = self.metrics
+        limits = main_limits(self._snap)
         for index, origin in enumerate(self._bar_origins):
-            if origin is None:
+            if origin is None or index >= len(limits):
                 continue
-            bar = self._snap.bars[index]
             shown = self._shown_pcts[index]
-            _, _, color = design_severity(bar.remaining_percent, self._snap.stale)
-            color = ACCENTS[self.key] if self.key == 'cursor' else color or ACCENTS[self.key]
+            _, _, color = design_severity(limits[index].remaining_percent, self._snap.stale)
+            color = color or ACCENTS[self.key]
             if self._snap.stale:
                 color = MUTED
-            if self.key == 'cursor' and index > 0:
+            if self.key == 'cursor' and index > 0 and color == ACCENTS[self.key]:
                 color = blend(CARD,color,.7)
             height = self._bar_height_for(index)
             raster = m.bar_h + m.p(4) + 2
@@ -2144,9 +2123,9 @@ class Card(BarShimmer, tk.Frame):
         if self._snap is None or int(now) == self._clock_second:
             return
         self._clock_second = int(now)
-        hero_index = hero_bar_index(self._snap)
-        hero_label = self._snap.bars[hero_index].label if hero_index is not None else ''
-        prefer_days = self.key == 'cursor' or (self.key in ('chatgpt', 'claude') and hero_label != '5시간')
+        # Countdown granularity follows the hero's measured window, not its label.
+        hero = select_hero(self._snap) if self._snap.ok else None
+        prefer_days = hero is None or not window_matches(hero, FIVE_HOURS, FIVE_HOUR_TOLERANCE)
         self.rows.itemconfigure('countdown',text=reset_countdown(self._reset_epoch,now,prefer_days))
         if self._week_epoch is not None:
             days = max(0,int((self._week_epoch-now)//86400))
@@ -2155,19 +2134,23 @@ class Card(BarShimmer, tk.Frame):
     def _paint(self,snap,percents):
         m, c = self.metrics, self.rows
         c.delete('all')
-        bars = list(snap.bars) if snap.ok else []
-        self._bar_origins = [None] * len(bars)
-        self._bar_photos = [None] * (len(bars)+1)
+        limits = main_limits(snap)
+        self._bar_origins = [None] * len(limits)
+        self._bar_photos = [None] * (len(limits)+1)
         self._week_epoch = None
-        primary_index = hero_bar_index(snap)
-        primary = bars[primary_index] if primary_index is not None and primary_index < len(bars) else None
-        reset = primary.reset_text if primary else ''
-        if not reset and self.key == 'cursor':
-            reset = snap.footer.split('·')[0].strip()
-        self._reset_epoch = reset_epoch(reset,snap.fetched_at)
-        hero_actual = representative_percent(snap)
+        primary_index = hero_index(snap)
+        primary = limits[primary_index] if primary_index is not None else None
+        # The hero's reset comes from its own QuotaItem, never from re-reading
+        # a rendered caption or a footer string.
+        self._reset_epoch = primary.reset_at if primary is not None else None
+        reset = fmt_local(self._reset_epoch, 'reset') if self._reset_epoch else ''
         hero_blocked = representative_blocked(snap)
-        _, label, state = design_severity(hero_actual,snap.stale or not snap.ok,hero_blocked)
+        service_percent = status_percent(snap)
+        _, label, state = design_severity(service_percent,snap.stale or not snap.ok,hero_blocked)
+        if hero_blocked and snap.ok and not snap.stale and snap.hero_caption:
+            # blocked is a provider-level semantic state, so its caption is
+            # shown for whichever provider reports it.
+            label = snap.hero_caption
         state = state or ACCENTS[self.key]
         def text(x,y,value,font=FONT_ROW,color=TEXT,anchor='nw',tags=()):
             return c.create_text(m.p(x),m.p(y),text=value,font=m.font(font),fill=color,anchor=anchor,tags=tags)
@@ -2189,47 +2172,51 @@ class Card(BarShimmer, tk.Frame):
         round_rect(c,right-badge_w,m.p(16),right,m.p(38),m.p(11),blend(CARD,state,.15))
         c.create_oval(right-badge_w+m.p(8),m.p(25),right-badge_w+m.p(13),m.p(30),fill=state,outline='')
         c.create_text(right-badge_w+m.p(18),m.p(27),text=label,anchor='w',font=m.font(FONT_BADGE),fill=blend(state,TEXT,.4),tags='severity')
-        if hero_blocked or (hero_actual is not None and hero_actual<20 and not snap.stale):
+        if not snap.stale and (hero_blocked or (service_percent is not None and service_percent<20)):
             c.create_rectangle(0,0,m.card_w,m.p(2),fill=state,outline='',tags='strip')
         c.create_image(m.p(16),m.p(54),anchor='nw',tags='ring')
         c.create_text(m.p(58),m.p(96),text='',font=m.font(FONT_HERO),tags='hero')
-        if primary is not None:
-            hero_title = (quota_window_title(primary.label) + ' · 남은 사용량'
-                          if self.key in ('chatgpt', 'claude') else f'{primary.label} · 남은 사용량')
-        elif self.key in ('chatgpt', 'claude'):
-            hero_title = '사용량 한도 · 남은 사용량'
-        else:
-            hero_title = '남은 사용량'
+        hero_title = (quota_row_title(primary) + ' · 남은 사용량'
+                      if primary is not None else '남은 사용량')
         text(114,64,hero_title,FONT_SERVICE)
         text(114,88,'다음 리셋',FONT_META,MUTED)
         text(172,85,'', (FACE_SEMI,-15),TEXT,tags='countdown')
-        short_reset = self.key in ('chatgpt', 'claude') and primary is not None and primary.label == '5시간'
+        # A five-hour window shows a clock; anything longer shows a date.
+        short_reset = primary is not None and window_matches(primary, FIVE_HOURS, FIVE_HOUR_TOLERANCE)
         text(114,112,reset_stamp(reset) if short_reset else dated_reset_stamp(reset),FONT_META,DIM)
         y = 156
-        for index,bar in enumerate(bars):
+        drawn = 0
+        hidden = 0
+        for index,item in enumerate(limits):
             if index == primary_index:
                 continue
-            text(16,y,quota_window_title(bar.label) if self.key in ('chatgpt', 'claude') else bar.label,FONT_ROW,MUTED)
-            value = bar.remaining_percent
+            if drawn >= MAX_SECONDARY_ROWS:
+                hidden += 1
+                continue
+            drawn += 1
+            text(16,y,quota_row_title(item),FONT_ROW,MUTED)
+            value = item.remaining_percent
             c.create_text(m.card_w-m.p(16),m.p(y),text='—' if value is None else f'{value:.0f}%',font=m.font(FONT_VALUE),fill=TEXT,anchor='ne',tags='bar_value_'+str(index))
             bar_y = m.p(y+23)
             raster = m.bar_h+m.p(4)+2
             self._bar_origins[index] = (m.p(16),bar_y)
             c.create_image(m.p(16),bar_y-(raster-m.bar_h)/2,anchor='nw',tags='bar_'+str(index))
             y += 42
-            if self.key in ('chatgpt', 'claude') and bar.reset_text:
-                text(16,y,bar.label + ' 리셋 ' + dated_reset_stamp(bar.reset_text).removesuffix(' 리셋'),FONT_META,DIM)
-                self._week_epoch = reset_epoch(bar.reset_text,snap.fetched_at)
+            if item.window_seconds is not None and item.reset_at:
+                stamp = fmt_local(item.reset_at, 'reset')
+                text(16,y,item.display_name + ' 리셋 ' + dated_reset_stamp(stamp).removesuffix(' 리셋'),FONT_META,DIM)
+                self._week_epoch = item.reset_at
                 c.create_text(m.card_w-m.p(16),m.p(y),text='',font=m.font(FONT_META),fill=DIM,anchor='ne',tags='week_remaining')
                 y += 22
-        extra_rows = []
-        if snap.ok and self.key=='chatgpt':
-            extra_rows = [row for row in snap.info_rows if row.label=='추가']
-        for row in extra_rows:
-            text(16,y,row.value,FONT_META,MUTED)
+        if hidden:
+            text(16,y,f'그 외 한도 {hidden}개',FONT_META,MUTED)
             y += 24
-        amount = included_amount(snap) if self.key=='cursor' and snap.ok else ''
-        bonus = bonus_line(snap) if self.key=='cursor' and snap.ok else ''
+        extras = quota_extras(snap) if snap.ok else ''
+        if extras:
+            text(16,y,extras,FONT_META,MUTED)
+            y += 24
+        amount = included_amount(snap) if snap.ok else ''
+        bonus = bonus_line(snap) if snap.ok else ''
         if amount or bonus:
             c.create_line(m.p(16),m.p(y),m.card_w-m.p(16),m.p(y),fill=HAIR,dash=(3,3))
             y += 14
@@ -2303,6 +2290,7 @@ class UsageWidget:
         self.last_area = None
         self.snapshots = {}
         self.claude_cli_snapshot = None
+        self.claude_cli_error = None
         self.claude_cli_at = float('-inf')
         self.claude_cli_due = 0.0
         self.additional_open = None
@@ -2444,6 +2432,7 @@ class UsageWidget:
         self.menu.add_command(label='표시할 서비스·로그인...', command=self.pick_services)
         self.menu.add_command(label=claude_menu_label(), command=self._run_claude_menu_action)
         self._claude_menu = self.menu.index('end')
+        self.menu.add_command(label='Claude 로그인...', command=lambda: self._claude_integration_action('claude-login'))
         self._sync_claude_menu()
         for key in FETCHERS:
             self.menu.add_checkbutton(label=TITLES[key] + ' 조회', variable=self.enabled[key], command=lambda k=key: self.toggle_provider(k))
@@ -2672,6 +2661,15 @@ class UsageWidget:
     def _claude_integration_action(self, action):
         from claude_integration import conflict_state, install_statusline, uninstall_statusline
         try:
+            if action == 'claude-login':
+                from claude_integration import start_claude_login
+                start_claude_login()
+                self.enabled['claude'].set(True)
+                self.claude_cli_due = 0.0
+                self.due['claude'] = 0
+                self.persist()
+                self.apply_mode()
+                return
             if action == 'claude-conflict':
                 self.notify(
                     messagebox.showinfo,
@@ -2931,7 +2929,6 @@ class UsageWidget:
             x, y = 40, 80
         work = work_area(x, y)
         monitor = monitor_area(x, y)
-        max_h = min(self.metrics.p(480), max(1, work[3] - work[1]) * 0.5)
         visible = [k for k in FETCHERS if self.enabled[k].get()]
         m = self.metrics
         used = 2 + m.header_h + m.footer_h
@@ -2943,7 +2940,7 @@ class UsageWidget:
             if additional_count(groups):
                 used += m.p(28)
             used += m.card_gap
-        remaining = max(0, int(max_h - used))
+        remaining = expanded_body_budget(work[3] - work[1], used, m.p)
         for key in FETCHERS:
             self.cards[key].set_additional_layout(self.additional_open == key, remaining)
         self.apply_mode()
@@ -3094,7 +3091,8 @@ class UsageWidget:
                 if not isinstance(data, dict) or not data.get('ok'):
                     continue
                 snap = snapshot_from_dict(data)
-                if snap.key != key or snap.hero_percent is None or not 0 <= snap.hero_percent <= 100:
+                restored = representative_percent(snap)
+                if snap.key != key or restored is None or not 0 <= restored <= 100:
                     continue
                 if cache.get('version') != 3:
                     continue
@@ -3104,6 +3102,10 @@ class UsageWidget:
                 continue
 
     def refresh(self):
+        from claude_integration import invalidate_version_cache, claude_ready
+        invalidate_version_cache()
+        if self.enabled['claude'].get():
+            claude_ready(background=True)
         for key in FETCHERS:
             self.due[key] = 0
         self.claude_cli_due = 0.0
@@ -3171,14 +3173,15 @@ class UsageWidget:
                 observed = 0.0
             return (not snap.stale, observed, meta.get('source') == 'claude_statusline')
 
-        return max(candidates, key=rank) if candidates else statusline
+        return max(candidates, key=rank) if candidates else (getattr(self, 'claude_cli_error', None) or statusline)
 
     def _request_fast_poll(self, key, now):
+        from polling import policy_for
         if key in self.runner.slots:
             self.poll_pending[key] = True
             return
         started = self.request_started.get(key, float('-inf'))
-        self.due[key] = min(self.due[key], next_fast_due(started, now))
+        self.due[key] = min(self.due[key], next_fast_due(started, now, policy_for(key).active_interval))
 
     def toggle_provider(self, key):
         self.runner.cancel(key)
@@ -3234,6 +3237,8 @@ class UsageWidget:
     def accept(self, key, snap, *, is_new=False):
         now = time.monotonic()
         if key == 'claude' and is_new:
+            # Retain actionable worker errors between the 2-second cache reads.
+            self.claude_cli_error = None if snap.ok else snap
             # Only an actual successful worker response advances CLI freshness.
             if snap.ok and not snap.stale and (snap.internal or {}).get('source') == 'claude_cli':
                 self.claude_cli_snapshot = snap
@@ -3269,7 +3274,7 @@ class UsageWidget:
             monitor = getattr(self, 'codex_activity', None)
             fast = monitor is not None and monitor.fast(now) and not self.failures[key]
             self._schedule_poll(key, snap, now, active=fast)
-            LOG.debug('[Usage] quota raw/display remaining: %s', [(bar.label, bar.used_percent, bar.remaining_percent, round(bar.remaining_percent) if bar.remaining_percent is not None else None) for bar in snap.bars])
+            LOG.debug('[Usage] quota raw/display remaining: %s', [(item.quota_id, item.used_percent, item.remaining_percent, round(item.remaining_percent) if item.remaining_percent is not None else None) for item in global_main_limits(snap)])
         else:
             monitor = getattr(self, 'cursor_activity', None)
             fast = ((monitor is not None and monitor.fast(now)) or until.get(key, 0) > now) and not self.failures[key]
@@ -3296,8 +3301,9 @@ class UsageWidget:
             self.due[key] = now + next_interval(snap, self.failures[key], False)
             return
         if active:
+            from polling import policy_for
             started = getattr(self, 'request_started', {}).get(key, float('-inf'))
-            self.due[key] = next_fast_due(started, now)
+            self.due[key] = next_fast_due(started, now, policy_for(key).active_interval)
             return
         self.due[key] = now + next_interval(snap, 0, False)
 
@@ -3462,7 +3468,7 @@ class UsageWidget:
             self.set_footer('조회 꺼짐 · 우클릭으로 켜기', MUTED, STALE_STRIP)
         elif self.preview:
             self.set_footer('미리보기 · 실제 계정 조회 없음', MUTED, CODEX)
-        elif any(visual_state(s) == 'danger' for s in enabled_snaps):
+        elif any(service_state(s) == 'danger' for s in enabled_snaps):
             self.set_footer('사용량 소진', MUTED, DANGER)
         elif any(s.stale for s in enabled_snaps):
             self.set_footer('일부 데이터 이전 기준', MUTED, STALE_STRIP)
