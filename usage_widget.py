@@ -622,6 +622,40 @@ def quota_extras(snap):
 # provider that starts reporting many windows cannot push the card off screen;
 # risk detection and alerts still read every one of them.
 MAX_SECONDARY_ROWS = 6
+# Compact row budget. The window controls own a reserved strip on the right
+# that provider chips may never enter, so the row gives up the title before it
+# gives up a provider's name or percentage.
+COMPACT_TITLE_STEPS = (('AI Usage', 76), ('AI', 34), ('', 12))
+COMPACT_CHIP_GAPS = (8, 6, 4)
+COMPACT_CHIP_PAD = 4
+COMPACT_CONTROLS_GAP = 6
+
+
+def compact_row_layout(*, count, chip_width, controls_left, scale_px,
+                       title_steps=COMPACT_TITLE_STEPS, gaps=COMPACT_CHIP_GAPS):
+    """Fit `count` chips between the title and the reserved controls strip.
+
+    Returns (title, start_x, chip_width, gap). The title shrinks first
+    ("AI Usage" then "AI" then nothing) and the gap only afterwards, so a chip
+    keeps its full provider name and percentage for as long as possible.
+    """
+    if count <= 0:
+        return title_steps[0][0], scale_px(title_steps[0][1]), chip_width, scale_px(gaps[0])
+    limit = controls_left - scale_px(COMPACT_CONTROLS_GAP)
+    for title, start in title_steps:
+        origin = scale_px(start)
+        for gap in gaps:
+            step = scale_px(gap)
+            if origin + count * chip_width + step * (count - 1) <= limit:
+                return title, origin, chip_width, step
+    # Nothing fits at the preferred width. Keep the tightest arrangement and
+    # narrow the chips rather than letting them cross into the controls.
+    title, origin = title_steps[-1][0], scale_px(title_steps[-1][1])
+    step = scale_px(gaps[-1])
+    room = limit - origin - step * (count - 1)
+    return title, origin, max(1, room // count), step
+
+
 ACTIVE_HOLD = 60
 # statusLine only runs in terminal Claude Code. When it is silent the widget
 # asks the CLI itself; that costs a process, not tokens, so keep it infrequent.
@@ -1735,6 +1769,7 @@ class Chip(BarShimmer, tk.Canvas):
 
     def __init__(self, parent, metrics=None):
         self.metrics = metrics or Metrics()
+        self._width = None
         super().__init__(parent,width=self.metrics.chip_w,height=self.metrics.chip_canvas_h,highlightthickness=0,bd=0,bg=BG)
         self.text, self.fill, self.fg, self.percent = '—', CHIP_STALE, CHIP_FG, 0.0
         self._photo = None
@@ -1746,9 +1781,21 @@ class Chip(BarShimmer, tk.Canvas):
         self._init_shimmer()
         self._redraw()
 
+    @property
+    def chip_width(self):
+        """Laid-out width, which the compact row sizes to fit its text."""
+        return self._width or self.metrics.chip_w
+
+    def set_width(self, width):
+        width = max(1, int(width or 0)) if width else None
+        if width == self._width:
+            return
+        self._width = width
+        self._redraw()
+
     def set_metrics(self, metrics):
         self.metrics = metrics
-        self.configure(width=metrics.chip_w, height=metrics.chip_canvas_h)
+        self.configure(width=self.chip_width, height=metrics.chip_canvas_h)
         self._redraw()
 
     def cget(self,key):
@@ -1826,7 +1873,7 @@ class Chip(BarShimmer, tk.Canvas):
         return self.fill != CHIP_STALE and self.percent > 0
 
     def _paint_shimmer(self):
-        width, height = self.metrics.chip_w, self.metrics.chip_canvas_h
+        width, height = self.chip_width, self.metrics.chip_canvas_h
         shape_height = self.metrics.chip_h + (height-self.metrics.chip_h) * self._emphasis
         self.fill_width = chip_fill_width(width, self.percent)
         self._photo = progress_photo(width, height, shape_height / 2, self.fill_width,
@@ -1836,7 +1883,7 @@ class Chip(BarShimmer, tk.Canvas):
 
     def _redraw(self):
         self.delete('all')
-        width, height = self.metrics.chip_w, self.metrics.chip_canvas_h
+        width, height = self.chip_width, self.metrics.chip_canvas_h
         shape_height = self.metrics.chip_h + (height-self.metrics.chip_h) * self._emphasis
         self.fill_width = chip_fill_width(width,self.percent)
         # Fill is clipped to the track so the leading cap cannot bulge outside.
@@ -2476,6 +2523,13 @@ class UsageWidget:
     def _keep_widget_topmost(self):
         if self.preview or not self.topmost.get():
             return
+        if self._menu_held:
+            # A context menu is posted. Re-stacking the widget here is what
+            # used to drop the menu behind it, so keep only the topmost style
+            # bit and put the menu back on top instead.
+            keep_topmost_style(self._widget_hwnd(), True)
+            self._raise_open_menus()
+            return
         try:
             self.root.attributes('-topmost', True)
         except tk.TclError:
@@ -2549,12 +2603,15 @@ class UsageWidget:
         threading.Thread(target=lift, daemon=True, name='overlay-z').start()
 
     def _raise_open_menus(self):
+        # winfo_ismapped() is always false for a Tk menu on Windows, where the
+        # popup is a native window, so the id is passed whenever the menu is
+        # held open rather than only when Tk claims it is mapped.
         extra = 0
-        try:
-            if self.menu.winfo_ismapped():
+        if self._menu_held:
+            try:
                 extra = int(self.menu.winfo_id())
-        except (TypeError, ValueError, tk.TclError):
-            extra = 0
+            except (TypeError, ValueError, tk.TclError):
+                extra = 0
         lift_menu_windows(extra)
 
     def _lift_menu(self):
@@ -2614,12 +2671,12 @@ class UsageWidget:
         threading.Thread(target=lift, daemon=True, name='menu-z').start()
 
     def _release_menu(self):
-        try:
-            if self.menu.winfo_ismapped():
-                self.root.after(50, self._release_menu)
-                return
-        except tk.TclError:
-            pass
+        """Clear the held state however the menu was dismissed.
+
+        tk_popup only returns once the popup has gone, so reaching here means
+        the menu is closed: by a command, a click outside, Escape, another
+        window taking focus, or shutdown. The state must never survive it.
+        """
         if self._menu_held:
             self._menu_held = False
             if not self._overlay and not self.closing:
@@ -2863,7 +2920,7 @@ class UsageWidget:
             else:
                 btn.configure(font=fallback_font)
             btn.place(x=m.window_w-m.p(90) + m.p(28) * index, y=m.p(8), width=m.icon, height=m.icon)
-        self.mini_title.place(x=m.p(12), y=0, height=max(1, m.compact_h - 2))
+        # The compact row places the title itself; apply_mode owns that slot.
         for index, btn in enumerate(self.mini_buttons):
             if isinstance(btn, IconButton):
                 btn.set_size(m.icon)
@@ -2953,6 +3010,23 @@ class UsageWidget:
         self.root.geometry(geometry_at(x, y))
         self.apply_topmost()
 
+    def compact_row(self, visible=None):
+        """Title, chip origin, chip width and gap for the compact row."""
+        m = self.metrics
+        if visible is None:
+            visible = [k for k in FETCHERS if self.enabled[k].get()]
+        needed = m.chip_w
+        try:
+            font = tkfont.Font(root=self.root, font=m.font(FONT_CHIP))
+            for key in visible:
+                # 100% is the widest value a chip ever shows.
+                needed = max(needed, font.measure(f'{TITLES[key]} 100%') + 2 * m.p(COMPACT_CHIP_PAD))
+        except tk.TclError:
+            pass
+        controls_left = m.window_w - m.p(90)
+        return compact_row_layout(count=len(visible), chip_width=needed,
+                                  controls_left=controls_left, scale_px=m.p)
+
     def apply_mode(self):
         m = self.metrics
         visible = [k for k in FETCHERS if self.enabled[k].get()]
@@ -2974,15 +3048,24 @@ class UsageWidget:
                 card.pack(fill='x',pady=(0,0))
         shown = 0
         mini_h = max(1, m.compact_h - 2)
+        title, origin, chip_w, gap = self.compact_row(visible)
+        self._compact_row = (title, origin, chip_w, gap)
         for key in FETCHERS:
             chip = self.mini_values[key]
             if key in visible:
-                chip.place(x=m.p(76)+m.p(88)*shown,
+                chip.set_width(chip_w)
+                chip.place(x=origin+(chip_w+gap)*shown,
                            y=(mini_h-m.chip_canvas_h)//2,
-                           width=m.chip_w,height=m.chip_canvas_h)
+                           width=chip_w,height=m.chip_canvas_h)
                 shown += 1
             else:
+                # A disabled provider gives its space back to the others.
                 chip.place_forget()
+        self.mini_title.configure(text=title)
+        if title:
+            self.mini_title.place(x=m.p(12), y=0, height=mini_h)
+        else:
+            self.mini_title.place_forget()
         self.shell.configure(width=m.window_w,height=height)
         if self.compact:
             self.mini.place(x=1,y=1,width=m.window_w-2,height=max(1, m.compact_h-2),bordermode='outside')
@@ -3503,14 +3586,19 @@ class UsageWidget:
             self.update_pill.hide()
         # Compact row: the pill takes the title slot so it never collides with chips or buttons.
         mini_h = max(1, m.compact_h - 2)
-        if pending and self.compact:
+        title, origin, _, _ = getattr(self, '_compact_row', None) or self.compact_row()
+        if pending and self.compact and origin > m.p(12):
             x = m.p(12)
-            width = self.mini_pill.show(mini_labels, ready, m.p(76) - m.p(6) - x, hint)
+            width = self.mini_pill.show(mini_labels, ready, origin - m.p(6) - x, hint)
             self.mini_title.place_forget()
             self.mini_pill.place(x=x, y=(mini_h - m.pill_h) // 2, width=width, height=m.pill_h)
         else:
             self.mini_pill.hide()
-            self.mini_title.place(x=m.p(12), y=0, height=mini_h)
+            self.mini_title.configure(text=title)
+            if title:
+                self.mini_title.place(x=m.p(12), y=0, height=mini_h)
+            else:
+                self.mini_title.place_forget()
         label = f"업데이트 {version}" if ready else '업데이트'
         try:
             self.menu.entryconfig(self._update_menu, label=label, state=('normal' if ready else 'disabled'))
