@@ -2,16 +2,37 @@ import unittest
 from datetime import datetime
 from dataclasses import replace
 import usage_widget as u
-from providers import ProviderSnapshot, QuotaBar
+import quota_policy as qp
+from providers import BillingItem, ProviderSnapshot, QuotaItem
+
+FIVE_H = 18000.0
+WEEK = 604800.0
+
+
+def quota(raw_id, name, remaining, window=None, reset_at=None, source='chatgpt'):
+    """Canonical quota fixture: meaning comes from fields, never from `name`."""
+    return QuotaItem(f'{source}:main:{raw_id}', source, 'main', name, raw_identifier=raw_id,
+                     window_seconds=window, window_label=name, used_percent=100 - remaining,
+                     remaining_percent=remaining, reset_at=reset_at, scope='global')
 
 class RefinedTests(unittest.TestCase):
-    def test_reset_year_boundary_and_expiration(self):
-        ref=datetime(2026,12,31,12).timestamp()
-        end=u.reset_epoch('1월 1일 09:00',ref)
-        self.assertEqual(datetime.fromtimestamp(end).year,2027)
+    def test_reset_crosses_the_year_boundary_and_expires(self):
+        # 3.5 carries reset_at as an epoch straight from the provider, so the
+        # year is never inferred from a rendered caption. The countdown
+        # behaviour that inference existed to serve still holds.
+        end=datetime(2027,1,1,9).timestamp()
         self.assertEqual(u.reset_countdown(end,end+1),'곧')
-        self.assertIsNone(u.reset_epoch('unknown',ref))
-        self.assertIsNone(u.reset_epoch('2월 31일 09:00',ref))
+        root=u.tk.Tk(); root.withdraw()
+        try:
+            card=u.Card(root,'chatgpt')
+            card.render(ProviderSnapshot('chatgpt','GPT','Plus',True,None,'',
+                main_limits=[quota('primary_window','5시간',80,FIVE_H,end)],
+                fetched_at=datetime(2026,12,31,12).timestamp()))
+            self.assertEqual(card._reset_epoch,end)
+            card.refresh_clock(end+1)
+            self.assertEqual(card.rows.itemcget('countdown','text'),'곧')
+            card.destroy()
+        finally: root.destroy()
     def test_countdown_and_severity_boundaries(self):
         self.assertEqual(u.reset_countdown(3600,0),'1시간 0분')
         self.assertEqual(u.reset_countdown(65,0),'1분 05초')
@@ -24,11 +45,16 @@ class RefinedTests(unittest.TestCase):
         root=u.tk.Tk(); root.withdraw()
         try:
             card=u.Card(root,'chatgpt')
-            snap=ProviderSnapshot('chatgpt','GPT','Plus',True,4,'',bars=[QuotaBar('5시간',91,9,''),QuotaBar('주간',4,96,'')])
+            snap=ProviderSnapshot('chatgpt','GPT','Plus',True,None,'',
+                main_limits=[quota('primary_window','5시간',91,FIVE_H),
+                             quota('secondary_window','주간',4,WEEK)])
             card.render(snap)
             self.assertEqual(card.rows.itemcget('hero','text'),'91%')
             self.assertIn('5시간 한도 · 남은 사용량',[card.rows.itemcget(i,'text') for i in card.rows.find_all() if card.rows.type(i)=='text'])
-            self.assertEqual(card.rows.itemcget('severity','text'),'여유')
+            # The hero stays calm; the badge is the channel that reports the
+            # weekly window, and it does so independently.
+            self.assertEqual(u.representative_state(snap),'ok')
+            self.assertEqual(card.rows.itemcget('severity','text'),'곧 한도')
             self.assertFalse(card.rows.find_withtag('bar_0'))
             self.assertTrue(card.rows.find_withtag('bar_1'))
             for scale in (.75,1,1.5):
@@ -41,35 +67,51 @@ class RefinedTests(unittest.TestCase):
             card.destroy()
         finally: root.destroy()
 
-    def test_representative_state_ignores_secondary_quota(self):
+    def test_representative_state_ignores_a_secondary_quotas_percentage(self):
+        # A low secondary window moves the risk channel, never the hero's own
+        # number or colour. A provider-wide block is a different signal, and
+        # 3.5 lets it through for every provider rather than for a hardcoded
+        # list of provider names.
         cases = [
-            (100, 13, 'ok', u.CHIP_OK['chatgpt']),
-            (5, 80, 'danger', u.CHIP_DANGER),
-            (100, 0, 'ok', u.CHIP_OK['chatgpt']),
-            (0, 80, 'danger', u.CHIP_DANGER),
+            (100, 13, False, 'ok', 'danger', u.CHIP_OK['chatgpt']),
+            (100, 3, False, 'ok', 'danger', u.CHIP_OK['chatgpt']),
+            (5, 80, False, 'danger', 'danger', u.CHIP_DANGER),
+            (100, 0, True, 'danger', 'danger', u.CHIP_DANGER),
+            (0, 80, True, 'danger', 'danger', u.CHIP_DANGER),
         ]
-        for hero, secondary, expected, compact_color in cases:
+        for hero, secondary, blocked, representative, service, compact in cases:
             with self.subTest(hero=hero, secondary=secondary):
-                snap=ProviderSnapshot('chatgpt','GPT','Plus',True,hero,'',
-                    bars=[QuotaBar('5시간',hero,100-hero,''),QuotaBar('주간',secondary,100-secondary,'')],
-                    blocked=secondary == 0 or hero == 0)
+                snap=ProviderSnapshot('chatgpt','GPT','Plus',True,None,'',
+                    main_limits=[quota('primary_window','5시간',hero,FIVE_H),
+                                 quota('secondary_window','주간',secondary,WEEK)],
+                    blocked=blocked)
                 self.assertEqual(u.representative_percent(snap),hero)
-                self.assertEqual(u.visual_state(snap),expected)
-                self.assertEqual(u.chip_style('chatgpt',snap)[0],compact_color)
+                self.assertEqual(u.representative_state(snap),representative)
+                self.assertEqual(u.service_state(snap),service)
+                self.assertEqual(u.chip_style('chatgpt',snap)[0],compact)
 
-    def test_secondary_alert_names_quota_without_changing_hero_state(self):
-        snap=ProviderSnapshot('chatgpt','GPT','Plus',True,100,'5시간 기준 잔여',
-            bars=[QuotaBar('5시간',100,0,''),QuotaBar('주간',0,100,'')],blocked=True)
-        self.assertEqual(u.visual_state(snap),'ok')
-        self.assertEqual(u.quota_alert_copy('chatgpt',2,0,'주간'),
+    def test_secondary_alert_names_the_quota_that_is_running_out(self):
+        snap=ProviderSnapshot('chatgpt','GPT','Plus',True,None,'5시간 기준 잔여',
+            main_limits=[quota('primary_window','5시간',100,FIVE_H),
+                         quota('secondary_window','주간',2,WEEK)])
+        # The hero is untouched while the alert points at the weekly window.
+        self.assertEqual(u.representative_percent(snap),100)
+        self.assertEqual(u.representative_state(snap),'ok')
+        limiting=qp.limiting_quota(snap)
+        self.assertEqual(limiting.raw_identifier,'secondary_window')
+        self.assertEqual(u.quota_alert_copy('chatgpt',2,0,limiting.display_name),
                          ('ChatGPT 주간 한도 소진','주간 한도 · 잔여 0%'))
     def test_cursor_bonus_is_spend_not_remaining(self):
         root=u.tk.Tk(); root.withdraw()
         try:
             card=u.Card(root,'cursor')
-            card.render(ProviderSnapshot('cursor','Cursor','Pro',True,27,'',
-                bars=[QuotaBar('Cursor Models',72,28,'','9월 28일 11:27'),QuotaBar('Other Models',82,18,'','9월 28일 11:27')],
-                info_rows=[], footer='9월 28일 11:27 초기화 · 보너스 $340.87'))
+            # Billing arrives as a BillingItem, never as a phrase parsed back
+            # out of the footer, and it never becomes quota.
+            card.render(ProviderSnapshot('cursor','Cursor','Pro',True,None,'',
+                main_limits=[quota('autoPercentUsed','Cursor Models',72,reset_at=1790000000.0,source='cursor'),
+                             quota('apiPercentUsed','Other Models',82,reset_at=1790000000.0,source='cursor')],
+                billing=[BillingItem('cursor:billing:bonusSpend','cursor','bonusSpend',34087)],
+                info_rows=[], footer=''))
             texts=[card.rows.itemcget(i,'text') for i in card.rows.find_all() if card.rows.type(i)=='text']
             self.assertIn('◇ 보너스 사용액',texts)
             self.assertIn('$340.87',texts)

@@ -14,15 +14,27 @@ from runtime import limiting_quota
 
 class QuotaModelTests(unittest.TestCase):
     def test_legacy_snapshot_builds_canonical_main_limits(self):
-        snap = p.ProviderSnapshot(
-            'chatgpt', 'GPT', 'Plus', True, 80, '',
-            bars=[p.QuotaBar('5시간', 80, 20, '', '', '[null, 18000]')],
-        )
-        self.assertEqual(len(snap.main_limits), 1)
-        item = snap.main_limits[0]
-        self.assertEqual(item.quota_id, 'chatgpt:main:window:18000')
-        self.assertEqual(item.window_seconds, 18000)
-        self.assertEqual(item.display_name, '5시간')
+        # Restoring a 3.4.x cache must produce identity that is deterministic,
+        # stable across restarts and free of collisions. The exact id string is
+        # an implementation detail; those four properties are the contract.
+        def restore():
+            return p.ProviderSnapshot(
+                'chatgpt', 'GPT', 'Plus', True, 80, '',
+                bars=[p.QuotaBar('5시간', 80, 20, '', '', '[null, 18000]'),
+                      p.QuotaBar('5시간', 40, 60, '', '', '[null, 18000]')],
+            )
+
+        snap = restore()
+        self.assertEqual(len(snap.main_limits), 2)
+        first, second = snap.main_limits
+        self.assertEqual(first.window_seconds, 18000)
+        self.assertEqual(first.display_name, '5시간')
+        # Two windows of the same length keep separate identities.
+        self.assertNotEqual(first.quota_id, second.quota_id)
+        # Identity never embeds the display name, and repeats exactly.
+        self.assertNotIn('5시간', first.quota_id)
+        self.assertEqual([item.quota_id for item in restore().main_limits],
+                         [item.quota_id for item in snap.main_limits])
 
     def test_new_snapshot_builds_legacy_bars(self):
         item = p.QuotaItem(
@@ -247,7 +259,7 @@ class CursorMappingTests(unittest.TestCase):
         marks = u.remaining_marks(snap)
         self.assertNotIn(1.0, marks)
         self.assertNotIn(99.0, marks)
-        self.assertEqual(u.hero_bar_index(snap), 0)
+        self.assertEqual(u.hero_index(snap), 0)
         self.assertEqual(u.representative_percent(snap), 90.0)
 
     def test_billing_items_stay_generic(self):

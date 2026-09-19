@@ -156,7 +156,10 @@ class AdditionalRendererTests(unittest.TestCase):
             bars=[p.QuotaBar('5시간', 90, 10, ''), p.QuotaBar('주간', 80, 20, '')],
             additional_groups=groups,
         )
-        self.assertEqual(u.visual_state(snap), 'ok')
+        # A scoped warning reaches neither the representative channel nor
+        # the risk channel; it is only visible inside the Additional block.
+        self.assertEqual(u.representative_state(snap), 'ok')
+        self.assertEqual(u.service_state(snap), 'ok')
         self.assertEqual(u.representative_percent(snap), 90)
         self.assertTrue(any(row.warn for row in a.layout_additional(groups)))
 

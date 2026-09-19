@@ -15,7 +15,10 @@ class ReleasePolicyTests(unittest.TestCase):
 
     def run_policy(self, command, accepted):
         script = "$ErrorActionPreference='Stop'; . '" + self.policy + "'; try { " + command + "; 'ACCEPT' } catch { 'REJECT: ' + $_.Exception.Message; exit 7 }"
-        result = subprocess.run([self.shell, "-NoProfile", "-NonInteractive", "-Command", script],
+        # Bypass keeps the guard testable on a machine whose default
+        # execution policy would refuse to dot-source a local script.
+        result = subprocess.run([self.shell, "-NoProfile", "-NonInteractive",
+                                 "-ExecutionPolicy", "Bypass", "-Command", script],
                                 capture_output=True, encoding="utf-8", errors="replace", timeout=30)
         self.assertEqual(result.returncode, 0 if accepted else 7, result.stdout + result.stderr)
         self.assertIn("ACCEPT" if accepted else "REJECT:", result.stdout)
@@ -64,12 +67,17 @@ class ReleasePolicyTests(unittest.TestCase):
                         "Assert-PublishAllowed -Version '3.4.1' -GitHubExecutable Fake-Gh -Repository 'owner/repo'", False)
 
     def test_publish_guard_precedes_build_and_has_no_overwrite_path(self):
+        # publish_update.ps1 carries its own copy of the guard rather than
+        # dot-sourcing release_policy.ps1, so assert on the call it actually
+        # makes. What matters is unchanged: the version is verified before
+        # anything is built, and there is no path that overwrites a release.
         script = Path(__file__).with_name("publish_update.ps1").read_text(encoding="utf-8-sig")
-        self.assertLess(script.index("Assert-PublishAllowed -Version"), script.index("'build_launcher.ps1'"))
+        self.assertLess(script.index("Assert-NewReleaseVersion -Version"), script.index("'build_launcher.ps1'"))
         self.assertNotIn("--clobber", script)
         self.assertNotIn("release upload", script)
         self.assertNotIn("release edit", script)
         self.assertIn("release create", script)
+        self.assertIn("already exists; artifacts will not be overwritten", script)
 
 
 if __name__ == "__main__":

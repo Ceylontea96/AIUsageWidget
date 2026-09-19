@@ -3,52 +3,81 @@ from dataclasses import replace
 from unittest.mock import patch
 
 import usage_widget as u
-from providers import ProviderSnapshot, QuotaBar, snapshot_to_dict, snapshot_from_dict
+from providers import ProviderSnapshot, QuotaBar, QuotaItem, snapshot_to_dict, snapshot_from_dict
+
+FIVE_H = 18000.0
+WEEK = 604800.0
+
+
+def quota(raw_id, name, remaining, window):
+    return QuotaItem(f'chatgpt:main:{raw_id}', 'chatgpt', 'main', name, raw_identifier=raw_id,
+                     window_seconds=window, window_label=name,
+                     used_percent=None if remaining is None else 100 - remaining,
+                     remaining_percent=remaining, scope='global')
 
 
 def snapshot(first=60, second=70, **kwargs):
-    return ProviderSnapshot('chatgpt', 'Codex', 'Plus', True, min(first, second), '',
-                            bars=[QuotaBar('5시간', first, 100-first, '', '09/14', 'window-a'),
-                                  QuotaBar('주간', second, 100-second, '', '09/20', 'window-b')], **kwargs)
+    """Canonical two-window snapshot; identity comes from the raw window keys."""
+    kwargs.setdefault('main_limits', [quota('primary_window', '5시간', first, FIVE_H),
+                                      quota('secondary_window', '주간', second, WEEK)])
+    return ProviderSnapshot('chatgpt', 'Codex', 'Plus', True, min(first, second), '', **kwargs)
 
 
-class UsageChangeTests(unittest.TestCase):
-    def test_only_changed_row_including_sub_display_precision(self):
-        self.assertEqual(u.usage_changes(snapshot(), snapshot(59.999)), ({0, 1}, {0}))
-        self.assertEqual(u.usage_changes(snapshot(), snapshot()), ({0, 1}, set()))
+class UsageActivityTests(unittest.TestCase):
+    """`usage_dropped` is what drives the activity hold in 3.5.
 
-    def test_initial_error_recovery_stale_and_plan_do_not_trigger(self):
-        for previous in (None, snapshot(stale=True), replace(snapshot(), ok=False), replace(snapshot(), plan='Pro')):
-            self.assertEqual(u.usage_changes(previous, snapshot(50)), (set(), set()))
-        for current in (snapshot(50, stale=True), replace(snapshot(50), ok=False)):
-            self.assertEqual(u.usage_changes(snapshot(), current), (set(), set()))
+    It replaced the per-row `usage_changes` helper, which 3.5 removed once it
+    had no production caller. These cases carry that helper's contract over to
+    the surviving one, reading canonical quota instead of legacy bars.
+    """
 
-    def test_reset_limit_change_and_increase_establish_baseline(self):
-        for field in ('reset_text', 'usage_scope'):
-            current = snapshot(50)
-            setattr(current.bars[0], field, 'new-period-or-limit')
-            self.assertEqual(u.usage_changes(snapshot(), current), ({1}, set()))
-        self.assertEqual(u.usage_changes(snapshot(), snapshot(80)), ({1}, set()))
+    def test_a_drop_beyond_display_precision_counts_as_usage(self):
+        self.assertTrue(u.usage_dropped(snapshot(), snapshot(59.5)))
+        self.assertFalse(u.usage_dropped(snapshot(), snapshot()))
 
-    def test_used_percent_still_detects_after_remaining_is_clipped(self):
-        previous, current = snapshot(0), snapshot(0)
-        previous.bars[0].used_percent = 105
-        current.bars[0].used_percent = 106
-        self.assertEqual(u.usage_changes(previous, current)[1], {0})
+    def test_a_sub_display_drop_is_ignored(self):
+        self.assertFalse(u.usage_dropped(snapshot(), snapshot(59.9)))
+
+    def test_any_window_dropping_counts_not_only_the_hero(self):
+        self.assertTrue(u.usage_dropped(snapshot(), snapshot(60, 69)))
+
+    def test_first_snapshot_and_failures_do_not_trigger(self):
+        for previous in (None, replace(snapshot(), ok=False)):
+            self.assertFalse(u.usage_dropped(previous, snapshot(50)))
+        self.assertFalse(u.usage_dropped(snapshot(), replace(snapshot(50), ok=False, main_limits=[])))
+
+    def test_a_refill_or_a_changed_quota_count_establishes_a_baseline(self):
+        self.assertFalse(u.usage_dropped(snapshot(), snapshot(80)))
+        fewer = ProviderSnapshot('chatgpt', 'Codex', 'Plus', True, 50, '',
+                                 main_limits=[quota('primary_window', '5시간', 50, FIVE_H)])
+        self.assertFalse(u.usage_dropped(snapshot(), fewer))
+        self.assertFalse(u.usage_dropped(fewer, snapshot()))
+
+    def test_unmeasured_quota_never_looks_like_usage(self):
+        for value in (None, float('nan'), float('inf')):
+            missing = ProviderSnapshot('chatgpt', 'Codex', 'Plus', True, None, '',
+                                       main_limits=[quota('primary_window', '5시간', value, FIVE_H),
+                                                    quota('secondary_window', '주간', 70, WEEK)])
+            self.assertFalse(u.usage_dropped(snapshot(), missing))
+            self.assertFalse(u.usage_dropped(missing, snapshot()))
+
+    def test_scoped_quota_cannot_fake_provider_activity(self):
+        from providers import LimitGroup
+        scoped = QuotaItem('chatgpt:additional:g:w', 'chatgpt', 'additional', '5시간',
+                           raw_identifier='w', window_seconds=FIVE_H, used_percent=99,
+                           remaining_percent=1, scope='scoped')
+        group = LimitGroup('chatgpt:additional:g', 'chatgpt', 'Spark', limits=[scoped])
+        self.assertFalse(u.usage_dropped(snapshot(), replace(snapshot(), additional_groups=[group])))
 
     def test_scope_survives_worker_and_cache_serialization(self):
-        sample = snapshot()
+        sample = ProviderSnapshot('chatgpt', 'Codex', 'Plus', True, 60, '',
+                                  bars=[QuotaBar('5시간', 60, 40, '', '09/14', 'window-a'),
+                                        QuotaBar('주간', 70, 30, '', '09/20', 'window-b')])
         self.assertEqual(snapshot_from_dict(snapshot_to_dict(sample)).bars, sample.bars)
         legacy = snapshot_to_dict(sample)
         for bar in legacy['bars']:
             del bar['usage_scope']
         self.assertEqual(snapshot_from_dict(legacy).bars[0].usage_scope, '')
-
-    def test_missing_and_invalid_values_do_not_look_like_usage(self):
-        for value in (None, float('nan'), float('inf')):
-            current = snapshot()
-            current.bars[0].used_percent = current.bars[0].remaining_percent = value
-            self.assertEqual(u.usage_changes(snapshot(), current), ({1}, set()))
 
 
 class ShimmerRasterTests(unittest.TestCase):
