@@ -947,8 +947,13 @@ def load_icon(name, scale):
     return tk.PhotoImage(data=path.read_bytes(), format='png') if path.is_file() else None
 
 
+# Provider key -> icon asset stem. The renderer stays generic: a provider
+# without an entry simply draws no icon, it is not special-cased anywhere.
+SERVICE_ICONS = {'chatgpt': 'service_gpt', 'cursor': 'service_cursor'}
+
+
 def load_service_icon(key, scale):
-    name = {'chatgpt': 'service_gpt', 'cursor': 'service_cursor'}.get(key)
+    name = SERVICE_ICONS.get(key)
     if not name:
         return None
     suffix = '@2x'

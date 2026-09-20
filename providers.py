@@ -276,6 +276,46 @@ def to_float(value: Any) -> float | None:
         return None
 
 
+# QuotaItem.reset_at is an absolute Unix timestamp in SECONDS for every
+# provider. Cursor is the one source that reports its billing cycle in
+# milliseconds, so it is normalized here rather than anywhere downstream.
+MS_EPOCH_CUTOFF = 10_000_000_000.0   # seconds past this would be year 2286
+MS_EPOCH_SOURCES = frozenset({"cursor"})
+
+
+def normalize_epoch_seconds(value: Any) -> float | None:
+    """Read an absolute epoch as seconds, accepting a millisecond stamp.
+
+    Integers, floats and numeric strings are accepted; booleans, None,
+    non-numeric text and non-finite numbers are rejected rather than guessed
+    at. A value too large to be seconds is treated as milliseconds. Nothing is
+    clamped: an implausible timestamp stays implausible so the source of it
+    can be found, instead of being hidden behind "정보 없음".
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+    number = to_float(value)
+    if number is None:
+        return None
+    return number / 1000.0 if abs(number) > MS_EPOCH_CUTOFF else number
+
+
+def epoch_for_source(source: Any, value: Any) -> float | None:
+    """Normalize a provider's reset stamp, knowing which ones send millis.
+
+    Deliberately not applied to every timestamp: GPT and Claude already report
+    seconds, and dividing an unknown provider's value would be the same kind
+    of guess this function exists to avoid.
+    """
+    if str(source or "").strip().lower() in MS_EPOCH_SOURCES:
+        return normalize_epoch_seconds(value)
+    return to_float(value)
+
+
 def to_int(value: Any) -> int | None:
     number = to_float(value)
     return None if number is None else int(number)
@@ -333,6 +373,7 @@ def quota_item_from_bar(source: str, bar: QuotaBar, index: int = 0) -> QuotaItem
     across restarts, never from its label. Live fetches never take this path.
     """
     reset_at, seconds = _legacy_scope_parts(bar.usage_scope)
+    reset_at = epoch_for_source(source, reset_at)
     seconds = seconds if seconds is not None and seconds > 0 else None
     raw = f"legacy[{int(index)}]"
     return QuotaItem(
@@ -427,7 +468,8 @@ def _quota_item_from_dict(raw: Any) -> QuotaItem | None:
         window_label=str(raw.get("window_label") or ""),
         used_percent=to_float(raw.get("used_percent")),
         remaining_percent=to_float(raw.get("remaining_percent")),
-        reset_at=to_float(raw.get("reset_at")),
+        # A cache written before 3.5.2 can still hold Cursor's milliseconds.
+        reset_at=epoch_for_source(raw.get("source"), raw.get("reset_at")),
         model_name=str(raw.get("model_name") or ""),
         scope=str(raw.get("scope") or "global"),
         metadata=dict(metadata) if isinstance(metadata, dict) else {},
@@ -773,7 +815,8 @@ def fetch_cursor() -> ProviderSnapshot:
     # never becomes quota: no hero, badge, alert, poll interval or history
     # reads it.
     total_used = to_float(plan_usage.get("totalPercentUsed"))
-    reset_at = to_float(usage.get("billingCycleEnd"))
+    # billingCycleEnd arrives as a 13-digit millisecond string.
+    reset_at = normalize_epoch_seconds(usage.get("billingCycleEnd"))
     reset_text = fmt_local(reset_at, "reset")
     pools = (
         ("autoPercentUsed", "Cursor Models", auto_used),

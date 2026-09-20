@@ -11,13 +11,20 @@ $csc = @(
 ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not $csc) { throw '.NET Framework csc.exe 를 찾지 못했습니다.' }
 
+$icon = (Join-Path $here 'assets\icons\app.ico')
+if (-not (Test-Path -LiteralPath $icon)) {
+    # Failing loudly beats shipping an executable with the generic .NET icon.
+    throw "assets\icons\app.ico 를 찾지 못했습니다: $icon"
+}
+$icon = (Get-Item -LiteralPath $icon).FullName
+
 $winDir = $env:WINDIR
 $forms = Join-Path $winDir 'Microsoft.NET\Framework64\v4.0.30319\System.Windows.Forms.dll'
 if (-not (Test-Path -LiteralPath $forms)) {
     $forms = Join-Path $winDir 'Microsoft.NET\Framework\v4.0.30319\System.Windows.Forms.dll'
 }
 
-& $csc /nologo /target:winexe /platform:anycpu /optimize+ /codepage:65001 "/out:$out" "/reference:$forms" $source
+& $csc /nologo /target:winexe /platform:anycpu /optimize+ /codepage:65001 "/out:$out" "/win32icon:$icon" "/reference:$forms" $source
 if ($LASTEXITCODE -ne 0) { throw "launcher build failed ($LASTEXITCODE)" }
 if (-not (Test-Path -LiteralPath $out)) { throw 'AI Usage.exe 가 만들어지지 않았습니다.' }
 Write-Host "built $out"
