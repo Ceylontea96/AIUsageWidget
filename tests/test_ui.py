@@ -478,7 +478,7 @@ class UiTests(unittest.TestCase):
             self.assertEqual(self.w.mini_values['cursor'].cget('text'),'Cursor 90%')
 
     def test_weekly_warning_and_exhaustion_keep_five_hour_hero(self):
-        from test_widget import codex
+        from tests.test_widget import codex
         for weekly, label in ((95,'임박'),(100,'주간 소진')):
             with self.subTest(weekly=weekly):
                 snap=codex(10,weekly)
@@ -494,7 +494,7 @@ class UiTests(unittest.TestCase):
                 self.assertFalse(card.rows.find_withtag('strip'))
 
     def test_server_restriction_badge_explains_unknown_limit(self):
-        from test_widget import codex
+        from tests.test_widget import codex
         self.w.snapshots['chatgpt']=codex(10,20,True)
         self.w.render('chatgpt')
         card=self.w.cards['chatgpt']

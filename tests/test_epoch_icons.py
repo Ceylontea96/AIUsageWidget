@@ -16,7 +16,7 @@ from unittest.mock import patch
 import providers as p
 import usage_widget as u
 
-PROJECT = Path(__file__).resolve().parent
+PROJECT = Path(__file__).resolve().parent.parent
 
 
 class FakeAuth:

@@ -4,6 +4,8 @@ import subprocess
 import unittest
 from pathlib import Path
 
+PROJECT = Path(__file__).resolve().parent.parent
+
 
 class ReleasePolicyTests(unittest.TestCase):
     @classmethod
@@ -11,7 +13,7 @@ class ReleasePolicyTests(unittest.TestCase):
         cls.shell = shutil.which("powershell") or shutil.which("pwsh")
         if not cls.shell:
             raise unittest.SkipTest("PowerShell is required for publish script tests")
-        cls.policy = str(Path(__file__).with_name("release_policy.ps1")).replace("'", "''")
+        cls.policy = str(PROJECT / "release_policy.ps1").replace("'", "''")
 
     def run_policy(self, command, accepted):
         script = "$ErrorActionPreference='Stop'; . '" + self.policy + "'; try { " + command + "; 'ACCEPT' } catch { 'REJECT: ' + $_.Exception.Message; exit 7 }"
@@ -71,7 +73,7 @@ class ReleasePolicyTests(unittest.TestCase):
         # dot-sourcing release_policy.ps1, so assert on the call it actually
         # makes. What matters is unchanged: the version is verified before
         # anything is built, and there is no path that overwrites a release.
-        script = Path(__file__).with_name("publish_update.ps1").read_text(encoding="utf-8-sig")
+        script = (PROJECT / "publish_update.ps1").read_text(encoding="utf-8-sig")
         # Anchor on the build call itself; the file name also appears in the
         # list of packaged sources that the source guard checks.
         build = script.index("& (Join-Path $project 'build_launcher.ps1')")
