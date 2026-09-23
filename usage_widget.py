@@ -25,6 +25,8 @@ from pathlib import Path
 from tkinter import messagebox, font as tkfont
 
 from additional_ui import AdditionalBlock, additional_count, expanded_body_budget, layout_additional
+from bar_raster import cover_round_rect as _cover_round_rect, progress_rgba
+from frame_clock import FAST as FRAME_FAST, SLOW as FRAME_SLOW, clock_for
 from codex_activity import CodexActivityMonitor, FAST_INTERVAL, LOG
 from cursor_activity import CursorActivityMonitor
 from providers import (
@@ -630,7 +632,8 @@ def chip_fill_width(total, percent):
 
 BAR_ANIM_SPEED = 8.0
 BAR_ANIM_SNAP = 0.01  # Percentage points.
-BAR_ANIM_STEP = 16
+# The ring's growth is drawn in this many cached steps.
+RING_EMPHASIS_STEPS = 8
 SHIMMER_GROW_S = 0.4
 SHIMMER_SHRINK_S = 0.85
 SHIMMER_SWEEP_S = 1.2
@@ -1161,16 +1164,6 @@ def blend(a, b, t):
 STATUS_FG = blend(MUTED, TEXT, 0.55)
 
 
-def _cover_round_rect(px, py, width, height, radius):
-    if width <= 0 or height <= 0:
-        return 0.0
-    radius = max(0.0, min(float(radius), width / 2.0, height / 2.0))
-    dx = abs(px - width / 2.0) - (width / 2.0 - radius)
-    dy = abs(py - height / 2.0) - (height / 2.0 - radius)
-    outside = math.hypot(max(dx, 0.0), max(dy, 0.0)) + min(max(dx, dy), 0.0) - radius
-    return max(0.0, min(1.0, 0.5 - outside))
-
-
 def _box_downsample(rows, samples, dst_w, dst_h):
     n = samples * samples
     out = []
@@ -1189,7 +1182,11 @@ def _box_downsample(rows, samples, dst_w, dst_h):
 
 
 def progress_bar_rgba(width, height, radius, fill_width, track, fill, background, samples=1, shimmer=None, shape_height=None):
-    """Track + clipped fill as opaque RGBA rows. Fill cannot paint outside the track."""
+    """Track + clipped fill as opaque RGBA rows. Fill cannot paint outside the track.
+
+    Every pixel is computed on its own. Frames are drawn by
+    bar_raster.progress_rgba, which must return the same bytes.
+    """
     samples = max(1, int(samples))
     width = max(1, int(round(width)))
     height = max(1, int(round(height)))
@@ -1236,12 +1233,12 @@ def progress_bar_rgba(width, height, radius, fill_width, track, fill, background
     return width, height, rows
 
 
-def _png_rgba(width, height, rows):
+def _png_rgba(width, height, rows, level=9):
     def chunk(tag, data):
         return struct.pack('>I', len(data)) + tag + data + struct.pack('>I', zlib.crc32(tag + data) & 0xffffffff)
     raw = b''.join(b'\x00' + bytes(row) for row in rows)
     ihdr = struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0)
-    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', ihdr) + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b'')
+    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', ihdr) + chunk(b'IDAT', zlib.compress(raw, level)) + chunk(b'IEND', b'')
 
 
 def progress_bar_png(width, height, radius, fill_width, track, fill, background, samples=1, shimmer=None, shape_height=None):
@@ -1251,8 +1248,13 @@ def progress_bar_png(width, height, radius, fill_width, track, fill, background,
 
 
 def progress_photo(width, height, radius, fill_width, track, fill, background, samples=1, shimmer=None, shape_height=None):
-    return tk.PhotoImage(data=progress_bar_png(width, height, radius, fill_width, track, fill, background,
-                                               samples=samples, shimmer=shimmer, shape_height=shape_height), format='png')
+    if samples != 1:
+        return tk.PhotoImage(data=progress_bar_png(width, height, radius, fill_width, track, fill, background,
+                                                   samples=samples, shimmer=shimmer, shape_height=shape_height), format='png')
+    w, h, rows = progress_rgba(width, height, radius, fill_width, track, fill, background,
+                               shimmer=shimmer, shape_height=shape_height, glow=SHIMMER_GLOW)
+    # A frame lives for one paint; fast compression beats a smaller file.
+    return tk.PhotoImage(data=_png_rgba(w, h, rows, level=1), format='png')
 
 
 def round_photo(width, height, radius, fill, background, pad=1):
@@ -1830,10 +1832,14 @@ class UpdatePill(tk.Canvas):
 
 
 class BarShimmer:
-    """Thickness and sweep follow activity state, not a fixed hold timer."""
+    """Thickness and sweep follow activity state, not a fixed hold timer.
+
+    Frames come from the window's FrameClock: 60 fps while the thickness or a
+    length is moving, 30 fps while only the light sweeps. Every position is
+    computed from time.monotonic(), so a skipped frame costs smoothness only.
+    """
 
     def _init_shimmer(self):
-        self._shimmer_after = None
         self._desired_active = False
         self._active = False
         self._emphasis = 0.0
@@ -1861,25 +1867,71 @@ class BarShimmer:
     def _fx_needed(self):
         return self._active or self._emphasis > 1e-4 or self._sweep_t0 is not None
 
+    # -- frames -------------------------------------------------------------
+    @property
+    def _frame_scheduled(self):
+        return clock_for(self).scheduled(self)
+
+    def _tweening(self):
+        return False
+
+    def _advance_tween(self, now):
+        pass
+
+    def _shimmer_live(self):
+        try:
+            return bool(self.winfo_ismapped()) and self.animate and self._shimmer_ready()
+        except tk.TclError:
+            return False
+
+    def _frame_interval(self):
+        if self._tweening():
+            return FRAME_FAST
+        if not self._shimmer_live():
+            return None
+        if self._emphasis != (1.0 if self._active else 0.0):
+            return FRAME_FAST
+        if self._active or self._sweep_t0 is not None:
+            return FRAME_SLOW
+        return None
+
+    def _frame(self, now):
+        """One frame: move the length, then the light, then draw once."""
+        tweening = self._tweening()
+        if tweening:
+            self._advance_tween(now)
+        live = self._shimmer_live()
+        if live:
+            self._advance_shimmer(now)
+        elif self._fx_needed():
+            self._hold_shimmer()
+        if tweening or live:
+            self._paint_shimmer()
+
+    def _sync_frames(self):
+        """Ask the clock for frames while anything moves, else leave it."""
+        try:
+            clock = clock_for(self)
+        except tk.TclError:
+            return
+        if self._frame_interval() is None:
+            clock.release(self)
+        else:
+            clock.wake(self)
+
     def _start_shimmer(self):
-        if self._fx_needed() and self._shimmer_after is None:
-            try:
-                self._shimmer_after = self.after(16, self._shimmer_tick)
-            except tk.TclError:
-                self._shimmer_after = None
+        self._sync_frames()
+
+    def _hold_shimmer(self):
+        self._emphasis_t0 = None
+        if self._paused_at is None:
+            self._paused_at = time.monotonic()
 
     def _pause_shimmer(self, event=None):
         if event is not None and event.widget is not self:
             return
-        if self._shimmer_after is not None:
-            try:
-                self.after_cancel(self._shimmer_after)
-            except tk.TclError:
-                pass
-            self._shimmer_after = None
-        self._emphasis_t0 = None
-        if self._paused_at is None:
-            self._paused_at = time.monotonic()
+        self._hold_shimmer()
+        self._sync_frames()
 
     def _resume_shimmer(self, event=None):
         if event is not None and event.widget is not self:
@@ -1896,12 +1948,15 @@ class BarShimmer:
     def _destroy_shimmer(self, event=None):
         if event is not None and event.widget is not self:
             return
-        self._pause_shimmer()
         self._desired_active = False
         self._active = False
         self._emphasis = 0.0
         self._emphasis_t0 = None
         self._sweep_t0 = None
+        try:
+            clock_for(self).release(self)
+        except tk.TclError:
+            pass
 
     def _shimmer_phase_for(self, index):
         if self._sweep_t0 is None or not self.animate or not self._shimmer_ready():
@@ -1909,12 +1964,7 @@ class BarShimmer:
         progress = max(0.0, min(1.0, (time.monotonic() - self._sweep_t0) / SHIMMER_SWEEP_S))
         return 0.15 + 0.60 * progress
 
-    def _shimmer_tick(self):
-        self._shimmer_after = None
-        if not self.winfo_ismapped() or not self.animate or not self._shimmer_ready():
-            self._pause_shimmer()
-            return
-        now = time.monotonic()
+    def _advance_shimmer(self, now):
         dt = 0.0 if self._emphasis_t0 is None else now - self._emphasis_t0
         self._emphasis_t0 = now
         self._emphasis = follow_emphasis(self._emphasis, self._active, dt)
@@ -1926,8 +1976,11 @@ class BarShimmer:
                 self._sweep_t0 += SHIMMER_SWEEP_S * max(1, int(elapsed // SHIMMER_SWEEP_S))
         elif self._sweep_t0 is not None and now - self._sweep_t0 >= SHIMMER_SWEEP_S:
             self._sweep_t0 = None
-        self._paint_shimmer()
-        self._start_shimmer()
+
+    def _shimmer_tick(self):
+        """Draw one frame now. The clock calls _frame itself."""
+        self._frame(time.monotonic())
+        self._sync_frames()
 
 
 class Chip(BarShimmer, tk.Canvas):
@@ -1944,7 +1997,6 @@ class Chip(BarShimmer, tk.Canvas):
         self._usage_snapshot = None
         self._warning_color = None
         self.tip_text = '사용량 확인 중'
-        self._anim_after = None
         self._anim_to = self._anim_t0 = None
         self.bind('<Destroy>', self._cancel_anim)
         self._init_shimmer()
@@ -2001,39 +2053,32 @@ class Chip(BarShimmer, tk.Canvas):
             self._redraw()
 
     def _arm_anim(self):
-        if self._anim_after is not None:
-            return
-        try:
-            self._anim_after = self.after(BAR_ANIM_STEP, self._anim_tick)
-        except tk.TclError:
-            self._anim_after = None
+        self._sync_frames()
 
     def _cancel_anim(self, event=None):
-        aid = self._anim_after
-        self._anim_after = None
         self._anim_to = self._anim_t0 = None
-        if aid is not None:
-            try:
-                self.after_cancel(aid)
-            except tk.TclError:
-                pass
+        self._sync_frames()
 
-    def _anim_tick(self):
-        self._anim_after = None
-        if self._anim_to is None or self._anim_t0 is None:
-            return
-        now = time.monotonic()
+    def _tweening(self):
+        return self._anim_to is not None and self._anim_t0 is not None
+
+    def _advance_tween(self, now):
         self.percent = follow_bar(self.percent, self._anim_to, now - self._anim_t0)
         self._anim_t0 = now
+        if self.percent == self._anim_to:
+            self._anim_to = self._anim_t0 = None
+
+    def _anim_tick(self):
+        """Move the length to now and draw. The clock calls _frame itself."""
+        if not self._tweening():
+            return
+        self._advance_tween(time.monotonic())
         try:
             if self.winfo_exists():
                 self._paint_shimmer()
         except tk.TclError:
             return
-        if self.percent != self._anim_to:
-            self._arm_anim()
-        else:
-            self._anim_to = self._anim_t0 = None
+        self._sync_frames()
 
     def observe_usage(self, snap):
         self._usage_snapshot = snap
@@ -2119,7 +2164,12 @@ def ring_geometry(size):
 
 
 def ring_photo(size, percent, color, thickness, background=CARD):
-    size = max(1,int(size))
+    return tk.PhotoImage(data=ring_png(max(1, int(size)), percent, color, thickness, background), format='png')
+
+
+@lru_cache(maxsize=48)
+def ring_png(size, percent, color, thickness, background=CARD):
+    """A drawn ring costs several milliseconds; the same ring is reused."""
     radius, half = size*35/84, thickness/2
     fraction = max(0,min(100,percent))/100
     end = fraction*math.tau
@@ -2143,7 +2193,7 @@ def ring_photo(size, percent, color, thickness, background=CARD):
             else:
                 pixel=track_palette[cov]
         rows[y][x:x+4]=pixel
-    return tk.PhotoImage(data=_png_rgba(size,size,rows),format='png')
+    return _png_rgba(size,size,rows)
 
 
 class Card(BarShimmer, tk.Frame):
@@ -2170,7 +2220,6 @@ class Card(BarShimmer, tk.Frame):
         self._shown_pcts = []
         self._anim_to = []
         self._anim_t0 = None
-        self._anim_after = None
         self._snap = None
         self._additional_expanded = False
         self._additional_max_body = 0
@@ -2299,29 +2348,17 @@ class Card(BarShimmer, tk.Frame):
         self._paint(snap, self._shown_pcts)
 
     def _arm_anim(self):
-        if self._anim_after is not None:
-            return
-        try:
-            self._anim_after = self.after(BAR_ANIM_STEP, self._anim_tick)
-        except tk.TclError:
-            self._anim_after = None
+        self._sync_frames()
 
     def _cancel_anim(self, event=None):
-        aid = self._anim_after
-        self._anim_after = None
         self._anim_to = []
         self._anim_t0 = None
-        if aid is not None:
-            try:
-                self.after_cancel(aid)
-            except tk.TclError:
-                pass
+        self._sync_frames()
 
-    def _anim_tick(self):
-        self._anim_after = None
-        if not self._anim_to or self._anim_t0 is None:
-            return
-        now = time.monotonic()
+    def _tweening(self):
+        return bool(self._anim_to) and self._anim_t0 is not None
+
+    def _advance_tween(self, now):
         dt = now - self._anim_t0
         self._anim_t0 = now
         self._shown_pcts = [follow_bar(a, b, dt) for a, b in zip(self._shown_pcts, self._anim_to)]
@@ -2329,14 +2366,19 @@ class Card(BarShimmer, tk.Frame):
         if self._shown_pcts == self._anim_to and self._hero_shown == self._hero_target:
             self._anim_to = []
             self._anim_t0 = None
-        else:
-            self._arm_anim()
+
+    def _anim_tick(self):
+        """Move the lengths to now and draw. The clock calls _frame itself."""
+        if not self._tweening():
+            return
+        self._advance_tween(time.monotonic())
         if self._snap is not None:
             try:
                 if self.winfo_exists():
                     self._paint_shimmer()
             except tk.TclError:
                 return
+        self._sync_frames()
 
     def _shimmer_ready(self):
         return (not self.collapsed and self._snap is not None and self._snap.ok and not self._snap.stale
@@ -2362,6 +2404,7 @@ class Card(BarShimmer, tk.Frame):
         _, _, color = design_severity(actual, snap.stale or not snap.ok, representative_blocked(snap))
         color = color or ACCENTS[self.key]
         emphasis = self._emphasis if self.animate and self._shimmer_ready() else 0.0
+        emphasis = round(emphasis * RING_EMPHASIS_STEPS) / RING_EMPHASIS_STEPS
         thickness = round((m.p(7) + m.p(2) * emphasis) * 2) / 2
         color = blend(color, '#FFFFFF', .24 * emphasis)
         ring_pct = 0 if actual is None else round(shown * 2) / 2

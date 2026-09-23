@@ -116,9 +116,6 @@ class ShimmerUiTests(unittest.TestCase):
         with patch.object(control, 'winfo_ismapped', return_value=True), patch.object(u.time, 'monotonic', return_value=now):
             if active is not None:
                 control.set_activity(active)
-            if control._shimmer_after is not None:
-                control.after_cancel(control._shimmer_after)
-                control._shimmer_after = None
             control._shimmer_tick()
 
     def weekly_card(self):
@@ -140,9 +137,9 @@ class ShimmerUiTests(unittest.TestCase):
         self.assertIsNot(ring, card._ring_photo)
         self.assertEqual(card._shown_pcts, [60])
         self.assertTrue(card._active)
-        self.assertIsNotNone(card._shimmer_after)
+        self.assertTrue(card._frame_scheduled)
         card._destroy_shimmer()
-        self.assertIsNone(card._shimmer_after)
+        self.assertFalse(card._frame_scheduled)
         self.assertFalse(card._active)
         card._snap.stale = True
         self.assertFalse(card._shimmer_ready())
@@ -157,7 +154,7 @@ class ShimmerUiTests(unittest.TestCase):
         self.assertEqual(label, chip.find_withtag('label'))
         self.assertEqual(chip.itemcget(label[0], 'text'), 'Codex 60%')
         chip._shimmer_tick()
-        self.assertIsNone(chip._shimmer_after)
+        self.assertFalse(chip._frame_scheduled)
         self.assertTrue(chip._active)
         chip.configure(bg=u.CHIP_STALE)
         self.assertFalse(chip._shimmer_ready())
@@ -168,7 +165,7 @@ class ShimmerUiTests(unittest.TestCase):
             card.render(replace(snapshot(59.999), bars=[QuotaBar('주간', 59.999, 40.001, '', '')]))
         self.assertFalse(card._active)
         self.assertEqual(card._emphasis, 0.0)
-        self.assertIsNone(card._shimmer_after)
+        self.assertFalse(card._fx_needed())
 
     def test_continued_activity_holds_max_thickness(self):
         card = self.weekly_card()
@@ -229,7 +226,7 @@ class ShimmerUiTests(unittest.TestCase):
         card.render(snapshot(59.9, stale=True))
         self.pump(card, 1.1, True)
         self.assertTrue(card._active)
-        self.assertIsNone(card._shimmer_after)
+        self.assertFalse(card._shimmer_ready())
         card.render(snapshot(59.8))
         self.assertTrue(card._active)
         self.pump(card, 2, True)
@@ -240,7 +237,7 @@ class ShimmerUiTests(unittest.TestCase):
         chip.configure(bg=u.CODEX, percent=60)
         chip.set_activity(True)
         self.assertTrue(chip._active)
-        self.assertIsNone(chip._shimmer_after)
+        self.assertFalse(chip._frame_scheduled)
         with patch.object(chip, 'winfo_ismapped', return_value=True):
             chip.set_activity(True)
             self.assertTrue(chip._active)
@@ -248,8 +245,6 @@ class ShimmerUiTests(unittest.TestCase):
             self.assertTrue(chip._active)
 
     def advance_length(self, control, now):
-        if control._anim_after is not None:
-            control.after_cancel(control._anim_after)
         with patch.object(u.time, 'monotonic', return_value=now):
             control._anim_tick()
 
@@ -280,7 +275,7 @@ class ShimmerUiTests(unittest.TestCase):
             self.assertEqual(card._shown_pcts, intermediate)
             for control in (card, chip):
                 self.advance_length(control, 12.1)
-                self.assertIsNone(control._anim_after)
+                self.assertFalse(control._tweening())
             self.assertEqual(card._shown_pcts[0], end)
             self.assertEqual(chip.percent, end)
             card.destroy()
@@ -315,12 +310,11 @@ class ShimmerUiTests(unittest.TestCase):
         for control in (card, chip):
             self.advance_length(control, 10.2)
         expected = card._shown_pcts[0]
-        timer_ids = (card._anim_after, chip._anim_after)
         with patch.object(u.time, 'monotonic', return_value=10.3), patch.object(card, 'after_cancel', side_effect=AssertionError('restart')), patch.object(chip, 'after_cancel', side_effect=AssertionError('restart')):
             for target in (52, 51, 90):
                 card.render(snapshot(target))
                 chip.configure(percent=target)
-        self.assertEqual((card._anim_after, chip._anim_after), timer_ids)
+        self.assertTrue(card._tweening() and chip._tweening())
         self.assertAlmostEqual(card._shown_pcts[0], expected)
         self.assertAlmostEqual(chip.percent, expected)
         self.assertEqual(card._anim_t0, 10.2)

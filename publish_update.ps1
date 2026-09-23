@@ -54,7 +54,7 @@ $copy = @(
     'usage_widget.py', 'providers.py', 'runtime.py', 'poll_worker.py', 'updater.py',
     'codex_activity.py', 'cursor_activity.py', 'LICENSE',
     'claude_bridge.py', 'claude_integration.py', 'CLAUDE_INTEGRATION.md', 'polling.py', 'additional_ui.py',
-    'quota_policy.py', 'codex_app_server.py',
+    'quota_policy.py', 'codex_app_server.py', 'bar_raster.py', 'frame_clock.py',
     'setup_and_run.ps1', 'setup_login.ps1', 'create_shortcut.ps1',
     'start_usage_widget.vbs', 'start_usage_widget.bat',
     'toast.ps1', 'register_notifications.ps1', 'feed_url.txt', 'CHANGELOG.md'
