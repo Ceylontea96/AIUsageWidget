@@ -480,6 +480,144 @@ def chip_style(key, snap):
     return CHIP_OK[key], CHIP_FG
 
 
+def compact_warning(snap):
+    """Flag a low secondary global quota without changing the hero's meaning."""
+    if snap is None or not snap.ok or snap.stale:
+        return None
+    hero = select_hero(snap)
+    candidates = [item for item in global_main_limits(snap)
+                  if (hero is None or item.quota_id != hero.quota_id)
+                  and remaining_band(item.remaining_percent) in ('warn', 'danger', 'critical')]
+    return min(candidates, key=lambda item: item.remaining_percent) if candidates else None
+
+
+def _checked_phrase(stamp, now, *, confirmed):
+    """Relative time for one service. Empty when this snapshot was never stamped."""
+    try:
+        stamp = float(stamp or 0)
+    except (TypeError, ValueError):
+        return ''
+    if not math.isfinite(stamp) or stamp <= 0:
+        return ''
+    age = max(0, int(now - stamp))
+    if age < 5:
+        head = '방금'
+    elif age < 60:
+        head = f'{age}초 전'
+    elif age < 3600:
+        head = f'{age // 60}분 전'
+    elif age < 86400:
+        head = f'{age // 3600}시간 전'
+    else:
+        head = f'{age // 86400}일 전'
+    return f'{head} 확인' if confirmed else f'{head} 시도'
+
+
+def failure_cause(snap):
+    """Short reason for a failed check. Login failures share one phrase."""
+    if snap is None:
+        return ''
+    internal = getattr(snap, 'internal', None) or {}
+    text = str(getattr(snap, 'error', '') or '').strip()
+    if internal.get('requires_login'):
+        return '재로그인 필요'
+    if not text:
+        return ''
+    if any(phrase in text for phrase in ('가져오는 중', '기다리는 중', '조회 중')):
+        return '확인 중'
+    folded = text.casefold()
+    if any(token in folded for token in ('로그인', 'login', 'sign in', 'signin', '인증', '토큰', 'token')):
+        return '재로그인 필요'
+    if '초과' in text or 'timeout' in folded:
+        return '응답 시간 초과'
+    if '연결' in text or 'offline' in folded or 'connection' in folded:
+        return '연결 확인 필요'
+    if '형식' in text:
+        return '응답 형식 확인 필요'
+    sentence = text.split('\n', 1)[0].strip()
+    for sep in ('。', '. '):
+        sentence = sentence.split(sep, 1)[0]
+    sentence = sentence.strip(' .')
+    if len(sentence) > 24:
+        return '조회 실패'
+    return sentence
+
+
+def service_status_text(snap, now=None):
+    """Per-service check age, and the cached-value cause when a later check failed."""
+    if snap is None:
+        return ''
+    now = time.time() if now is None else now
+    age = _checked_phrase(getattr(snap, 'fetched_at', 0), now, confirmed=bool(snap.ok))
+    if not snap.ok:
+        return age
+    if snap.stale:
+        cause = failure_cause(snap)
+        detail = f'이전 값 · {cause}' if cause else '이전 값'
+        return f'{age} · {detail}' if age else detail
+    return age
+
+
+def service_needs_actions(snap):
+    """Retry and login guidance belong on a real failure, not a check still in flight."""
+    if snap is None or failure_cause(snap) == '확인 중':
+        return False
+    if not snap.ok:
+        return True
+    return bool(snap.stale and getattr(snap, 'error', ''))
+
+
+def header_freshness(snaps, now=None):
+    """Header age follows the oldest confirmation, so one fresh service cannot refresh the rest."""
+    now = time.time() if now is None else now
+    snaps = list(snaps or ())
+    stamps = []
+    for snap in snaps:
+        if not (snap.ok or snap.stale):
+            continue
+        try:
+            stamp = float(snap.fetched_at or 0)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(stamp) and stamp > 0:
+            stamps.append(stamp)
+    if not stamps:
+        return ('확인 실패', None) if any(not snap.ok for snap in snaps) else ('갱신 대기', None)
+    oldest, newest = min(stamps), max(stamps)
+    age = max(0, int(now - oldest))
+    newest_age = max(0, int(now - newest))
+    if len(stamps) > 1 and newest - oldest >= 30 and newest_age < 60:
+        return '서비스별 확인', age
+    return _checked_phrase(oldest, now, confirmed=True) or '갱신 대기', age
+
+
+def login_guidance(key, snap=None):
+    """Action behind the card's login-help button."""
+    if key == 'claude' and failure_cause(snap) == '재로그인 필요':
+        return 'Claude 로그인', 'claude-login'
+    return prepare_action(key)
+
+
+def compact_tooltip(snap):
+    if snap is None:
+        return '사용량 확인 중'
+    lines = [TITLES.get(snap.key, snap.title)]
+    status = service_status_text(snap)
+    if status:
+        lines.append(status)
+    if snap.error and snap.error not in (status or ''):
+        lines.append(snap.error)
+    if snap.blocked and not snap.stale:
+        lines.append('현재 사용 제한')
+    warning = compact_warning(snap)
+    if warning is not None:
+        lines.append(f'주의: {warning.display_name} 잔여 {warning.remaining_percent:.0f}%')
+    for item in global_main_limits(snap):
+        value = '확인 중' if item.remaining_percent is None else f'잔여 {item.remaining_percent:.0f}%'
+        lines.append(f'{item.display_name} · {value}')
+    return '\n'.join(lines)
+
+
 def chip_fill_width(total, percent):
     if percent is None:
         return 0.0
@@ -1017,6 +1155,10 @@ def blend(a, b, t):
     br, bg, bb = _hex_rgb(b)
     mix = lambda x, y: int(round(x + (y - x) * t))
     return '#%02X%02X%02X' % (mix(ar, br), mix(ag, bg), mix(ab, bb))
+
+
+# Brighter than the 11px meta gray so a check time and an error stay readable.
+STATUS_FG = blend(MUTED, TEXT, 0.55)
 
 
 def _cover_round_rect(px, py, width, height, radius):
@@ -1800,6 +1942,8 @@ class Chip(BarShimmer, tk.Canvas):
         self._photo = None
         self._seeded = False
         self._usage_snapshot = None
+        self._warning_color = None
+        self.tip_text = '사용량 확인 중'
         self._anim_after = None
         self._anim_to = self._anim_t0 = None
         self.bind('<Destroy>', self._cancel_anim)
@@ -1893,6 +2037,12 @@ class Chip(BarShimmer, tk.Canvas):
 
     def observe_usage(self, snap):
         self._usage_snapshot = snap
+        self.tip_text = compact_tooltip(snap)
+        warning = compact_warning(snap)
+        color = None if warning is None else (WARN if remaining_band(warning.remaining_percent) == 'warn' else DANGER)
+        if color != self._warning_color:
+            self._warning_color = color
+            self._redraw()
 
     def _shimmer_ready(self):
         return self.fill != CHIP_STALE and self.percent > 0
@@ -1915,7 +2065,17 @@ class Chip(BarShimmer, tk.Canvas):
         self._photo = progress_photo(width, height, shape_height / 2, self.fill_width, CHIP_TRACK, self.fill, BG,
                                      shimmer=self._shimmer_phase_for(0), shape_height=shape_height)
         self.create_image(0, 0, image=self._photo, anchor='nw', tags='track')
-        self.create_text(width/2,height/2,text=self.text,fill=CHIP_FG,font=self.metrics.font(FONT_CHIP),tags='label')
+        label_y = height / 2 + (self.metrics.p(3) if self._warning_color else 0)
+        self.create_text(width/2,label_y,text=self.text,fill=CHIP_FG,font=self.metrics.font(FONT_CHIP),tags='label')
+        if self._warning_color:
+            # Use a drawn symbol rather than a font glyph, with its own space
+            # above the label so three full service names still fit at all scales.
+            p = self.metrics.p
+            x = width - p(7)
+            self.create_polygon(x, 0, x-p(5), p(8), x+p(5), p(8),
+                                fill=self._warning_color, outline='', tags='quota_warning')
+            self.create_line(x, p(3), x, p(5), fill=BG, width=max(1,p(1)), tags='quota_warning')
+            self.create_rectangle(x, p(6), x+1, p(7), fill=BG, outline='', tags='quota_warning')
 
 
 def design_severity(value, stale=False, blocked=False):
@@ -1990,8 +2150,13 @@ class Card(BarShimmer, tk.Frame):
     """Explicit pixel layout matching the supplied 334px-wide card references."""
     animate = True
 
-    def __init__(self,parent,key,metrics=None,on_additional=None):
+    def __init__(self,parent,key,metrics=None,on_additional=None,on_toggle=None,on_retry=None,on_login=None):
         self.metrics = metrics or Metrics()
+        self.collapsed = False
+        self.on_toggle = on_toggle
+        self.on_retry = on_retry
+        self.on_login = on_login
+        self._actions = []
         m = self.metrics
         super().__init__(parent,width=m.card_w,height=m.p(120),bg=BG)
         self.key, self.height, self.last_signature = key,m.p(120),None
@@ -2011,7 +2176,10 @@ class Card(BarShimmer, tk.Frame):
         self._additional_max_body = 0
         self.rows = tk.Canvas(self,width=m.card_w,height=self.height,bg=BG,bd=0,highlightthickness=0,cursor='hand2')
         self.rows.pack()
-        self.rows.bind('<Button-1>',lambda e:webbrowser.open(URLS.get(key, '')))
+        self.rows.bind('<Button-1>', self._clicked)
+        self.rows.configure(takefocus=True)
+        self.rows.bind('<Return>', self._toggle_card)
+        self.rows.bind('<space>', self._toggle_card)
         self.additional = AdditionalBlock(self, m, on_toggle=on_additional, bg=CARD)
         self.bind('<Destroy>', self._cancel_anim)
         self._init_shimmer()
@@ -2023,6 +2191,39 @@ class Card(BarShimmer, tk.Frame):
         self.metrics = metrics
         self.additional.set_metrics(metrics)
 
+    def _action_at(self, x, y):
+        for x1, y1, x2, y2, kind in self._actions:
+            if x1 <= x <= x2 and y1 <= y <= y2:
+                return kind
+        return ''
+
+    def _clicked(self, event):
+        x = getattr(event, 'x', None)
+        action = '' if x is None else self._action_at(x, event.y)
+        if action == 'retry' and self.on_retry:
+            self.on_retry()
+            return
+        if action == 'login' and self.on_login:
+            self.on_login()
+            return
+        if event.y < self.metrics.p(54) and self.on_toggle:
+            self._toggle_card()
+        else:
+            webbrowser.open(URLS.get(self.key, ''))
+
+    def _toggle_card(self, event=None):
+        if self.on_toggle:
+            self.on_toggle()
+        return 'break'
+
+    def set_collapsed(self, collapsed):
+        if self.collapsed == bool(collapsed):
+            return
+        self.collapsed = bool(collapsed)
+        self.last_signature = None
+        if self._snap is not None:
+            self.render(self._snap)
+
     def set_additional_layout(self, expanded, max_body):
         if (self._additional_expanded, self._additional_max_body) == (bool(expanded), max(0, int(max_body or 0))):
             return
@@ -2031,7 +2232,7 @@ class Card(BarShimmer, tk.Frame):
         self._sync_additional()
 
     def _sync_additional(self):
-        groups = getattr(self._snap, 'additional_groups', []) if self._snap and self._snap.ok else []
+        groups = getattr(self._snap, 'additional_groups', []) if self._snap and self._snap.ok and not self.collapsed else []
         stale_flags = [group_stale(group, self._snap) for group in groups]
         colors = {
             'bg': CARD, 'muted': MUTED, 'text': TEXT, 'warn': WARN, 'danger': DANGER,
@@ -2073,6 +2274,8 @@ class Card(BarShimmer, tk.Frame):
         # this signature, so reference figures cannot repaint or recolour the
         # card.
         visual['service_remaining'] = status_percent(snap)
+        # fetched_at is intentionally absent: the clock rewrites "N초 전" in place.
+        # A new stamp alone must not rebuild the card image.
         stale_flags = [group_stale(group, snap) for group in (snap.additional_groups or [])]
         visual['additional'] = [
             vars(row) for row in layout_additional(snap.additional_groups, stale_flags)
@@ -2136,7 +2339,7 @@ class Card(BarShimmer, tk.Frame):
                 return
 
     def _shimmer_ready(self):
-        return (self._snap is not None and self._snap.ok and not self._snap.stale
+        return (not self.collapsed and self._snap is not None and self._snap.ok and not self._snap.stale
                 and any(percent > 0 for percent in self._shown_pcts))
 
     def _bar_height_for(self, index):
@@ -2193,26 +2396,77 @@ class Card(BarShimmer, tk.Frame):
             self.rows.itemconfigure('bar_'+str(index),image=photo)
             self._bar_photos[index+1] = photo
 
+    def _place_service_status(self, canvas, y):
+        """Draw this service's check time, cached-value cause, and failure actions."""
+        snap = self._snap
+        if snap is None:
+            return y
+        m = self.metrics
+        label = service_status_text(snap)
+        if label:
+            color = WARN if (not snap.ok or snap.stale) else STATUS_FG
+            item = canvas.create_text(
+                m.p(16), m.p(y), text=label, anchor='nw',
+                font=m.font(FONT_SUB), fill=color, tags='service_status',
+                width=max(1, m.card_w - m.p(32)),
+            )
+            bbox = canvas.bbox(item)
+            y = (bbox[3] / max(m.scale, 0.01) + 6) if bbox else y + 18
+        if snap.ok and snap.stale and snap.error and snap.error not in (label or ''):
+            item = canvas.create_text(
+                m.p(16), m.p(y), text=snap.error, anchor='nw',
+                font=m.font(FONT_SUB), fill=STATUS_FG, tags='error_text',
+                width=max(1, m.card_w - m.p(32)),
+            )
+            bbox = canvas.bbox(item)
+            y = (bbox[3] / max(m.scale, 0.01) + 6) if bbox else y + 18
+        if service_needs_actions(snap):
+            y = self._draw_actions(canvas, y)
+        return y
+
+    def _draw_actions(self, canvas, y):
+        m = self.metrics
+        font = tkfont.Font(root=canvas, font=m.font(FONT_BADGE))
+        x = m.p(16)
+        top = m.p(y)
+        height = m.p(22)
+        gap = m.p(8)
+        for label, kind in (('다시 확인', 'retry'), ('로그인 안내', 'login')):
+            width = font.measure(label) + m.p(16)
+            round_rect(canvas, x, top, x + width, top + height, m.p(4), TRACK, tags=('action', kind))
+            canvas.create_text(
+                x + width / 2, top + height / 2, text=label, fill=TEXT,
+                font=m.font(FONT_BADGE), tags=('action', kind),
+            )
+            self._actions.append((x, top, x + width, top + height, kind))
+            x += width + gap
+        return y + 30
+
     def refresh_clock(self, now=None):
         now = time.time() if now is None else now
         if self._snap is None or int(now) == self._clock_second:
             return
         self._clock_second = int(now)
+        if self.rows.find_withtag('service_status'):
+            self.rows.itemconfigure('service_status', text=service_status_text(self._snap, now))
+        if self.collapsed:
+            return
         # Countdown granularity follows the hero's measured window, not its label.
         hero = select_hero(self._snap) if self._snap.ok else None
         prefer_days = hero is None or not window_matches(hero, FIVE_HOURS, FIVE_HOUR_TOLERANCE)
         self.rows.itemconfigure('countdown',text=reset_countdown(self._reset_epoch,now,prefer_days))
-        if self._week_epoch is not None:
-            days = max(0,int((self._week_epoch-now)//86400))
-            self.rows.itemconfigure('week_remaining',text=f'{days}일 남음' if days else reset_countdown(self._week_epoch,now))
+        for canvas_id, reset_at in self._secondary_clocks.values():
+            days = max(0,int((reset_at-now)//86400))
+            self.rows.itemconfigure(canvas_id,text=f'{days}일 남음' if days else reset_countdown(reset_at,now))
 
     def _paint(self,snap,percents):
         m, c = self.metrics, self.rows
         c.delete('all')
+        self._actions = []
         limits = main_limits(snap)
         self._bar_origins = [None] * len(limits)
         self._bar_photos = [None] * (len(limits)+1)
-        self._week_epoch = None
+        self._secondary_clocks = {}
         primary_index = hero_index(snap)
         primary = limits[primary_index] if primary_index is not None else None
         # The hero's reset comes from its own QuotaItem, never from re-reading
@@ -2235,6 +2489,8 @@ class Card(BarShimmer, tk.Frame):
         if self._service_icon is not None:
             c.create_image(m.p(27),m.p(27),image=self._service_icon,tags='service_icon')
         text(46,18,TITLES[self.key],FONT_SERVICE)
+        if self.on_toggle:
+            text(4,19,'▸' if self.collapsed else '▾',FONT_META,MUTED,tags='collapse_toggle')
         plan = '' if snap.plan=='-' else snap.plan.upper()
         font = tkfont.Font(root=c,font=m.font(FONT_PLAN))
         plan_w = font.measure(plan)+m.p(14) if plan else 0
@@ -2249,6 +2505,17 @@ class Card(BarShimmer, tk.Frame):
         c.create_text(right-badge_w+m.p(18),m.p(27),text=label,anchor='w',font=m.font(FONT_BADGE),fill=blend(state,TEXT,.4),tags='severity')
         if not snap.stale and (hero_blocked or (service_percent is not None and service_percent<20)):
             c.create_rectangle(0,0,m.card_w,m.p(2),fill=state,outline='',tags='strip')
+        if self.collapsed:
+            value = representative_percent(snap)
+            summary = '확인 중' if value is None else f'잔여 {value:.0f}%'
+            name = quota_row_title(primary) if primary is not None else '사용량'
+            text(16,54,f'{name} · {summary}',FONT_ROW,MUTED,tags='collapsed_summary')
+            bottom = self._place_service_status(c, 72)
+            self.hero_height = self.height = m.p(max(86, bottom + 14))
+            c.configure(width=m.card_w,height=self.height)
+            self._sync_additional()
+            c.create_line(0,self.hero_height-1,m.card_w,self.hero_height-1,fill=HAIR)
+            return
         c.create_image(m.p(16),m.p(54),anchor='nw',tags='ring')
         c.create_text(m.p(58),m.p(96),text='',font=m.font(FONT_HERO),tags='hero')
         hero_title = (quota_row_title(primary) + ' · 남은 사용량'
@@ -2280,8 +2547,8 @@ class Card(BarShimmer, tk.Frame):
             if item.window_seconds is not None and item.reset_at:
                 stamp = fmt_local(item.reset_at, 'reset')
                 text(16,y,item.display_name + ' 리셋 ' + dated_reset_stamp(stamp).removesuffix(' 리셋'),FONT_META,DIM)
-                self._week_epoch = item.reset_at
-                c.create_text(m.card_w-m.p(16),m.p(y),text='',font=m.font(FONT_META),fill=DIM,anchor='ne',tags='week_remaining')
+                clock_id = c.create_text(m.card_w-m.p(16),m.p(y),text='',font=m.font(FONT_META),fill=DIM,anchor='ne',tags='week_remaining')
+                self._secondary_clocks[item.quota_id] = (clock_id, item.reset_at)
                 y += 22
         if hidden:
             text(16,y,f'그 외 한도 {hidden}개',FONT_META,MUTED)
@@ -2305,8 +2572,16 @@ class Card(BarShimmer, tk.Frame):
             c.create_text(m.card_w-m.p(16),m.p(y),text=amount,anchor='ne',fill=TEXT,font=m.font(FONT_VALUE))
             y += 24
         if not snap.ok:
-            c.create_text(m.p(16),m.p(150),text=snap.error or '조회 중',font=m.font(FONT_META),fill=MUTED,anchor='nw',width=m.card_w-m.p(32))
-            y=178
+            error_id = c.create_text(
+                m.p(16), m.p(150), text=snap.error or '조회 중', anchor='nw',
+                font=m.font(FONT_SUB), fill=STATUS_FG, tags='error_text',
+                width=m.card_w - m.p(32),
+            )
+            bbox = c.bbox(error_id)
+            y = 178
+            if bbox:
+                y = max(y, bbox[3] / max(m.scale, 0.01) + 8)
+        y = self._place_service_status(c, y)
         self.height=m.p(y+16)
         c.configure(width=m.card_w,height=self.height)
         self.hero_height = self.height
@@ -2334,6 +2609,8 @@ class UsageWidget:
         self.topmost = tk.BooleanVar(value=bool(self.settings.get('topmost', True)))
         self.root.attributes('-topmost', self.topmost.get())
         self.compact = bool(self.settings.get('compact', False))
+        saved_collapsed = self.settings.get('collapsed', {})
+        self.collapsed = saved_collapsed if isinstance(saved_collapsed, dict) else {}
         self.closing = False
         # GPT asks the widget's own Codex app-server; no token is read here.
         self.runner = PollRunner(inprocess={
@@ -2462,8 +2739,24 @@ class UsageWidget:
         self.header_buttons = []
         for name,callback in (('refresh',self.refresh),('minus',self.toggle),('close',self.close)):
             self.header_buttons.append(self.icon_button(self.header,name,callback,CLOSE_HOVER if name == 'close' else HOVER))
-        self.body = tk.Frame(self.shell,bg=BG,padx=0)
-        self.cards = {k:Card(self.body,k,m,on_additional=lambda key=k: self.toggle_additional(key)) for k in FETCHERS}
+        self.body_view = tk.Canvas(self.shell,bg=BG,bd=0,highlightthickness=0,
+                                   yscrollincrement=m.p(24),takefocus=True)
+        self.body = tk.Frame(self.body_view,bg=BG,padx=0)
+        self._body_window = self.body_view.create_window(0,0,window=self.body,anchor='nw',width=m.card_w)
+        self.body_scroll = tk.Scrollbar(self.shell,orient='vertical',command=self.body_view.yview)
+        self.body_view.configure(yscrollcommand=self.body_scroll.set)
+        self.root.bind_all('<MouseWheel>', self._scroll_body)
+        self.root.bind_all('<Next>', lambda e: self._scroll_page(1, e))
+        self.root.bind_all('<Prior>', lambda e: self._scroll_page(-1, e))
+        self.cards = {k: Card(
+            self.body, k, m,
+            on_additional=lambda key=k: self.toggle_additional(key),
+            on_toggle=lambda key=k: self.toggle_card(key),
+            on_retry=lambda key=k: self.retry_provider(key),
+            on_login=lambda key=k: self.show_login_help(key),
+        ) for k in FETCHERS}
+        for key, card in self.cards.items():
+            card.set_collapsed(self.collapsed.get(key, False))
         self.footer = tk.Frame(self.shell,bg=BG,height=m.footer_h)
         tk.Frame(self.footer,bg=HAIR,height=1).place(x=0,y=0,relwidth=1,height=1)
         self.footer_dot = tk.Canvas(self.footer,width=m.p(6),height=m.p(6),bg=BG,highlightthickness=0,bd=0)
@@ -2483,6 +2776,9 @@ class UsageWidget:
             chip = Chip(self.mini, m)
             self.mini_values[key] = chip
             self.bind_drag(chip)
+            chip.bind('<Enter>', lambda e, c=chip: self.tip.schedule(c, c.tip_text))
+            chip.bind('<Leave>', lambda e: self.tip.hide())
+            chip.bind('<Unmap>', lambda e: self.tip.hide(), add='+')
         self.mini_buttons = []
         for name,callback in (('refresh',self.refresh),('expand',self.toggle),('close',self.close)):
             self.mini_buttons.append(self.icon_button(self.mini,name,callback,CLOSE_HOVER if name == 'close' else HOVER))
@@ -2729,6 +3025,9 @@ class UsageWidget:
             '실행은 zip 푼 폴더의 AI Usage.exe 입니다. 한 번 실행한 뒤에는 실행 파일만 옮겨도 됩니다.\n'
             '우클릭 → 바탕화면 바로가기 생성으로 바로가기를 만들 수 있습니다.\n\n'
             'F5 새로고침 · Ctrl+M 한 줄 모드\n'
+            '서비스 제목 클릭 또는 카드에서 Enter/Space: 개별 접기·펼치기\n'
+            '긴 본문: 마우스 휠 · 스크롤바 · PageUp/PageDown\n'
+            '카드마다 마지막 확인 시각이 표시됩니다. 조회가 실패하면 이전 값과 원인이 남고, 다시 확인·로그인 안내가 나타납니다.\n'
             'Ctrl++ / Ctrl+- 크기 조절 · Ctrl+0 기본 크기\n'
             '제목 드래그로 이동 · 우클릭으로 설정\n\n'
             '10% 이하·소진 시 한 번 알림 (12% 초과 회복 시 재설정)\n'
@@ -3009,6 +3308,33 @@ class UsageWidget:
         self.additional_open = None if self.additional_open == key else key
         self.relayout()
 
+    def toggle_card(self, key):
+        card = self.cards[key]
+        card.set_collapsed(not card.collapsed)
+        self.collapsed[key] = card.collapsed
+        self.tip.hide()
+        self.relayout()
+        self.persist()
+
+    def _scroll_page(self, direction, event=None):
+        if not self.compact and (event is None or event.widget.winfo_toplevel() is self.root):
+            self.body_view.yview_scroll(direction, 'pages')
+            return 'break'
+
+    def _scroll_body(self, event):
+        if self.compact or not event.delta:
+            return
+        widget = event.widget
+        if any(widget is card.additional.body for card in self.cards.values()):
+            return
+        while widget is not None:
+            if widget is self.body_view:
+                self.body_view.yview_scroll(-max(1,abs(event.delta)//120) if event.delta > 0
+                                           else max(1,abs(event.delta)//120), 'units')
+                self.tip.hide()
+                return 'break'
+            widget = getattr(widget, 'master', None)
+
     def relayout(self, x=None, y=None):
         try:
             if x is None:
@@ -3016,6 +3342,7 @@ class UsageWidget:
         except (tk.TclError, ValueError, TypeError):
             x, y = 40, 80
         work = work_area(x, y)
+        self._work_height = work[3] - work[1]
         monitor = monitor_area(x, y)
         visible = [k for k in FETCHERS if self.enabled[k].get()]
         m = self.metrics
@@ -3025,18 +3352,14 @@ class UsageWidget:
             used += getattr(card, 'hero_height', card.height)
             snap = self.snapshots.get(key)
             groups = getattr(snap, 'additional_groups', []) if snap and getattr(snap, 'ok', False) else []
-            if additional_count(groups):
+            if additional_count(groups) and not card.collapsed:
                 used += m.p(28)
             used += m.card_gap
         remaining = expanded_body_budget(work[3] - work[1], used, m.p)
         for key in FETCHERS:
             self.cards[key].set_additional_layout(self.additional_open == key, remaining)
         self.apply_mode()
-        if self.compact:
-            height = m.compact_h
-        else:
-            body_h = sum(self.cards[k].height for k in visible) + m.card_gap * max(0, len(visible) - 1)
-            height = 2 + m.header_h + body_h + m.footer_h
+        height = int(self.shell.cget('height'))
         x, y = clamp_position(x, y, m.window_w, height, work, monitor)
         self.root.geometry(geometry_at(x, y))
         self.apply_topmost()
@@ -3065,12 +3388,16 @@ class UsageWidget:
             if key not in visible:
                 self.mini_values[key].configure(text=TITLES[key]+' 꺼짐',fg=CHIP_FG,bg=CHIP_STALE,percent=0,animate=False)
         body_h = sum(self.cards[k].height for k in visible)+m.card_gap*max(0,len(visible)-1)
-        height = m.compact_h if self.compact else 2+m.header_h+body_h+m.footer_h
+        work = work_area(self.root.winfo_x(), self.root.winfo_y())
+        work_h = getattr(self, '_work_height', work[3]-work[1])
+        chrome_h = 2+m.header_h+m.footer_h
+        view_h = min(body_h, max(1, work_h-chrome_h-m.p(12)))
+        height = m.compact_h if self.compact else chrome_h+view_h
         layout = (self.compact, tuple(visible), height, tuple(self.cards[k].height for k in visible), m.scale)
         if layout == self._layout:
             return
         self._layout = layout
-        for item in (self.header,self.body,self.footer,self.mini):
+        for item in (self.header,self.body_view,self.body_scroll,self.footer,self.mini):
             item.place_forget()
         for key,card in self.cards.items():
             card.pack_forget()
@@ -3098,11 +3425,19 @@ class UsageWidget:
         else:
             self.mini_title.place_forget()
         self.shell.configure(width=m.window_w,height=height)
+        self.body_view.itemconfigure(self._body_window,width=m.card_w)
+        self.body_view.configure(scrollregion=(0,0,m.card_w,body_h),yscrollincrement=m.p(24))
+        if body_h <= view_h:
+            self.body_view.yview_moveto(0)
         if self.compact:
             self.mini.place(x=1,y=1,width=m.window_w-2,height=max(1, m.compact_h-2),bordermode='outside')
         else:
             self.header.place(x=1,y=1,width=m.window_w-2,height=m.header_h,bordermode='outside')
-            self.body.place(x=1,y=1+m.header_h,width=m.window_w-2,height=body_h,bordermode='outside')
+            self.body_view.place(x=1,y=1+m.header_h,width=m.window_w-2,height=view_h,bordermode='outside')
+            if body_h > view_h:
+                self.body_scroll.place(x=m.window_w-1-m.p(8),y=1+m.header_h,
+                                       width=m.p(8),height=view_h)
+                self.body_scroll.lift()
             self.footer.place(x=1,y=height-m.footer_h-1,width=m.window_w-2,height=m.footer_h,bordermode='outside')
         self.root.geometry(f'{m.window_w}x{height}')
         self.root.update_idletasks()
@@ -3187,6 +3522,7 @@ class UsageWidget:
                 'x': self.root.winfo_x(),
                 'y': self.root.winfo_y(),
                 'compact': self.compact,
+                'collapsed': {k: card.collapsed for k, card in self.cards.items()},
                 'topmost': self.topmost.get(),
                 'scale': self.scale,
                 'version': 3,
@@ -3322,6 +3658,29 @@ class UsageWidget:
             self.render(key)
         self.apply_mode()
         self.persist()
+
+    def retry_provider(self, key):
+        if key not in FETCHERS or not self.enabled[key].get() or self.closing:
+            return
+        self.failures[key] = 0
+        self.runner.cancel(key)
+        self.due[key] = 0
+        if key == 'claude':
+            self.claude_cli_due = 0.0
+        if self.locked or self.preview:
+            return
+        self.start_job(key)
+
+    def show_login_help(self, key):
+        snap = self.snapshots.get(key)
+        label, action = login_guidance(key, snap)
+        lines = [f'{TITLES.get(key, key)} · {login_status(key)}']
+        if snap is not None and snap.error:
+            lines.append(snap.error)
+        lines.append('')
+        lines.append(f'{label} 작업을 진행할까요?')
+        if self.notify(messagebox.askyesno, '로그인 안내', '\n'.join(lines), parent=self.root):
+            self._service_setup_action(action)
 
     def test_toast(self):
         if self.toast and not self.locked:
@@ -3505,9 +3864,7 @@ class UsageWidget:
 
     def refresh_design_status(self):
         snaps=[s for k,s in self.snapshots.items() if self.enabled[k].get()]
-        stamp=max((s.fetched_at for s in snaps if s.ok),default=0)
-        age=max(0,int(time.time()-stamp)) if stamp else None
-        text='갱신 대기' if age is None else '방금 업데이트' if age<5 else f'{age}초 전 업데이트' if age<60 else f'{age//60}분 전 업데이트'
+        text, age = header_freshness(snaps)
         self.updated_label.configure(text='' if self.update_info or self._update_busy else '· '+text)
         color=MUTED if age is None or age>60 or any(s.stale for s in snaps) else '#22C55E'
         if any(not s.ok for s in snaps): color=DANGER

@@ -663,4 +663,118 @@ class UiTests(unittest.TestCase):
             paint.assert_called_once()
         self.assertEqual(card.additional._rows[-1].percent,70)
 
+    def test_status_copy_names_the_cause_and_keeps_waiting_quiet(self):
+        login=ProviderSnapshot('cursor','Cursor','Pro',False,None,'',error='Cursor에 다시 로그인하세요.')
+        self.assertEqual(u.failure_cause(login),'재로그인 필요')
+        self.assertEqual(u.failure_cause(ProviderSnapshot('chatgpt','GPT','-',False,None,'',error='사용량 응답 시간이 초과되었습니다.')),'응답 시간 초과')
+        self.assertEqual(u.failure_cause(ProviderSnapshot('claude','Claude','-',False,None,'',error='서버 연결을 확인한 뒤 다시 시도하세요.')),'연결 확인 필요')
+        waiting=ProviderSnapshot('claude','Claude','-',False,None,'',error='Claude Code에서 사용량을 가져오는 중입니다.')
+        self.assertEqual(u.failure_cause(waiting),'확인 중')
+        self.assertFalse(u.service_needs_actions(waiting))
+        self.assertEqual(u.service_status_text(ProviderSnapshot('chatgpt','GPT','Plus',True,80,'',fetched_at=1000),1020),'20초 전 확인')
+        stale=ProviderSnapshot('chatgpt','GPT','Plus',True,80,'',stale=True,error='Codex CLI에 로그인해 주세요.',fetched_at=1000)
+        self.assertEqual(u.service_status_text(stale,1020),'20초 전 확인 · 이전 값 · 재로그인 필요')
+        self.assertTrue(u.service_needs_actions(stale))
+        self.assertGreaterEqual(_contrast(u.STATUS_FG, u.CARD), 4.5)
+
+    def test_header_follows_the_oldest_service(self):
+        now=1_700_000_020
+        fresh=ProviderSnapshot('chatgpt','GPT','Plus',True,80,'',fetched_at=now-2)
+        older=ProviderSnapshot('cursor','Cursor','Pro',True,80,'',fetched_at=now-20)
+        distant=ProviderSnapshot('cursor','Cursor','Pro',True,80,'',fetched_at=now-10*86400)
+        self.assertEqual(u.header_freshness([fresh,older],now),('20초 전 확인',20))
+        self.assertEqual(u.header_freshness([fresh,distant],now)[0],'서비스별 확인')
+        failed=ProviderSnapshot('claude','Claude','-',False,None,'',error='조회 실패',fetched_at=now)
+        self.assertEqual(u.header_freshness([failed],now)[0],'확인 실패')
+
+    def test_each_card_shows_its_own_check_and_cached_error(self):
+        from types import SimpleNamespace
+        w=self.w
+        stamp=1_700_000_000
+        w.enabled['cursor'].set(True)
+        w.snapshots['chatgpt']=ProviderSnapshot('chatgpt','GPT','Plus',True,91,'',fetched_at=stamp,
+            main_limits=[limit('primary_window','5시간',91,FIVE_H)])
+        w.snapshots['cursor']=ProviderSnapshot('cursor','Cursor','Pro',True,40,'',fetched_at=stamp-10*86400,stale=True,
+            error='Cursor에 다시 로그인하세요.',
+            main_limits=[limit('autoPercentUsed','Cursor Models',40,source='cursor')])
+        w.render('chatgpt')
+        w.render('cursor')
+        gpt, cursor=w.cards['chatgpt'], w.cards['cursor']
+        gpt.refresh_clock(stamp+20)
+        cursor.refresh_clock(stamp+20)
+        self.assertEqual(gpt.rows.itemcget('service_status','text'),'20초 전 확인')
+        self.assertFalse(gpt._actions)
+        self.assertEqual(cursor.rows.itemcget('service_status','text'),'10일 전 확인 · 이전 값 · 재로그인 필요')
+        self.assertIn('Cursor에 다시 로그인하세요.',
+                      [cursor.rows.itemcget(item,'text') for item in cursor.rows.find_withtag('error_text')
+                       if cursor.rows.type(item)=='text'])
+        self.assertEqual(sorted(kind for *_, kind in cursor._actions),['login','retry'])
+        with patch.object(u.time,'time',return_value=stamp+20):
+            w.refresh_design_status()
+        self.assertIn('서비스별 확인', w.updated_label.cget('text'))
+        self.assertNotIn('방금', w.updated_label.cget('text'))
+        signature=cursor.last_signature
+        cursor.refresh_clock(stamp+50)
+        self.assertEqual(cursor.last_signature, signature)
+        self.assertIn('10일 전 확인', cursor.rows.itemcget('service_status','text'))
+        cursor.set_collapsed(True)
+        self.assertIn('재로그인 필요', cursor.rows.itemcget('service_status','text'))
+        self.assertTrue(cursor._actions)
+        login=next(box for box in cursor._actions if box[4]=='login')
+        with patch.object(w,'notify',return_value=False) as notify, patch.object(u.webbrowser,'open') as browser:
+            cursor._clicked(SimpleNamespace(x=(login[0]+login[2])/2, y=(login[1]+login[3])/2))
+            browser.assert_not_called()
+        self.assertEqual(notify.call_args.args[1],'로그인 안내')
+        self.assertIn('다시 로그인', notify.call_args.args[2])
+        if w.timer is not None:
+            w.root.after_cancel(w.timer)
+            w.timer=None
+        w.preview=False
+        w.locked=False
+        w.runner=Mock()
+        w.runner.start.return_value=True
+        w.runner.slots={}
+        retry=next(box for box in cursor._actions if box[4]=='retry')
+        with patch.object(u.webbrowser,'open') as browser:
+            cursor._clicked(SimpleNamespace(x=(retry[0]+retry[2])/2, y=(retry[1]+retry[3])/2))
+            browser.assert_not_called()
+        w.runner.start.assert_called_once()
+        self.assertEqual(w.runner.start.call_args.args[0],'cursor')
+        w.snapshots['chatgpt']=error_snapshot('chatgpt','GPT','조회 실패','')
+        w.render('chatgpt')
+        self.assertIn('조회 실패',[gpt.rows.itemcget(item,'text') for item in gpt.rows.find_withtag('error_text')
+                                  if gpt.rows.type(item)=='text'])
+        self.assertTrue(gpt._actions)
+        self.assertNotIn('조회 실패', cursor.rows.itemcget('service_status','text'))
+
+    def test_failed_refresh_keeps_the_cause_on_the_cached_card(self):
+        w=self.w
+        w.snapshots['chatgpt']=ProviderSnapshot(
+            'chatgpt','GPT','Plus',True,80,'',fetched_at=1_700_000_000,
+            main_limits=[limit('primary_window','5시간',80,FIVE_H)])
+        w.accept('chatgpt', error_snapshot('chatgpt','GPT','Codex CLI에 로그인해 주세요.',''))
+        snap=w.snapshots['chatgpt']
+        self.assertTrue(snap.ok and snap.stale)
+        self.assertEqual(snap.fetched_at, 1_700_000_000)
+        card=w.cards['chatgpt']
+        self.assertIn('이전 값 · 재로그인 필요', card.rows.itemcget('service_status','text'))
+        self.assertIn('Codex CLI에 로그인해 주세요.',
+                      [card.rows.itemcget(item,'text') for item in card.rows.find_withtag('error_text')
+                       if card.rows.type(item)=='text'])
+        self.assertTrue(card._actions)
+
+
+def _contrast(foreground, background):
+    def channel(value):
+        value = value / 255
+        return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+
+    def luminance(color):
+        red, green, blue = u._hex_rgb(color)
+        return 0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue)
+
+    light, dark = max(luminance(foreground), luminance(background)), min(luminance(foreground), luminance(background))
+    return (light + 0.05) / (dark + 0.05)
+
+
 if __name__=='__main__':unittest.main(verbosity=2)

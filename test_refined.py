@@ -33,6 +33,57 @@ class RefinedTests(unittest.TestCase):
             self.assertEqual(card.rows.itemcget('countdown','text'),'곧')
             card.destroy()
         finally: root.destroy()
+    def test_secondary_countdowns_use_each_quotas_reset(self):
+        now = datetime(2030, 1, 1, 12).timestamp()
+        root = u.tk.Tk()
+        root.withdraw()
+        try:
+            card = u.Card(root, 'chatgpt')
+            card.render(ProviderSnapshot('chatgpt', 'GPT', 'Plus', True, None, '',
+                main_limits=[
+                    quota('primary', '5시간', 80, FIVE_H, now + 3600),
+                    quota('weekly', '주간', 40, WEEK, now + 2 * 86400),
+                    quota('monthly', '월간', 60, 30 * 86400, now + 10 * 86400),
+                ]))
+            card.refresh_clock(now)
+            labels = card.rows.find_withtag('week_remaining')
+            self.assertEqual([card.rows.itemcget(i, 'text') for i in labels],
+                             ['2일 남음', '10일 남음'])
+            card.refresh_clock(now + 2 * 86400 - 65)
+            self.assertEqual([card.rows.itemcget(i, 'text') for i in labels],
+                             ['1분 05초', '8일 남음'])
+            card.refresh_clock(now + 2 * 86400 + 1)
+            self.assertEqual([card.rows.itemcget(i, 'text') for i in labels],
+                             ['곧', '7일 남음'])
+        finally:
+            root.destroy()
+
+    def test_secondary_countdowns_follow_reorder_and_removal(self):
+        now = datetime(2030, 1, 1, 12).timestamp()
+        hero = quota('primary', '5시간', 80, FIVE_H, now + 3600)
+        weekly = quota('weekly', '주간', 40, WEEK, now + 2 * 86400)
+        monthly = quota('monthly', '월간', 60, 30 * 86400, now + 10 * 86400)
+        unknown = quota('unknown', '기간 미상', 50)
+        root = u.tk.Tk()
+        root.withdraw()
+        try:
+            card = u.Card(root, 'chatgpt')
+            for limits, expected in (
+                ([hero, weekly, monthly], ['2일 남음', '10일 남음']),
+                ([hero, monthly, weekly], ['10일 남음', '2일 남음']),
+                ([hero, replace(weekly, reset_at=now + 3 * 86400), unknown], ['3일 남음']),
+                ([hero, unknown], []),
+            ):
+                with self.subTest(expected=expected):
+                    card.render(ProviderSnapshot('chatgpt', 'GPT', 'Plus', True, None, '',
+                                                main_limits=limits))
+                    card.refresh_clock(now)
+                    self.assertEqual(
+                        [card.rows.itemcget(i, 'text')
+                         for i in card.rows.find_withtag('week_remaining')], expected)
+        finally:
+            root.destroy()
+
     def test_countdown_and_severity_boundaries(self):
         self.assertEqual(u.reset_countdown(3600,0),'1시간 0분')
         self.assertEqual(u.reset_countdown(65,0),'1분 05초')
@@ -112,6 +163,83 @@ class RefinedTests(unittest.TestCase):
                 self.assertEqual(u.representative_state(snap),representative)
                 self.assertEqual(u.service_state(snap),service)
                 self.assertEqual(u.chip_style('chatgpt',snap)[0],compact)
+
+    def test_compact_warning_is_secondary_global_and_fresh_only(self):
+        hero = quota('primary_window', '5시간', 91, FIVE_H)
+        weekly = quota('secondary_window', '주간', 4, WEEK)
+        snap = ProviderSnapshot('chatgpt', 'GPT', 'Plus', True, None, '',
+                                main_limits=[hero, weekly])
+        self.assertEqual(u.compact_warning(snap).quota_id, weekly.quota_id)
+        self.assertEqual(u.representative_percent(snap), 91)
+        self.assertEqual(u.chip_style('chatgpt', snap)[0], u.CHIP_OK['chatgpt'])
+        self.assertIn('주의: 주간 잔여 4%', u.compact_tooltip(snap))
+        self.assertIn('5시간 · 잔여 91%', u.compact_tooltip(snap))
+        for other in (replace(weekly, remaining_percent=50),
+                      replace(weekly, remaining_percent=None),
+                      replace(weekly, scope='model')):
+            self.assertIsNone(u.compact_warning(replace(snap, main_limits=[hero, other])))
+        self.assertIsNone(u.compact_warning(replace(snap, main_limits=[weekly])))
+        self.assertIsNone(u.compact_warning(replace(snap, stale=True)))
+        self.assertIsNone(u.compact_warning(replace(snap, ok=False)))
+        self.assertIn('이전 값', u.compact_tooltip(replace(snap, stale=True)))
+
+    def test_compact_warning_recovers_and_uses_all_secondary_limits(self):
+        limits = [quota('primary_window', '5시간', 91, FIVE_H),
+                  quota('weekly', '주간', 40, WEEK),
+                  quota('monthly', '월간', 0, 30 * 86400)]
+        snap = ProviderSnapshot('chatgpt', 'GPT', 'Plus', True, None, '', main_limits=limits)
+        root = u.tk.Tk()
+        root.withdraw()
+        try:
+            chip = u.Chip(root)
+            chip.configure(text='GPT 91%', percent=91, bg=u.CHIP_OK['chatgpt'], animate=False)
+            chip.observe_usage(snap)
+            self.assertEqual(u.compact_warning(snap).display_name, '월간')
+            self.assertEqual(chip._warning_color, u.DANGER)
+            self.assertTrue(chip.find_withtag('quota_warning'))
+            chip.observe_usage(replace(snap, main_limits=limits[:2]))
+            self.assertEqual(chip._warning_color, u.WARN)
+            self.assertIn('주간 잔여 40%', chip.tip_text)
+            chip.observe_usage(replace(snap, main_limits=limits[:1]))
+            self.assertFalse(chip.find_withtag('quota_warning'))
+            self.assertEqual(chip.cget('text'), 'GPT 91%')
+            self.assertEqual(chip.fill, u.CHIP_OK['chatgpt'])
+            chip.observe_usage(snap)
+            chip.observe_usage(replace(snap, stale=True))
+            self.assertFalse(chip.find_withtag('quota_warning'))
+        finally:
+            root.destroy()
+
+    def test_compact_warning_does_not_overlap_text_at_supported_scales(self):
+        root = u.tk.Tk()
+        root.withdraw()
+        try:
+            for scale in (.75, 1, 1.15, 1.3, 1.5):
+                m = u.Metrics(scale)
+                font = u.tkfont.Font(root=root, font=m.font(u.FONT_CHIP))
+                width = max(m.chip_w, max(font.measure(f'{name} 100%')
+                            for name in u.TITLES.values()) + 2*m.p(u.COMPACT_CHIP_PAD))
+                _, _, width, _ = u.compact_row_layout(count=3, chip_width=width,
+                    controls_left=m.window_w-m.p(90), scale_px=m.p)
+                for key, name in u.TITLES.items():
+                    with self.subTest(scale=scale, key=key):
+                        chip = u.Chip(root, m)
+                        chip.set_width(width)
+                        chip.configure(text=f'{name} 100%', animate=False)
+                        snap = ProviderSnapshot(key, name, 'Pro', True, None, '', main_limits=[
+                            quota('autoPercentUsed' if key == 'cursor' else 'five_hour', '5시간', 100, FIVE_H, source=key),
+                            quota('weekly', '주간', 4, WEEK, source=key)])
+                        chip.observe_usage(snap)
+                        label = chip.bbox('label')
+                        marker = chip.bbox('quota_warning')
+                        self.assertIsNotNone(marker)
+                        self.assertGreaterEqual(label[0], 0)
+                        self.assertLessEqual(label[2], width)
+                        self.assertLessEqual(label[3], m.chip_canvas_h)
+                        self.assertLessEqual(marker[3], label[1])
+                        chip.destroy()
+        finally:
+            root.destroy()
 
     def test_secondary_alert_names_the_quota_that_is_running_out(self):
         snap=ProviderSnapshot('chatgpt','GPT','Plus',True,None,'5시간 기준 잔여',
