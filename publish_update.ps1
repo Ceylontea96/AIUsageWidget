@@ -174,6 +174,8 @@ $z1 = Join-Path $release 'AIUsageWidget.zip'
 $z2 = $z1
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory($stage, $z1, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+# The zip holds everything staged; the copy would only pile up in dist.
+Remove-Item -LiteralPath $stage -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $project 'latest.json') -Destination (Join-Path $release 'latest.json') -Force
 $notesFile = Join-Path $release 'RELEASE_NOTES.md'
 [System.IO.File]::WriteAllText($notesFile, $releaseNotes, $utf8)
