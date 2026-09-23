@@ -72,7 +72,11 @@ class ReleasePolicyTests(unittest.TestCase):
         # makes. What matters is unchanged: the version is verified before
         # anything is built, and there is no path that overwrites a release.
         script = Path(__file__).with_name("publish_update.ps1").read_text(encoding="utf-8-sig")
-        self.assertLess(script.index("Assert-NewReleaseVersion -Version"), script.index("'build_launcher.ps1'"))
+        # Anchor on the build call itself; the file name also appears in the
+        # list of packaged sources that the source guard checks.
+        build = script.index("& (Join-Path $project 'build_launcher.ps1')")
+        self.assertLess(script.index("Assert-NewReleaseVersion -Version"), build)
+        self.assertLess(script.index("Assert-PublishSourceCommitted -Project"), build)
         self.assertNotIn("--clobber", script)
         self.assertNotIn("release upload", script)
         self.assertNotIn("release edit", script)

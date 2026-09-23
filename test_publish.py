@@ -7,11 +7,33 @@ import unittest
 from pathlib import Path
 
 
+GIT_ENV = {'GIT_AUTHOR_NAME': 'fixture', 'GIT_AUTHOR_EMAIL': 'fixture@example.invalid',
+           'GIT_COMMITTER_NAME': 'fixture', 'GIT_COMMITTER_EMAIL': 'fixture@example.invalid'}
+
+
+def git(root, *args):
+    return subprocess.run(['git', '-c', 'safe.directory=*', *args], cwd=root,
+                          env={**os.environ, **GIT_ENV}, check=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+
+def publish_clone(root, origin):
+    """Make `root` a clean clone whose HEAD is exactly origin/main."""
+    subprocess.run(['git', 'init', '--bare', '-q', '-b', 'main', str(origin)],
+                   check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    git(root, 'init', '-q', '-b', 'main')
+    git(root, 'add', '-A')
+    git(root, 'commit', '-q', '-m', 'fixture')
+    git(root, 'remote', 'add', 'origin', str(origin))
+    git(root, 'push', '-q', '-u', 'origin', 'main')
+
+
 @unittest.skipUnless(os.name == 'nt', 'PowerShell release script is Windows-only')
 class PublishGuardTests(unittest.TestCase):
-    def guarded_attempt(self, version, published, code=0, feed_version=None):
+    def guarded_attempt(self, version, published, code=0, feed_version=None, after_commit=None):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory) / 'work'
+            root.mkdir()
             shutil.copyfile('publish_update.ps1', root / 'publish_update.ps1')
             (root / 'updater.py').write_text("APP_VERSION = '" + version + "'\n")
             (root / 'feed_url.txt').write_text('https://example.invalid/latest.json' if feed_version else '')
@@ -22,6 +44,9 @@ class PublishGuardTests(unittest.TestCase):
             stub = ("function Invoke-RestMethod { [CmdletBinding()] param([string]$Uri) "
                     "[pscustomobject]@{version='" + feed_version + "'} }\n") if feed_version else ''
             entry.write_text(stub + '& "$PSScriptRoot/publish_update.ps1" -GitHub\n')
+            publish_clone(root, Path(directory) / 'origin.git')
+            if after_commit:
+                after_commit(root)
             result = subprocess.run(['powershell.exe','-NoProfile','-ExecutionPolicy','Bypass',
                 '-File',str(entry)],cwd=root,env=env,
                 stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=15)
@@ -53,6 +78,60 @@ class PublishGuardTests(unittest.TestCase):
         output=self.guarded_attempt('3.4.2',['v3.4.1'],feed_version='3.4.2')
         self.assertIn('Refusing same/older',output)
         self.assertNotIn('BUILD_REACHED',output)
+
+    def test_uncommitted_change_never_reaches_build(self):
+        def edit(root):
+            (root / 'updater.py').write_text("APP_VERSION = '3.4.2'\n# local edit\n")
+        output = self.guarded_attempt('3.4.2', ['v3.4.1'], after_commit=edit)
+        self.assertIn('Uncommitted changes', output)
+        self.assertNotIn('BUILD_REACHED', output)
+
+    def test_unpushed_commit_never_reaches_build(self):
+        def commit_locally(root):
+            (root / 'CHANGELOG.md').write_text('local only\n')
+            git(root, 'add', 'CHANGELOG.md')
+            git(root, 'commit', '-q', '-m', 'not pushed')
+        output = self.guarded_attempt('3.4.2', ['v3.4.1'], after_commit=commit_locally)
+        self.assertIn('is not origin/main', output)
+        self.assertNotIn('BUILD_REACHED', output)
+
+    def test_untracked_packaged_file_never_reaches_build(self):
+        def add_module(root):
+            (root / 'providers.py').write_text('# never committed\n')
+        output = self.guarded_attempt('3.4.2', ['v3.4.1'], after_commit=add_module)
+        self.assertIn('would ship without being committed', output)
+        self.assertIn('providers.py', output)
+        self.assertNotIn('BUILD_REACHED', output)
+
+    def test_ignored_packaged_file_never_reaches_build(self):
+        def hide_module(root):
+            (root / '.gitignore').write_text('providers.py\n')
+            git(root, 'add', '.gitignore')
+            git(root, 'commit', '-q', '-m', 'ignore it')
+            git(root, 'push', '-q')
+            (root / 'providers.py').write_text('# ignored, still packaged\n')
+        output = self.guarded_attempt('3.4.2', ['v3.4.1'], after_commit=hide_module)
+        self.assertIn('would ship without being committed', output)
+        self.assertNotIn('BUILD_REACHED', output)
+
+    def test_untracked_files_outside_the_archive_are_allowed(self):
+        def scratch(root):
+            (root / 'design_reference').mkdir()
+            (root / 'design_reference' / 'mock.html').write_text('<p>scratch</p>\n')
+            # A nested .bat must not match the top-level *.bat package rule.
+            (root / 'old_stage').mkdir()
+            (root / 'old_stage' / 'old.bat').write_text('rem previous stage\n')
+        output = self.guarded_attempt('3.4.2', ['v3.4.1'], after_commit=scratch)
+        self.assertIn('BUILD_REACHED', output)
+
+    def test_release_is_tagged_on_the_checked_commit(self):
+        text = Path('publish_update.ps1').read_text(encoding='utf-8')
+        create = [line for line in text.splitlines() if '& $gh release create' in line]
+        self.assertEqual(len(create), 1)
+        self.assertIn('--target $sourceCommit', create[0])
+        # The guard runs before any build step can touch tracked files.
+        self.assertLess(text.index('Assert-PublishSourceCommitted -Project'),
+                        text.index("build_launcher.ps1')"))
 
     def test_no_overwrite_path_and_runtime_modules_packaged(self):
         text=Path('publish_update.ps1').read_text(encoding='utf-8')
