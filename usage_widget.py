@@ -50,7 +50,8 @@ from quota_policy import (
     service_remaining,
     window_matches,
 )
-from runtime import AlertGate, AuthWatcher, PollRunner, ToastSender, limiting_quota, login_present, login_status, prepare_action, session_locked, start_tool_setup
+from codex_app_server import CodexAppServer
+from runtime import AlertGate, AuthWatcher, CodexJob, PollRunner, ToastSender, limiting_quota, login_present, login_status, prepare_action, session_locked, start_tool_setup
 from updater import APP_VERSION, CHECK_EVERY, LAUNCHER_EXE, download_and_stage, fetch_latest, load_feed_url, start_apply, update_confirm_text
 
 APP_DIR = Path(os.environ.get('APPDATA', str(Path.home()))) / 'AiUsageWidget'
@@ -2334,7 +2335,10 @@ class UsageWidget:
         self.root.attributes('-topmost', self.topmost.get())
         self.compact = bool(self.settings.get('compact', False))
         self.closing = False
-        self.runner = PollRunner()
+        # GPT asks the widget's own Codex app-server; no token is read here.
+        self.runner = PollRunner(inprocess={
+            'chatgpt': CodexJob(CodexAppServer(client_version=APP_VERSION)),
+        })
         self.watcher = AuthWatcher()
         self.codex_activity = CodexActivityMonitor()
         self.cursor_activity = CursorActivityMonitor()
@@ -3356,6 +3360,8 @@ class UsageWidget:
                     if key == 'cursor':
                         self.runner.plan_cache = None
                     self.runner.cancel(key)
+                    # A new Codex login needs a fresh app-server to pick it up.
+                    self.runner.reset(key)
                     self.due[key] = 0
 
     def accept(self, key, snap, *, is_new=False):

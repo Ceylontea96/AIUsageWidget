@@ -4,9 +4,10 @@ import sys
 import time
 import providers
 
-from providers import fetch_chatgpt, fetch_claude_cli, fetch_cursor, error_snapshot, snapshot_to_dict
+from providers import fetch_claude_cli, fetch_cursor, error_snapshot, snapshot_to_dict
 
-FETCHERS = {'chatgpt': fetch_chatgpt, 'cursor': fetch_cursor, 'claude': fetch_claude_cli}
+# GPT is read on a thread in the widget through its Codex app-server client.
+FETCHERS = {'cursor': fetch_cursor, 'claude': fetch_claude_cli}
 
 if __name__ == '__main__':
     key = sys.argv[1]

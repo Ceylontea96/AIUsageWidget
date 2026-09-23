@@ -11,27 +11,18 @@ import providers as p
 import usage_widget as u
 
 
-class FakeAuth:
-    def load(self): pass
-    def ensure_fresh(self): pass
-    def access_token(self): return 'fake'
-    def account_id(self): return ''
-
-
 def codex(primary=10, weekly=20, reached=False):
     body={'rate_limit': {
         'primary_window': {'used_percent':primary,'reset_after_seconds':3600,'limit_window_seconds':18000},
         'secondary_window': {'used_percent':weekly,'reset_after_seconds':86400,'limit_window_seconds':604800},
         'limit_reached':reached,
     }}
-    with patch.object(p,'ChatGptAuth',FakeAuth),patch.object(p,'http_json',return_value=(200,body)):
-        return p.fetch_chatgpt()
+    return p.chatgpt_snapshot(body)
 
 
 def codex_rate(rate):
     body={'rate_limit':rate}
-    with patch.object(p,'ChatGptAuth',FakeAuth),patch.object(p,'http_json',return_value=(200,body)):
-        return p.fetch_chatgpt()
+    return p.chatgpt_snapshot(body)
 
 
 class WidgetTests(unittest.TestCase):
@@ -235,12 +226,13 @@ class WidgetTests(unittest.TestCase):
         self.assertFalse(w.snapshots['chatgpt'].stale)
         self.assertEqual(w.failures['chatgpt'],0)
 
-    def test_auth_is_read_only(self):
-        with patch.object(p,'jwt_exp',return_value=0),patch.object(p,'http_json') as http:
-            auth=p.ChatGptAuth();auth.data={'tokens':{'access_token':'fake','refresh_token':'fake'}}
-            with self.assertRaises(RuntimeError):auth.ensure_fresh()
-            http.assert_not_called()
-            self.assertEqual(auth.data['tokens']['access_token'],'fake')
+    def test_gpt_never_reads_codex_tokens(self):
+        # GPT usage comes from Codex's own app-server; the widget holds no
+        # reader for Codex's login file at all.
+        self.assertFalse(hasattr(p,'ChatGptAuth'))
+        source=Path(p.__file__).read_text(encoding='utf-8')
+        self.assertNotIn('auth.json',source)
+        self.assertNotIn('wham/usage',source)
 
     def test_cursor_auth_is_read_only(self):
         with patch.object(p,'jwt_exp',return_value=0),patch.object(p,'http_json') as http:

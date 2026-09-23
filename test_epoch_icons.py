@@ -40,8 +40,7 @@ def cursor(billing_cycle_end, **plan_usage):
 def gpt(reset_at):
     body = {'rate_limit': {'primary_window': {'used_percent': 20, 'limit_window_seconds': 18000,
                                               'reset_at': reset_at}}}
-    with patch.object(p, 'ChatGptAuth', FakeAuth), patch.object(p, 'http_json', return_value=(200, body)):
-        return p.fetch_chatgpt()
+    return p.chatgpt_snapshot(body)
 
 
 def claude(resets_at, now):

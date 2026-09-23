@@ -29,8 +29,7 @@ class FakeAuth:
 
 
 def gpt(body):
-    with patch.object(p, 'ChatGptAuth', FakeAuth), patch.object(p, 'http_json', return_value=(200, body)):
-        return p.fetch_chatgpt()
+    return p.chatgpt_snapshot(body)
 
 
 def window(used, seconds=None, **extra):

@@ -13,7 +13,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from quota_policy import (
     FIVE_HOURS,
@@ -32,7 +32,6 @@ SQLITE_RETRY_S = 2.0
 
 _OPENER = urllib.request.build_opener()
 _CURSOR_MEM: dict[str, Any] = {}
-_CHATGPT_MEM: dict[str, Any] = {}
 _PLAN_MEM: dict[str, Any] = {"name": "", "until": 0.0}
 
 
@@ -650,8 +649,9 @@ def snapshot_from_dict(data: dict[str, Any]) -> ProviderSnapshot:
 
 class CursorAuth:
     def __init__(self) -> None:
+        # Only the access token and plan name are read. The refresh token is
+        # never selected: the widget does not renew or write Cursor's login.
         self.access_token = ""
-        self.refresh_token = ""
         self.plan = ""
 
     def load(self) -> None:
@@ -661,7 +661,6 @@ class CursorAuth:
         exp = to_float(cached.get("exp")) or 0.0
         if token and (exp <= 0 or exp - 90 > now) and now - float(cached.get("loaded_at") or 0) < 600:
             self.access_token = token
-            self.refresh_token = str(cached.get("refresh_token") or "")
             self.plan = str(cached.get("plan") or "Cursor")
             return
         db = Path(os.environ.get("APPDATA", "")) / "Cursor" / "User" / "globalStorage" / "state.vscdb"
@@ -675,12 +674,8 @@ class CursorAuth:
                 con = sqlite3.connect(uri, uri=True, timeout=SQLITE_RETRY_S)
                 try:
                     rows = con.execute(
-                        "SELECT key, value FROM ItemTable WHERE key IN (?,?,?)",
-                        (
-                            "cursorAuth/accessToken",
-                            "unused/read-only-widget",
-                            "cursorAuth/stripeMembershipType",
-                        ),
+                        "SELECT key, value FROM ItemTable WHERE key IN (?,?)",
+                        ("cursorAuth/accessToken", "cursorAuth/stripeMembershipType"),
                     ).fetchall()
                     rowmap = {str(k): ("" if v is None else str(v)) for k, v in rows}
                 finally:
@@ -693,14 +688,12 @@ class CursorAuth:
         if last_error and not rowmap:
             raise RuntimeError("Cursor 설정 DB를 읽지 못했습니다. Cursor를 연 뒤 다시 시도하세요.")
         self.access_token = rowmap.get("cursorAuth/accessToken") or ""
-        self.refresh_token = rowmap.get("cursorAuth/refreshToken") or ""
         self.plan = rowmap.get("cursorAuth/stripeMembershipType") or "Cursor"
         if not self.access_token:
             raise RuntimeError("Cursor 액세스 토큰이 없습니다. Cursor에 다시 로그인하세요.")
         _CURSOR_MEM.update(
             {
                 "access_token": self.access_token,
-                "refresh_token": self.refresh_token,
                 "plan": self.plan,
                 "exp": jwt_exp(self.access_token) or 0.0,
                 "loaded_at": now,
@@ -712,43 +705,6 @@ class CursorAuth:
         if exp is not None and exp <= time.time():
             _CURSOR_MEM.clear()
             raise RuntimeError("Cursor 로그인을 갱신한 뒤 새로고침하세요.")
-
-
-class ChatGptAuth:
-    def __init__(self) -> None:
-        self.path = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex")) / "auth.json"
-        self.data: dict[str, Any] = {}
-
-    def load(self) -> None:
-        if not self.path.is_file():
-            raise RuntimeError("ChatGPT 로그인 파일을 찾지 못했습니다. `codex login` 후 다시 실행하세요.")
-        mtime = self.path.stat().st_mtime
-        cached = _CHATGPT_MEM
-        if cached.get("mtime") == mtime and isinstance(cached.get("data"), dict):
-            self.data = cached["data"]
-            return
-        self.data = json.loads(self.path.read_text(encoding="utf-8"))
-        _CHATGPT_MEM["mtime"] = mtime
-        _CHATGPT_MEM["data"] = self.data
-
-    def tokens(self) -> dict[str, Any]:
-        raw = self.data.get("tokens")
-        return raw if isinstance(raw, dict) else self.data
-
-    def access_token(self) -> str:
-        return str(self.tokens().get("access_token") or "")
-
-    def account_id(self) -> str:
-        return str(self.tokens().get("account_id") or self.data.get("account_id") or "")
-
-    def ensure_fresh(self) -> None:
-        token = self.access_token()
-        if not token:
-            raise RuntimeError("GPT 사용량 조회를 위해 Codex CLI에 로그인한 뒤 새로고침하세요.")
-        exp = jwt_exp(token)
-        if exp is not None and exp <= time.time():
-            _CHATGPT_MEM.clear()
-            raise RuntimeError("Codex CLI 로그인을 갱신한 뒤 새로고침하세요.")
 
 
 def _cursor_plan_name(headers: dict[str, str], fallback: str) -> str:
@@ -1204,19 +1160,16 @@ def _chatgpt_main_limits(rate: Any) -> list[QuotaItem]:
     return items
 
 
-# The list Codex itself shows reset credits from. Read-only: the neighbouring
-# /consume path spends a credit and must never be called from here.
-RESET_CREDITS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
-# A credit's expiry only changes when a credit is granted or used, and both
-# change available_count, so a slow refresh plus a count check is enough.
-RESET_CREDITS_TTL = 15 * 60.0
-
-
-def reset_credits_cache_path() -> Path:
-    override = os.environ.get("AIUSAGE_RESET_CREDITS_CACHE")
-    if override:
-        return Path(override)
-    return Path(os.environ.get("APPDATA", str(Path.home()))) / "AiUsageWidget" / "reset_credits.json"
+def _epoch(value: Any) -> float | None:
+    """Unix seconds from a number (seconds or ms) or an ISO 8601 string."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        number = to_float(value)
+        if number is None:
+            return None
+        return number / 1000.0 if number > 10_000_000_000 else number
+    return parse_iso_epoch(value)
 
 
 def nearest_reset_credit_expiry(body: Any, now: float) -> float | None:
@@ -1226,87 +1179,88 @@ def nearest_reset_credit_expiry(body: Any, now: float) -> float | None:
     for credit in credits if isinstance(credits, list) else []:
         if not isinstance(credit, dict) or credit.get("status") != "available":
             continue
-        expiry = parse_iso_epoch(credit.get("expires_at"))
+        expiry = _epoch(credit.get("expires_at"))
         if expiry is not None and expiry > now:
             expiries.append(expiry)
     return min(expiries) if expiries else None
 
 
-def _read_reset_cache(path: Path) -> dict[str, Any]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, UnicodeError):
-        return {}
-    return data if isinstance(data, dict) else {}
+def _app_server_window(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    window: dict[str, Any] = {"used_percent": raw.get("usedPercent")}
+    minutes = to_float(raw.get("windowDurationMins"))
+    if minutes is not None and minutes > 0:
+        window["limit_window_seconds"] = minutes * 60
+    if raw.get("resetsAt") is not None:
+        window["reset_at"] = raw.get("resetsAt")
+    return window
 
 
-def _write_reset_cache(path: Path, payload: dict[str, Any]) -> None:
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-        tmp.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-        os.replace(tmp, path)
-    except OSError:
-        pass
+def _app_server_rate(snapshot: Any) -> dict[str, Any]:
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    rate: dict[str, Any] = {}
+    for source, target in (("primary", "primary_window"), ("secondary", "secondary_window")):
+        window = _app_server_window(snapshot.get(source))
+        if window is not None:
+            rate[target] = window
+    reached = snapshot.get("rateLimitReachedType")
+    if reached is not None:
+        rate["limit_reached"] = True
+        rate["rate_limit_reached_type"] = reached
+    return rate
 
 
-def reset_credit_expiry(headers: dict[str, str], available: int, now: float) -> float | None:
-    """Nearest reset-credit expiry. Missing data only hides the date."""
-    path = reset_credits_cache_path()
-    cached = _read_reset_cache(path)
-    cached_at = to_float(cached.get("fetched_at"))
-    cached_expiry = to_float(cached.get("nearest_expires_at"))
-    fresh = (
-        cached_at is not None
-        and to_int(cached.get("available_count")) == available
-        and 0 <= now - cached_at < RESET_CREDITS_TTL
-    )
-    # A cached date that has already passed means a credit expired: re-read.
-    if fresh and (cached_expiry is None or cached_expiry > now):
-        return cached_expiry
-    keep = cached_expiry if cached_expiry is not None and cached_expiry > now else None
-    try:
-        status, body = http_json("GET", RESET_CREDITS_URL, headers)
-    except RuntimeError:
-        return keep
-    if status >= 400 or not isinstance(body, dict):
-        return keep
-    expiry = nearest_reset_credit_expiry(body, now)
-    # Only the count and one timestamp are kept; no credit ids or titles.
-    _write_reset_cache(path, {"fetched_at": now, "available_count": available, "nearest_expires_at": expiry})
-    return expiry
+def usage_body_from_app_server(result: Any) -> dict[str, Any]:
+    """Shape Codex's `account/rateLimits/read` answer like the usage payload
+    `chatgpt_snapshot` normalises, so classification lives in one place."""
+    result = result if isinstance(result, dict) else {}
+    main = result.get("rateLimits") if isinstance(result.get("rateLimits"), dict) else {}
+    main_id = main.get("limitId")
+    body: dict[str, Any] = {"rate_limit": _app_server_rate(main)}
+    if main.get("planType"):
+        body["plan_type"] = main.get("planType")
+    credits = main.get("credits")
+    if isinstance(credits, dict):
+        body["credits"] = {
+            "has_credits": bool(credits.get("hasCredits")),
+            "balance": credits.get("balance"),
+            "unlimited": bool(credits.get("unlimited")),
+        }
+    # Every other limit id is an additional, scoped limit such as a model or
+    # feature allowance; the main one is already in rate_limit.
+    by_id = result.get("rateLimitsByLimitId")
+    additional = []
+    for limit_id, snapshot in (by_id.items() if isinstance(by_id, dict) else []):
+        if limit_id == main_id or not isinstance(snapshot, dict):
+            continue
+        entry: dict[str, Any] = {"limit_id": str(limit_id), "rate_limit": _app_server_rate(snapshot)}
+        if snapshot.get("limitName"):
+            entry["limit_name"] = snapshot.get("limitName")
+        additional.append(entry)
+    if additional:
+        body["additional_rate_limits"] = additional
+    resets = result.get("rateLimitResetCredits")
+    if isinstance(resets, dict):
+        body["rate_limit_reset_credits"] = {
+            "available_count": resets.get("availableCount"),
+            # Only status and expiry are kept: no credit ids or titles.
+            "credits": [
+                {"status": credit.get("status"), "expires_at": credit.get("expiresAt")}
+                for credit in resets.get("credits") or []
+                if isinstance(credit, dict)
+            ],
+        }
+    return body
 
 
-def fetch_chatgpt() -> ProviderSnapshot:
-    now = time.time()
-    auth = ChatGptAuth()
-    auth.load()
-    auth.ensure_fresh()
-    headers = {
-        "Authorization": f"Bearer {auth.access_token()}",
-        "User-Agent": USER_AGENT,
-        "Accept": "application/json",
-        "Origin": "https://chatgpt.com",
-        "Referer": "https://chatgpt.com/",
-    }
-    account_id = auth.account_id()
-    if account_id:
-        headers["ChatGPT-Account-Id"] = account_id
-    status, body = http_json("GET", "https://chatgpt.com/backend-api/wham/usage", headers)
-    if status == 401:
-        _CHATGPT_MEM.clear()
-        auth.load()
-        auth.ensure_fresh()
-        headers["Authorization"] = f"Bearer {auth.access_token()}"
-        status, body = http_json("GET", "https://chatgpt.com/backend-api/wham/usage", headers)
-    if status >= 400:
-        raise FetchError(
-            f"ChatGPT 사용량 API 오류 ({status})",
-            getattr(body, "retry_after", ""),
-        )
+def chatgpt_snapshot(body: Any, now: float | None = None) -> ProviderSnapshot:
+    """Normalise one usage payload into the canonical GPT snapshot."""
+    now = time.time() if now is None else float(now)
+    body = body if isinstance(body, dict) else {}
     rate = body.get("rate_limit") or {}
     main_limits = _chatgpt_main_limits(rate)
-    additional_groups = _chatgpt_additional_groups(body if isinstance(body, dict) else {})
+    additional_groups = _chatgpt_additional_groups(body)
     billing: list[BillingItem] = []
     extras = []
     credits = body.get("credits") or {}
@@ -1317,7 +1271,7 @@ def fetch_chatgpt() -> ProviderSnapshot:
     reset_credits = body.get("rate_limit_reset_credits") or {}
     available = to_int(reset_credits.get("available_count"))
     if available:
-        expiry = reset_credit_expiry(headers, available, now)
+        expiry = nearest_reset_credit_expiry(reset_credits, now)
         billing.append(
             BillingItem(
                 "chatgpt:billing:reset_credits", "chatgpt", "reset_credits", available,
@@ -1357,6 +1311,27 @@ def fetch_chatgpt() -> ProviderSnapshot:
         dashboard_url="https://chatgpt.com/codex/settings/usage",
         fetched_at=time.time(),
     )
+
+
+def fetch_chatgpt(read: Callable[[], Any] | None = None) -> ProviderSnapshot:
+    """GPT plan usage as the installed Codex reports it.
+
+    `read` returns Codex's `account/rateLimits/read` result. The widget passes
+    its long-lived app-server client; without one a server is started for
+    this call alone. Codex's login tokens are never read here.
+    """
+    now = time.time()
+    if read is None:
+        from codex_app_server import CodexAppServer
+
+        server = CodexAppServer()
+        try:
+            result = server.read_rate_limits()
+        finally:
+            server.close()
+    else:
+        result = read()
+    return chatgpt_snapshot(usage_body_from_app_server(result), now)
 
 
 CLAUDE_DASHBOARD_URL = "https://claude.ai/settings/usage"

@@ -193,11 +193,62 @@ class Slot:
     expired: bool = False
 
 
+class _ThreadHandle:
+    """What a slot needs from a worker process, for a job run on a thread."""
+
+    def __init__(self, interrupt):
+        self.returncode = None
+        self._interrupt = interrupt
+
+    def poll(self):
+        return self.returncode
+
+    def kill(self):
+        if self.returncode is None:
+            self._interrupt()
+
+
+class CodexJob:
+    """GPT usage from the widget's own Codex app-server, run on a thread.
+
+    Codex answers with its own sign-in, so no token is read here. The server
+    stays up between polls; a cancelled or stuck read restarts it.
+    """
+
+    def __init__(self, server):
+        self.server = server
+
+    def run(self):
+        from providers import error_snapshot, fetch_chatgpt, snapshot_to_dict
+        try:
+            snap = fetch_chatgpt(self.server.read_rate_limits)
+        except Exception as exc:
+            message = str(exc) if isinstance(exc, RuntimeError) else '로그인 상태와 연결을 확인하세요.'
+            snap = error_snapshot('chatgpt', 'chatgpt', message, '', getattr(exc, 'retry_after', ''))
+        # The same JSON contract a worker process prints, so poll() is shared.
+        return json.loads(json.dumps(snapshot_to_dict(snap), ensure_ascii=True, allow_nan=False))
+
+    def interrupt(self):
+        self.server.restart()
+
+    def reset(self):
+        self.server.restart()
+
+    def close(self):
+        self.server.close()
+
+
 class PollRunner:
-    """At most one process per provider. UI deadlines reject late results."""
-    def __init__(self, timeout=15, worker=None):
+    """At most one job per provider. UI deadlines reject late results.
+
+    Most providers run in a short-lived worker process. A provider listed in
+    `inprocess` runs on a thread here instead, with the same slot, deadline
+    and result rules.
+    """
+    def __init__(self, timeout=15, worker=None, inprocess=None):
         self.timeout = timeout
         self.worker = Path(worker or Path(__file__).with_name('poll_worker.py'))
+        self.inprocess = dict(inprocess or {})
         self.slots = {}
         self.results = queue.Queue()
         self.generation = 0
@@ -206,6 +257,9 @@ class PollRunner:
     def start(self, key, now):
         if key in self.slots:
             return False
+        job = self.inprocess.get(key)
+        if job is not None:
+            return self._start_inprocess(key, job, now)
         if self.plan_cache and now >= self.plan_cache[1]:
             self.plan_cache = None
         exe = Path(sys.executable)
@@ -240,6 +294,32 @@ class PollRunner:
 
         threading.Thread(target=collect, daemon=True, name='quota-reader-' + key).start()
         return True
+
+    def _start_inprocess(self, key, job, now):
+        handle = _ThreadHandle(job.interrupt)
+        self.generation += 1
+        slot = Slot(self.generation, now, handle)
+        self.slots[key] = slot
+
+        def run():
+            payload = None
+            try:
+                payload = job.run()
+            except Exception:
+                payload = None
+            finally:
+                # Mark done before queueing, so poll() may release the slot.
+                handle.returncode = 0
+                self.results.put((key, slot.generation, payload))
+
+        threading.Thread(target=run, daemon=True, name='quota-reader-' + key).start()
+        return True
+
+    def reset(self, key):
+        """Forget a provider's long-lived state, e.g. after its login changed."""
+        job = self.inprocess.get(key)
+        if job is not None:
+            job.reset()
 
     def cancel(self, key):
         slot = self.slots.get(key)
@@ -286,6 +366,11 @@ class PollRunner:
     def close(self):
         for key in list(self.slots):
             self.cancel(key)
+        for job in self.inprocess.values():
+            try:
+                job.close()
+            except Exception:
+                pass
 
 
 def session_locked():

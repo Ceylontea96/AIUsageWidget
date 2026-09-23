@@ -1,6 +1,5 @@
-"""GPT reset-credit expiry: parsing, cadence, transport and display. Offline."""
+"""GPT reset-credit expiry from Codex's rate-limit answer: parsing and display. Offline."""
 import json
-import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -25,45 +24,23 @@ def credit(days, status="available", **extra):
     return item
 
 
-class FakeAuth:
-    def load(self): pass
-    def ensure_fresh(self): pass
-    def access_token(self): return "fake"
-    def account_id(self): return ""
-
-
-def usage_body(available):
+def app_server_result(available, credits=()):
+    """Shaped like Codex's account/rateLimits/read answer."""
     return {
-        "rate_limit": {
-            "primary_window": {"used_percent": 10, "limit_window_seconds": 18000, "reset_after_seconds": 3600},
-            "secondary_window": {"used_percent": 20, "limit_window_seconds": 604800, "reset_after_seconds": 86400},
+        "rateLimits": {
+            "limitId": "codex", "planType": "plus", "rateLimitReachedType": None,
+            "primary": {"usedPercent": 10, "windowDurationMins": 300, "resetsAt": int(NOW) + 3600},
+            "secondary": {"usedPercent": 20, "windowDurationMins": 10080, "resetsAt": int(NOW) + 86400},
+            "credits": {"hasCredits": False, "unlimited": False, "balance": "0"},
         },
-        "rate_limit_reset_credits": {"available_count": available, "applicable_available_count": 0},
+        "rateLimitResetCredits": {"availableCount": available, "credits": list(credits)},
     }
 
 
-class ResetCreditCase(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.cache = Path(self.tmp.name) / "reset_credits.json"
-        env = patch.dict(os.environ, {"AIUSAGE_RESET_CREDITS_CACHE": str(self.cache)})
-        env.start()
-        self.addCleanup(env.stop)
-        self.calls = []
-
-    def serve(self, usage=None, credits=None, credits_status=200, fail=False):
-        def respond(method, url, headers, body=None, timeout=None):
-            self.calls.append((method, url))
-            if url == p.RESET_CREDITS_URL:
-                if fail:
-                    raise RuntimeError("offline")
-                return credits_status, {"available_count": len(credits or []), "credits": credits or []}
-            return 200, usage
-        return patch.object(p, "http_json", side_effect=respond)
-
-    def credit_calls(self):
-        return [call for call in self.calls if call[1] == p.RESET_CREDITS_URL]
+def app_credit(days, status="available"):
+    return {"id": f"credit-{days}-{status}", "resetType": "codexRateLimits", "status": status,
+            "grantedAt": int(NOW) - 86400, "expiresAt": int(NOW + days * 86400),
+            "title": "Full reset (Weekly + 5 hr)", "description": "granted"}
 
 
 class NearestExpiryTests(unittest.TestCase):
@@ -74,7 +51,7 @@ class NearestExpiryTests(unittest.TestCase):
     def test_only_usable_future_credits_count(self):
         body = {"credits": [
             credit(1, status="redeemed"),
-            credit(2, status="expired"),
+            credit(2, status="redeeming"),
             credit(-1),
             {"status": "available", "expires_at": None},
             {"status": "available", "expires_at": "soon"},
@@ -85,109 +62,58 @@ class NearestExpiryTests(unittest.TestCase):
         self.assertAlmostEqual(p.nearest_reset_credit_expiry(body, NOW), NOW + 9 * 86400, places=3)
 
     def test_nothing_usable_means_no_date(self):
-        for body in ({"credits": []}, {"credits": None}, {}, None, {"credits": [credit(4, status="used")]}):
+        for body in ({"credits": []}, {"credits": None}, {}, None, {"credits": [credit(4, status="redeemed")]}):
             with self.subTest(body=body):
                 self.assertIsNone(p.nearest_reset_credit_expiry(body, NOW))
 
-    def test_real_timestamp_format(self):
-        body = {"credits": [{"status": "available", "expires_at": "2026-10-22T19:58:56.745296Z"}]}
-        expected = datetime(2026, 10, 22, 19, 58, 56, 745296, timezone.utc).timestamp()
-        self.assertAlmostEqual(p.nearest_reset_credit_expiry(body, NOW), expected, places=3)
+
+class ExpiryFormatTests(unittest.TestCase):
+    def test_epoch_seconds_millis_and_iso_are_read_alike(self):
+        expected = NOW + 5 * 86400
+        for value in (int(expected), int(expected) * 1000, iso(5)):
+            with self.subTest(value=value):
+                body = {"credits": [{"status": "available", "expires_at": value}]}
+                self.assertAlmostEqual(p.nearest_reset_credit_expiry(body, NOW), expected, delta=1)
+
+    def test_booleans_are_not_timestamps(self):
+        body = {"credits": [{"status": "available", "expires_at": True}]}
+        self.assertIsNone(p.nearest_reset_credit_expiry(body, NOW))
 
 
-class ExpiryCadenceTests(ResetCreditCase):
-    def test_first_read_fetches_the_list_and_caches_no_identifiers(self):
-        with self.serve(credits=[credit(5)]):
-            expiry = p.reset_credit_expiry({}, 1, NOW)
-        self.assertAlmostEqual(expiry, NOW + 5 * 86400, places=3)
-        self.assertEqual(self.credit_calls(), [("GET", p.RESET_CREDITS_URL)])
-        stored = json.loads(self.cache.read_text(encoding="utf-8"))
-        self.assertEqual(set(stored), {"fetched_at", "available_count", "nearest_expires_at"})
-        self.assertNotIn("credit-5", self.cache.read_text(encoding="utf-8"))
+class FetchChatgptTests(unittest.TestCase):
+    def fetch(self, result):
+        with patch.object(p.time, "time", return_value=NOW):
+            return p.fetch_chatgpt(lambda: result)
 
-    def test_fresh_cache_with_same_count_skips_the_request(self):
-        with self.serve(credits=[credit(5)]):
-            p.reset_credit_expiry({}, 1, NOW)
-            for step in range(1, 30):
-                p.reset_credit_expiry({}, 1, NOW + step * 2)
-        self.assertEqual(len(self.credit_calls()), 1)
-
-    def test_count_change_refetches_at_once(self):
-        with self.serve(credits=[credit(5)]):
-            p.reset_credit_expiry({}, 1, NOW)
-        with self.serve(credits=[credit(5), credit(2)]):
-            expiry = p.reset_credit_expiry({}, 2, NOW + 10)
-        self.assertEqual(len(self.credit_calls()), 2)
-        self.assertAlmostEqual(expiry, NOW + 2 * 86400, places=3)
-
-    def test_ttl_refetches(self):
-        with self.serve(credits=[credit(5)]):
-            p.reset_credit_expiry({}, 1, NOW)
-            p.reset_credit_expiry({}, 1, NOW + p.RESET_CREDITS_TTL + 1)
-        self.assertEqual(len(self.credit_calls()), 2)
-
-    def test_a_passed_cached_date_refetches(self):
-        self.cache.write_text(json.dumps({"fetched_at": NOW - 10, "available_count": 1,
-                                          "nearest_expires_at": NOW - 1}), encoding="utf-8")
-        with self.serve(credits=[credit(7)]):
-            expiry = p.reset_credit_expiry({}, 1, NOW)
-        self.assertEqual(len(self.credit_calls()), 1)
-        self.assertAlmostEqual(expiry, NOW + 7 * 86400, places=3)
-
-    def test_failure_keeps_a_known_future_date(self):
-        self.cache.write_text(json.dumps({"fetched_at": NOW - p.RESET_CREDITS_TTL - 5, "available_count": 1,
-                                          "nearest_expires_at": NOW + 3600}), encoding="utf-8")
-        with self.serve(fail=True):
-            self.assertEqual(p.reset_credit_expiry({}, 1, NOW), NOW + 3600)
-        with self.serve(credits_status=503):
-            self.assertEqual(p.reset_credit_expiry({}, 1, NOW), NOW + 3600)
-
-    def test_failure_without_a_cache_just_hides_the_date(self):
-        with self.serve(fail=True):
-            self.assertIsNone(p.reset_credit_expiry({}, 1, NOW))
-
-    def test_corrupt_cache_is_ignored(self):
-        self.cache.write_text("{not json", encoding="utf-8")
-        with self.serve(credits=[credit(4)]):
-            self.assertAlmostEqual(p.reset_credit_expiry({}, 1, NOW), NOW + 4 * 86400, places=3)
-
-
-class FetchChatgptTests(ResetCreditCase):
-    def fetch(self, available, **serve):
-        with patch.object(p, "ChatGptAuth", FakeAuth), patch.object(p.time, "time", return_value=NOW), \
-             self.serve(usage=usage_body(available), **serve):
-            return p.fetch_chatgpt()
-
-    def test_no_credits_means_no_extra_request(self):
-        snap = self.fetch(0, credits=[credit(5)])
+    def test_no_credits_means_no_billing_item(self):
+        snap = self.fetch(app_server_result(0))
         self.assertTrue(snap.ok)
-        self.assertEqual(self.credit_calls(), [])
         self.assertIsNone(u.billing_entry(snap, "reset_credits"))
 
-    def test_credits_carry_the_nearest_expiry(self):
-        snap = self.fetch(2, credits=[credit(20), credit(6)])
+    def test_credits_carry_the_nearest_expiry_from_the_same_answer(self):
+        snap = self.fetch(app_server_result(2, [app_credit(20), app_credit(6), app_credit(1, "redeemed")]))
         item = u.billing_entry(snap, "reset_credits")
         self.assertEqual(item.raw_value, 2)
-        self.assertAlmostEqual(item.metadata["nearest_expires_at"], NOW + 6 * 86400, places=3)
+        self.assertAlmostEqual(item.metadata["nearest_expires_at"], NOW + 6 * 86400, delta=1)
 
-    def test_list_failure_never_breaks_the_card(self):
-        snap = self.fetch(1, fail=True)
-        self.assertTrue(snap.ok)
+    def test_missing_credit_list_keeps_the_count(self):
+        snap = self.fetch(app_server_result(1))
         item = u.billing_entry(snap, "reset_credits")
         self.assertEqual(item.raw_value, 1)
         self.assertNotIn("nearest_expires_at", item.metadata)
 
-    def test_expiry_survives_the_worker_json_round_trip(self):
-        snap = self.fetch(1, credits=[credit(6)])
+    def test_expiry_survives_the_json_round_trip(self):
+        snap = self.fetch(app_server_result(1, [app_credit(6)]))
         wire = json.loads(json.dumps(p.snapshot_to_dict(snap), allow_nan=False))
         back = p.snapshot_from_dict(wire)
         self.assertAlmostEqual(u.billing_entry(back, "reset_credits").metadata["nearest_expires_at"],
-                               NOW + 6 * 86400, places=3)
+                               NOW + 6 * 86400, delta=1)
 
-    def test_the_spending_endpoint_is_never_referenced(self):
-        source = Path(p.__file__).read_text(encoding="utf-8")
-        self.assertNotIn("rate-limit-reset-credits/consume", source)
-        self.assertNotIn("/consume", p.RESET_CREDITS_URL)
+    def test_credit_ids_and_titles_never_reach_the_snapshot(self):
+        snap = self.fetch(app_server_result(1, [app_credit(6)]))
+        text = json.dumps(p.snapshot_to_dict(snap), ensure_ascii=False)
+        self.assertNotIn("credit-6-available", text)
+        self.assertNotIn("Full reset", text)
 
 
 class DisplayTests(unittest.TestCase):

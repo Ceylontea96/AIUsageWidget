@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Changed
+- GPT 사용량을 Codex CLI의 공식 로컬 인터페이스(`codex app-server`)로 읽습니다. 위젯은 더 이상 Codex 로그인 토큰(auth.json)을 읽지 않고 ChatGPT 웹 API를 직접 호출하지 않습니다. 리셋권 만료 시각도 같은 응답에서 받습니다.
+- 위젯이 켜져 있는 동안 Codex app-server 하나를 유지해 빠른 조회(약 0.5~1초)를 유지하고, 위젯을 닫으면 함께 종료합니다.
+
+### Notes
+- GPT 조회에는 app-server를 지원하는 Codex CLI가 필요합니다.
+- Cursor는 공개된 사용량 API가 없어 Cursor 앱의 내부 조회를 계속 사용합니다. 약관상 회색지대일 수 있다는 안내를 README와 MANUAL에 추가했습니다.
+- 이전 버전이 만든 `%APPDATA%\AiUsageWidget\reset_credits.json`은 더 이상 쓰지 않습니다. 지워도 됩니다.
+
 ## [3.6.0] - 2026-09-23
 
 ### Added
