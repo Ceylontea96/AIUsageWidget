@@ -543,16 +543,30 @@ def dated_reset_stamp(text):
     return f'{clean} 리셋' if clean else ''
 
 
-def billing_value(snap, kind):
+def billing_entry(snap, kind):
     for item in getattr(snap, 'billing', None) or []:
         if item.kind == kind:
-            return item.raw_value
+            return item
     return None
 
 
-def reset_credit(snap):
-    available = to_float(billing_value(snap, 'reset_credits'))
-    return f'리셋권 {available:.0f}' if available else ''
+def billing_value(snap, kind):
+    item = billing_entry(snap, kind)
+    return None if item is None else item.raw_value
+
+
+def reset_credit(snap, now=None):
+    item = billing_entry(snap, 'reset_credits')
+    available = to_float(item.raw_value) if item is not None else None
+    if not available:
+        return ''
+    text = f'리셋권 {available:.0f}'
+    # With several credits the provider already picked the nearest expiry.
+    expiry = to_float((item.metadata or {}).get('nearest_expires_at'))
+    current = time.time() if now is None else now
+    if expiry is not None and expiry > current:
+        text += f' · {fmt_local(expiry, "reset")} 만료'
+    return text
 
 
 def included_amount(snap):
@@ -2051,7 +2065,9 @@ class Card(BarShimmer, tk.Frame):
         ]
         visual['hero'] = hero_index(snap)
         visual['hero_percent'] = representative_percent(snap)
-        visual['extras'] = [reset_credit(snap), included_amount(snap), bonus_line(snap)]
+        # Compare exactly what the card draws, so a credit balance or a
+        # reset-credit expiry changing on its own still repaints.
+        visual['extras'] = [quota_extras(snap), included_amount(snap), bonus_line(snap)]
         # Derived from canonical quota only. Nothing in snap.internal reaches
         # this signature, so reference figures cannot repaint or recolour the
         # card.

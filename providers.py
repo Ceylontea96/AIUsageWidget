@@ -1204,6 +1204,79 @@ def _chatgpt_main_limits(rate: Any) -> list[QuotaItem]:
     return items
 
 
+# The list Codex itself shows reset credits from. Read-only: the neighbouring
+# /consume path spends a credit and must never be called from here.
+RESET_CREDITS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
+# A credit's expiry only changes when a credit is granted or used, and both
+# change available_count, so a slow refresh plus a count check is enough.
+RESET_CREDITS_TTL = 15 * 60.0
+
+
+def reset_credits_cache_path() -> Path:
+    override = os.environ.get("AIUSAGE_RESET_CREDITS_CACHE")
+    if override:
+        return Path(override)
+    return Path(os.environ.get("APPDATA", str(Path.home()))) / "AiUsageWidget" / "reset_credits.json"
+
+
+def nearest_reset_credit_expiry(body: Any, now: float) -> float | None:
+    """Earliest future expiry among credits the server marks usable."""
+    credits = body.get("credits") if isinstance(body, dict) else None
+    expiries = []
+    for credit in credits if isinstance(credits, list) else []:
+        if not isinstance(credit, dict) or credit.get("status") != "available":
+            continue
+        expiry = parse_iso_epoch(credit.get("expires_at"))
+        if expiry is not None and expiry > now:
+            expiries.append(expiry)
+    return min(expiries) if expiries else None
+
+
+def _read_reset_cache(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_reset_cache(path: Path, payload: dict[str, Any]) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def reset_credit_expiry(headers: dict[str, str], available: int, now: float) -> float | None:
+    """Nearest reset-credit expiry. Missing data only hides the date."""
+    path = reset_credits_cache_path()
+    cached = _read_reset_cache(path)
+    cached_at = to_float(cached.get("fetched_at"))
+    cached_expiry = to_float(cached.get("nearest_expires_at"))
+    fresh = (
+        cached_at is not None
+        and to_int(cached.get("available_count")) == available
+        and 0 <= now - cached_at < RESET_CREDITS_TTL
+    )
+    # A cached date that has already passed means a credit expired: re-read.
+    if fresh and (cached_expiry is None or cached_expiry > now):
+        return cached_expiry
+    keep = cached_expiry if cached_expiry is not None and cached_expiry > now else None
+    try:
+        status, body = http_json("GET", RESET_CREDITS_URL, headers)
+    except RuntimeError:
+        return keep
+    if status >= 400 or not isinstance(body, dict):
+        return keep
+    expiry = nearest_reset_credit_expiry(body, now)
+    # Only the count and one timestamp are kept; no credit ids or titles.
+    _write_reset_cache(path, {"fetched_at": now, "available_count": available, "nearest_expires_at": expiry})
+    return expiry
+
+
 def fetch_chatgpt() -> ProviderSnapshot:
     now = time.time()
     auth = ChatGptAuth()
@@ -1244,8 +1317,12 @@ def fetch_chatgpt() -> ProviderSnapshot:
     reset_credits = body.get("rate_limit_reset_credits") or {}
     available = to_int(reset_credits.get("available_count"))
     if available:
+        expiry = reset_credit_expiry(headers, available, now)
         billing.append(
-            BillingItem("chatgpt:billing:reset_credits", "chatgpt", "reset_credits", available)
+            BillingItem(
+                "chatgpt:billing:reset_credits", "chatgpt", "reset_credits", available,
+                {"nearest_expires_at": expiry} if expiry is not None else {},
+            )
         )
         extras.append(f"리셋권 {available}")
     plan = str(body.get("plan_type") or "ChatGPT").title()
