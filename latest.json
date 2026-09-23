@@ -1,1 +1,1 @@
-{"version":"3.5.3","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"한 줄 칩 색을 카드와 같은 기준으로 맞췄습니다. 50% 미만은 주의, 20% 미만은 임박, 5% 미만은 곧 한도입니다. Windows 알림은 10% 이하에서만 옵니다. / Claude 카드에 제품 이름 대신 실제 요금제(Pro, Max, Team, Enterprise)를 표시합니다."}
+{"version":"3.6.0","zip":"https://github.com/Ceylontea96/AIUsageWidget/releases/latest/download/AIUsageWidget.zip","notes":"GPT 리셋권 옆에 만료 시각을 표시합니다. 여러 개면 가장 먼저 만료되는 것을 보여 줍니다. / GPT 크레딧 잔액만 바뀌었을 때 카드가 다시 그려지지 않아 이전 잔액이 남던 문제를 고쳤습니다."}
