@@ -28,6 +28,7 @@ from additional_ui import AdditionalBlock, additional_count, expanded_body_budge
 from codex_activity import CodexActivityMonitor, FAST_INTERVAL, LOG
 from cursor_activity import CursorActivityMonitor
 from providers import (
+    claude_plan_label,
     dollars,
     error_snapshot,
     fetch_claude,
@@ -42,6 +43,7 @@ from quota_policy import (
     global_main_limits,
     group_stale,
     main_remaining_percents,
+    remaining_band,
     representative_blocked,
     representative_percent,
     select_hero,
@@ -106,7 +108,7 @@ def lock_path():
 def instance_path():
     return APP_DIR / 'widget.instance'
 
-# Variant A: pixel dimensions from the supplied tokens.json.
+# The live layout. Editing these values is what changes the window.
 TOKENS = {'width': 380,
  'radius': {'window': 14, 'card': 12, 'pill': 999, 'bar': 5},
  'strip': {'width': 3, 'inset_top': 12, 'inset_bottom': 12},
@@ -161,7 +163,7 @@ TOKENS = {'width': 380,
            'chip_warn_fill': '#C48A22',
            'chip_danger_fill': '#B44545',
            'chip_stale_fill': '#3A4252'},
- 'thresholds': {'warn_pct_at_or_below': 30, 'danger_pct_at_or_below': 15},
+ 'thresholds': {'warn_below_pct': 50, 'danger_below_pct': 20, 'critical_below_pct': 5},
  'rules': {'hero_shows': 'remaining_percent',
            'bar_color_is_per_row': True,
            'stale_grays_strip_and_hero_only': True,
@@ -222,7 +224,6 @@ URLS = {
 }
 FETCHERS = ('chatgpt', 'cursor', 'claude')
 NETWORK_FETCHERS = ('chatgpt', 'cursor')
-WARN_AT, DANGER_AT = 30, 15
 WINDOW_W, HEADER_H, COMPACT_H, FOOTER_H = (TOKENS[k] for k in ('width','header_h','compact_h','footer_h'))
 BAR_H, STRIP_W, CHIP_H = TOKENS['bar']['height'], TOKENS['strip']['width'], TOKENS['chip']['height']
 CARD_W, CARD_RADIUS, CARD_GAP = WINDOW_W - 2, TOKENS['radius']['card'], TOKENS['gap']['cards']
@@ -425,9 +426,13 @@ def create_desktop_shortcut(root=None, desktop=None):
 def _state_for(snap, remaining, blocked):
     if snap.stale:
         return 'stale'
-    if not snap.ok or blocked or (remaining is not None and remaining <= DANGER_AT):
+    if not snap.ok or blocked:
         return 'danger'
-    if remaining is not None and remaining <= WARN_AT:
+    band = remaining_band(remaining)
+    # The chip has no separate critical fill; under 5% stays on the danger colour.
+    if band in ('critical', 'danger'):
+        return 'danger'
+    if band == 'warn':
         return 'warn'
     return 'ok'
 
@@ -444,8 +449,8 @@ def service_state(snap):
 def representative_state(snap):
     """Representative channel: the same quota the big number comes from.
 
-    The ring and the compact chip read this, so their colour can never
-    disagree with the percentage printed next to it.
+    The compact chip uses the same 50 / 20 / 5 bands as the ring, so a
+    percentage cannot be calm in one place and cautious in the other.
     """
     return _state_for(snap, representative_percent(snap), representative_blocked(snap))
 
@@ -1901,11 +1906,12 @@ class Chip(BarShimmer, tk.Canvas):
 def design_severity(value, stale=False, blocked=False):
     if stale or value is None:
         return 'stale', '이전 데이터' if stale else '확인 중', MUTED
-    if blocked or value < 5:
+    band = remaining_band(value)
+    if blocked or band == 'critical':
         return 'critical', '한도 제한' if blocked else '곧 한도', '#DC2626'
-    if value < 20:
+    if band == 'danger':
         return 'danger', '임박', DANGER
-    if value < 50:
+    if band == 'warn':
         return 'warn', '주의', WARN
     return 'ok', '여유', None
 
@@ -2696,7 +2702,7 @@ class UsageWidget:
             'Cursor: Cursor Models를 대표 잔여로 표시하고 Other Models를 보조 바로 표시합니다. 막대 아래는 청구 주기 초기화입니다.\n'
             'Claude: Claude.ai 구독과 지원되는 Claude Code가 필요합니다. 대화형 세션의 5시간·주간 한도만 표시하며 Additional/Billing은 없습니다. 연동은 우클릭 → Claude 연동... 또는 표시할 서비스에서 켭니다. claude -p는 추적되지 않습니다.\n'
             '기본 포함량 소진과 전체 한도 소진은 다를 수 있습니다.\n\n'
-            '한 줄 칩 색이 임박·소진·이전 데이터를 나타냅니다.\n'
+            '한 줄 칩은 카드와 같은 색입니다. 50% 미만은 주의, 20% 미만은 임박, 5% 미만은 곧 한도입니다.\n'
             '우클릭 → 표시할 서비스·로그인에서 GPT / Cursor / Claude를 고릅니다.\n'
             '계정 로그인은 각 서비스에서 하세요. 위젯은 읽기만 합니다.\n'
             'GPT 사용량은 ChatGPT 데스크톱 앱이 아니라 Codex CLI 로그인이 필요합니다.\n\n'
@@ -3222,7 +3228,11 @@ class UsageWidget:
         key = 'claude'
         snap = fetch_claude()
         now = time.monotonic()
-        if snap.ok and not snap.stale:
+        known_plan = claude_plan_label(snap.plan) or claude_plan_label(
+            getattr(self.claude_cli_snapshot, "plan", "")
+        )
+        # A fresh statusLine has quota but not the subscription, so ask once until the plan is known.
+        if snap.ok and not snap.stale and known_plan:
             self.claude_cli_due = max(self.claude_cli_due, now + CLAUDE_CLI_INTERVAL)
         else:
             if now >= self.claude_cli_due:
@@ -3261,7 +3271,17 @@ class UsageWidget:
                 observed = 0.0
             return (not snap.stale, observed, meta.get('source') == 'claude_statusline')
 
-        return max(candidates, key=rank) if candidates else (getattr(self, 'claude_cli_error', None) or statusline)
+        chosen = max(candidates, key=rank) if candidates else (getattr(self, 'claude_cli_error', None) or statusline)
+        if chosen is None:
+            return statusline
+        label = ""
+        for snap in (chosen, *candidates):
+            label = claude_plan_label(getattr(snap, "plan", ""))
+            if label:
+                break
+        if label and chosen.plan != label:
+            chosen = replace(chosen, plan=label)
+        return chosen
 
     def _request_fast_poll(self, key, now):
         from polling import policy_for

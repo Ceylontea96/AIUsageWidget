@@ -41,6 +41,29 @@ class RefinedTests(unittest.TestCase):
             self.assertEqual(u.design_severity(value)[0],expected)
         self.assertEqual(u.design_severity(90,blocked=True)[0],'critical')
         self.assertEqual(u.design_severity(1,stale=True)[0],'stale')
+
+    def test_compact_chip_uses_the_card_bands(self):
+        from runtime import AlertGate
+        cases = (
+            (50, 'ok', u.CHIP_OK['chatgpt']),
+            (49.9, 'warn', u.CHIP_WARN),
+            (40, 'warn', u.CHIP_WARN),
+            (20, 'warn', u.CHIP_WARN),
+            (19.9, 'danger', u.CHIP_DANGER),
+            (5, 'danger', u.CHIP_DANGER),
+            (4.9, 'danger', u.CHIP_DANGER),
+        )
+        for value, state, chip in cases:
+            with self.subTest(value=value):
+                snap = ProviderSnapshot('chatgpt', 'GPT', 'Plus', True, None, '',
+                    main_limits=[quota('primary_window', '5시간', value, FIVE_H)])
+                card_band = u.design_severity(value)[0]
+                self.assertEqual(card_band, 'critical' if value < 5 else state)
+                self.assertEqual(u.representative_state(snap), state)
+                self.assertEqual(u.chip_style('chatgpt', snap)[0], chip)
+        calm = ProviderSnapshot('chatgpt', 'GPT', 'Plus', True, None, '',
+            main_limits=[quota('primary_window', '5시간', 40, FIVE_H)])
+        self.assertIsNone(AlertGate().observe('chatgpt', calm))
     def test_hero_and_badge_use_five_hour_while_weekly_warns_independently(self):
         root=u.tk.Tk(); root.withdraw()
         try:

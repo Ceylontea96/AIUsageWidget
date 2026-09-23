@@ -41,6 +41,28 @@ def _number(value: Any) -> float | None:
     return number if number == number and number not in (float("inf"), float("-inf")) else None
 
 
+# Shared remaining-percent bands. The ring, badge, bars and compact chip all
+# use these cutovers. 50% is still ok; 20% is still warn; 5% is still danger.
+# Alerts stay separate and fire only at 10%.
+WARN_BELOW = 50.0
+DANGER_BELOW = 20.0
+CRITICAL_BELOW = 5.0
+
+
+def remaining_band(value: Any) -> str | None:
+    """ok / warn / danger / critical for a remaining percent, or None if unmeasured."""
+    number = _number(value)
+    if number is None:
+        return None
+    if number < CRITICAL_BELOW:
+        return "critical"
+    if number < DANGER_BELOW:
+        return "danger"
+    if number < WARN_BELOW:
+        return "warn"
+    return "ok"
+
+
 def window_matches(item: Any, seconds: float, tolerance: float) -> bool:
     """True when a quota's measured window is the given duration."""
     actual = _number(getattr(item, "window_seconds", None))

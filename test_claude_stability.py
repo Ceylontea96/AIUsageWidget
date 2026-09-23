@@ -379,7 +379,36 @@ class CliFeatureTests(unittest.TestCase):
         snap=providers.claude_usage_from_control_output(self.response(body),1000)
         self.assertTrue(snap.ok)
         self.assertEqual(snap.hero_percent,80)
+        self.assertEqual(snap.plan,'-')
         self.assertTrue(snap.internal['feature_available'])
+
+    def test_subscription_type_is_the_plan_label(self):
+        limits = {'limits':[{'kind':'session','percent':20,'resets_at':'2030-01-01T00:00:00Z'}]}
+        cases = (
+            ({'subscription_type':'pro','rate_limits':limits}, 'Pro'),
+            ({'subscriptionType':'max','rate_limits':limits}, 'Max'),
+            ({'subscription_type':'team','rate_limits':limits}, 'Team'),
+            ({'subscription_type':'enterprise','rate_limits':limits}, 'Enterprise'),
+            ({'subscription_type':'max','rate_limit_tier':'default_claude_max_20x','rate_limits':limits}, 'Max 20x'),
+            ({'subscription_type':'max','rateLimitTier':'default_claude_max_5x','rate_limits':limits}, 'Max 5x'),
+            ({'subscription_type':'not-a-plan','rate_limits':limits}, '-'),
+        )
+        for body, plan in cases:
+            with self.subTest(plan=plan):
+                snap = providers.claude_usage_from_control_output(self.response(body), 1000)
+                self.assertEqual(snap.plan, plan)
+
+    def test_statusline_keeps_a_plan_learned_from_the_cli(self):
+        import usage_widget as widget
+        from providers import ProviderSnapshot
+        status = ProviderSnapshot('claude','Claude','-',True,80,'',fetched_at=200,
+            internal={'source':'claude_statusline','quota_observed_at':200})
+        cli = ProviderSnapshot('claude','Claude','Pro',True,80,'',fetched_at=100,
+            internal={'source':'claude_cli','quota_observed_at':100})
+        state = SimpleNamespace(snapshots={}, claude_cli_snapshot=cli, claude_cli_at=100, claude_cli_error=None)
+        shown = widget.UsageWidget._claude_display_snapshot(state, status, 120)
+        self.assertEqual(shown.internal['source'], 'claude_statusline')
+        self.assertEqual(shown.plan, 'Pro')
 
     def test_ambiguous_or_invalid_cli_percent_is_unavailable(self):
         for row in ({'utilization':0.2}, {'percent':20,'utilization':0.8}, {'percent':True},

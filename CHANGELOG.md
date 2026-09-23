@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [3.5.3] - 2026-09-22
+
+### Changed
+- 한 줄 칩 색을 카드와 같은 기준으로 맞췄습니다. 50% 미만은 주의, 20% 미만은 임박, 5% 미만은 곧 한도입니다. Windows 알림은 10% 이하에서만 옵니다.
+- Claude 카드에 제품 이름 대신 실제 요금제(Pro, Max, Team, Enterprise)를 표시합니다.
+
 ## [3.5.2] - 2026-09-20
 
 ### Fixed
@@ -92,7 +98,6 @@
 
 ### Changed
 - Cursor 대표 잔여를 Cursor Models, 보조 막대를 Other Models로 표시합니다
-- mapping implementation confirmed via same-response displayMessage/percent correlation; direct Dashboard sanity check pending
 - 조회 간격과 오류 재시도(Retry-After)를 더 안정적으로 처리합니다
 
 ### Notes

@@ -6,10 +6,7 @@ from dataclasses import dataclass
 import tkinter as tk
 
 from providers import LimitGroup, fmt_local
-
-
-WARN_AT = 30
-DANGER_AT = 15
+from quota_policy import remaining_band
 ROW_H = 28
 HEADING_H = 22
 WINDOW_ROW_H = 36
@@ -86,7 +83,7 @@ def layout_additional(groups, stale_flags=None) -> list[AdditionalRow]:
         for item in limits:
             label = str(getattr(item, "window_label", "") or getattr(item, "display_name", "") or "기간 미상")
             remaining = getattr(item, "remaining_percent", None)
-            warn = remaining is not None and remaining <= WARN_AT
+            warn = remaining_band(remaining) in ("warn", "danger", "critical")
             rows.append(
                 AdditionalRow(
                     "window",
@@ -208,7 +205,7 @@ class AdditionalBlock(tk.Frame):
                 # A group's own source being old is shown here and nowhere
                 # else: it never makes the provider's hero look stale.
                 color = dim or muted
-            elif row.percent is not None and row.percent <= DANGER_AT:
+            elif remaining_band(row.percent) in ("danger", "critical"):
                 color = danger
             elif row.warn:
                 color = warn

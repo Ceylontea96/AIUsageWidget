@@ -1336,6 +1336,41 @@ def _claude_items(windows: dict[str, Any], now: float, source: str) -> list[Quot
     return items
 
 
+_CLAUDE_PLAN_LABELS = {
+    "pro": "Pro",
+    "max": "Max",
+    "team": "Team",
+    "enterprise": "Enterprise",
+    "max_5x": "Max 5x",
+    "max_20x": "Max 20x",
+    "default_claude_ai": "Pro",
+    "default_claude_pro": "Pro",
+    "default_claude_max": "Max",
+    "default_claude_max_5x": "Max 5x",
+    "default_claude_max_20x": "Max 20x",
+}
+
+
+def claude_plan_label(value: Any) -> str:
+    """A known subscription name. Anything else stays blank so it cannot be shown as a plan."""
+    text = str(value or "").strip()
+    if not text or text in {"-", "Claude"}:
+        return ""
+    key = "_".join(text.replace("-", " ").casefold().split())
+    return _CLAUDE_PLAN_LABELS.get(key, "")
+
+
+def claude_plan_from_usage(body: Any) -> str:
+    """Plan from the usage payload only. Credentials are not read."""
+    if not isinstance(body, dict):
+        return ""
+    subscription = claude_plan_label(body.get("subscription_type") or body.get("subscriptionType"))
+    tier = claude_plan_label(body.get("rate_limit_tier") or body.get("rateLimitTier"))
+    if tier.startswith("Max ") and subscription in {"", "Max"}:
+        return tier
+    return subscription or tier
+
+
 def _claude_snapshot(
     items: list[QuotaItem],
     *,
@@ -1343,6 +1378,7 @@ def _claude_snapshot(
     stale: bool,
     footer: str,
     source: str,
+    plan: str = "",
     internal: dict[str, Any] | None = None,
 ) -> ProviderSnapshot:
     """Shared card shape for both Claude sources, so hero and captions match."""
@@ -1353,7 +1389,7 @@ def _claude_snapshot(
         return ProviderSnapshot(
             key="claude",
             title="Claude",
-            plan="Claude",
+            plan=claude_plan_label(plan) or "-",
             ok=False,
             hero_percent=None,
             hero_caption="사용량 없음",
@@ -1374,7 +1410,7 @@ def _claude_snapshot(
     return ProviderSnapshot(
         key="claude",
         title="Claude",
-        plan="Claude",
+        plan=claude_plan_label(plan) or "-",
         ok=True,
         hero_percent=remaining,
         hero_caption=caption,
@@ -1546,6 +1582,7 @@ def claude_usage_from_control_output(raw_text: str, now: float | None = None) ->
         stale=False,
         footer="",
         source="claude_cli",
+        plan=claude_plan_from_usage(body),
         internal={"feature_available": bool(items)},
     )
 
