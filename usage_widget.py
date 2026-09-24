@@ -868,9 +868,9 @@ def should_setup(settings, preview=False):
     return True
 
 
-def claude_menu_label(action_label=None):
-    text = str(action_label if action_label is not None else prepare_action('claude')[0])
-    return text if text.endswith('...') else text + '...'
+def update_menu_label(version):
+    """The one update entry: check while nothing is waiting, install once something is."""
+    return f'업데이트 {version} 설치...' if version else f'업데이트 확인 ({APP_VERSION})...'
 
 
 def default_enabled(settings, preview=False, present=None):
@@ -1029,13 +1029,18 @@ def lift_menu_windows(extra_hwnd=0):
 
     try:
         lift(extra_hwnd)
-        hwnd = user32.FindWindowW('#32768', None)
-        if not hwnd:
-            return
-        pid = ctypes.c_ulong()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        if pid.value == os.getpid():
-            lift(hwnd)
+        user32.FindWindowExW.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p]
+        user32.FindWindowExW.restype = ctypes.c_void_p
+        # A submenu is its own #32768 window, so every one of ours is raised.
+        hwnd = None
+        for _ in range(8):
+            hwnd = user32.FindWindowExW(None, hwnd, '#32768', None)
+            if not hwnd:
+                return
+            pid = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(ctypes.c_void_p(hwnd), ctypes.byref(pid))
+            if pid.value == os.getpid():
+                lift(hwnd)
     except (AttributeError, OSError, OverflowError, TypeError, ValueError):
         pass
 
@@ -2828,38 +2833,31 @@ class UsageWidget:
         self.apply_metrics()
         for widget in (self.title,self.header,self.updated_label,self.mini_title,self.mini):
             self.bind_drag(widget)
-        self.menu = tk.Menu(self.root, tearoff=False, bg=CARD, fg=TEXT, activebackground=HAIR, activeforeground=TEXT, disabledforeground=DIM, selectcolor='#FFFFFF')
-        self.menu.add_command(label='새로고침    F5', command=self.refresh)
-        self.menu.add_command(label='한 줄 / 상세    Ctrl+M', command=self.toggle)
+        style = dict(tearoff=False, bg=CARD, fg=TEXT, activebackground=HAIR, activeforeground=TEXT, disabledforeground=DIM, selectcolor='#FFFFFF')
+        # Only what has no button or always-visible control lives here; refresh,
+        # compact mode and the update arrow are already on the widget itself.
+        self.menu = tk.Menu(self.root, **style)
+        size = tk.Menu(self.menu, **style)
+        size.add_command(label='더 크게', accelerator='Ctrl++', command=lambda: self.nudge_scale(1))
+        size.add_command(label='더 작게', accelerator='Ctrl+-', command=lambda: self.nudge_scale(-1))
+        size.add_command(label='기본 크기', accelerator='Ctrl+0', command=lambda: self.set_scale(DEFAULT_SCALE))
+        self.menu.add_cascade(label='크기', menu=size)
         self.menu.add_separator()
-        self.menu.add_command(label='더 크게    Ctrl++', command=lambda: self.nudge_scale(1))
-        self.menu.add_command(label='더 작게    Ctrl+-', command=lambda: self.nudge_scale(-1))
-        self.menu.add_command(label='기본 크기    Ctrl+0', command=lambda: self.set_scale(DEFAULT_SCALE))
+        self.menu.add_command(label='서비스·로그인 관리...', command=self.pick_services)
+        self.usage_pages = tk.Menu(self.menu, **style)
+        self.menu.add_cascade(label='사용량 페이지 열기', menu=self.usage_pages)
+        self._fill_usage_pages()
         self.menu.add_separator()
         self.menu.add_checkbutton(label='항상 위', variable=self.topmost, command=self.set_topmost)
         self.startup = tk.BooleanVar(value=startup_path().exists())
         self.menu.add_checkbutton(label='Windows 시작 시 실행', variable=self.startup, command=self.toggle_startup)
-        self.menu.add_checkbutton(label='한도 임박·소진 알림', variable=self.notifications, command=self.persist)
-        self.menu.add_command(label='알림 테스트', command=self.test_toast)
+        self.menu.add_checkbutton(label='한도 임박·소진 알림', variable=self.notifications, command=self.toggle_notifications)
         self.menu.add_separator()
-        self.menu.add_command(label='업데이트', command=self.install_update, state='disabled')
+        self.menu.add_command(label=update_menu_label(None), command=self.check_update_now)
         self._update_menu = self.menu.index('end')
-        self.menu.add_command(label='업데이트 확인', command=self.check_update_now)
+        self.menu.add_command(label='도움말 · 표시 기준...', command=self.help)
+        self.menu.add_command(label='바탕화면 바로가기 만들기', command=self.make_desktop_shortcut)
         self.menu.add_separator()
-        self.menu.add_command(label='표시할 서비스·로그인...', command=self.pick_services)
-        self.menu.add_command(label=claude_menu_label(), command=self._run_claude_menu_action)
-        self._claude_menu = self.menu.index('end')
-        self.menu.add_command(label='Claude 로그인...', command=lambda: self._claude_integration_action('claude-login'))
-        self._sync_claude_menu()
-        for key in FETCHERS:
-            self.menu.add_checkbutton(label=TITLES[key] + ' 조회', variable=self.enabled[key], command=lambda k=key: self.toggle_provider(k))
-        self.menu.add_separator()
-        for key in FETCHERS:
-            self.menu.add_command(label=TITLES[key] + ' 사용량 페이지', command=lambda k=key: webbrowser.open(URLS[k]))
-        self.menu.add_command(label='표시 기준 / 도움말', command=self.help)
-        self.menu.add_separator()
-        self.menu.add_command(label='바탕화면 바로가기 생성', command=self.make_desktop_shortcut)
-        self.menu.add_command(label=f'버전 {APP_VERSION}', state='disabled')
         self.menu.add_command(label='종료', command=self.close)
         self.menu.bind('<Map>', lambda e: self._on_menu_map())
 
@@ -2990,24 +2988,16 @@ class UsageWidget:
         self._raise_open_menus()
 
     def _on_menu_map(self):
-        self._sync_claude_menu()
         self._lift_menu()
 
-    def _sync_claude_menu(self):
-        index = getattr(self, '_claude_menu', None)
-        if index is None:
-            return
-        label, action = prepare_action('claude')
-        self.menu.entryconfigure(
-            index,
-            label=claude_menu_label(label),
-            command=lambda a=action: self._service_setup_action(a),
-        )
-
-    def _run_claude_menu_action(self):
-        self._sync_claude_menu()
-        _, action = prepare_action('claude')
-        self._service_setup_action(action)
+    def _fill_usage_pages(self):
+        pages = self.usage_pages
+        pages.delete(0, 'end')
+        shown = [key for key in FETCHERS if self.enabled[key].get()]
+        for key in shown:
+            pages.add_command(label=TITLES[key], command=lambda k=key: webbrowser.open(URLS[k]))
+        if not shown:
+            pages.add_command(label='켜 둔 서비스 없음', state='disabled')
 
     def _arm_menu_raise(self):
         hwnd = self._widget_hwnd()
@@ -3059,21 +3049,21 @@ class UsageWidget:
             '사용량 조회는 언제든 실패하거나 바뀔 수 있습니다.\n\n'
             'GPT: 실제 한도 기간으로 구분하며, 5시간이 있으면 우선 표시하고 없으면 주간·기타 한도를 표시합니다.\n'
             'Cursor: Cursor Models를 대표 잔여로 표시하고 Other Models를 보조 바로 표시합니다. 막대 아래는 청구 주기 초기화입니다.\n'
-            'Claude: Claude.ai 구독과 지원되는 Claude Code가 필요합니다. 대화형 세션의 5시간·주간 한도만 표시하며 Additional/Billing은 없습니다. 연동은 우클릭 → Claude 연동... 또는 표시할 서비스에서 켭니다. claude -p는 추적되지 않습니다.\n'
+            'Claude: Claude.ai 구독과 지원되는 Claude Code가 필요합니다. 대화형 세션의 5시간·주간 한도만 표시하며 Additional/Billing은 없습니다. 연동은 우클릭 → 서비스·로그인 관리에서 켭니다. claude -p는 추적되지 않습니다.\n'
             '기본 포함량 소진과 전체 한도 소진은 다를 수 있습니다.\n\n'
             '한 줄 칩은 카드와 같은 색입니다. 50% 미만은 주의, 20% 미만은 임박, 5% 미만은 곧 한도입니다.\n'
-            '우클릭 → 표시할 서비스·로그인에서 GPT / Cursor / Claude를 고릅니다.\n'
+            '우클릭 → 서비스·로그인 관리에서 GPT / Cursor / Claude를 고르고 로그인합니다.\n'
             '계정 로그인은 각 서비스에서 하세요. 위젯은 읽기만 합니다.\n'
             'GPT 사용량은 ChatGPT 데스크톱 앱이 아니라 Codex CLI 로그인이 필요합니다.\n\n'
             '실행은 zip 푼 폴더의 AI Usage.exe 입니다. 한 번 실행한 뒤에는 실행 파일만 옮겨도 됩니다.\n'
-            '우클릭 → 바탕화면 바로가기 생성으로 바로가기를 만들 수 있습니다.\n\n'
+            '우클릭 → 바탕화면 바로가기 만들기로 바로가기를 만들 수 있습니다.\n\n'
             'F5 새로고침 · Ctrl+M 한 줄 모드\n'
             '서비스 제목 클릭 또는 카드에서 Enter/Space: 개별 접기·펼치기\n'
             '긴 본문: 마우스 휠 · 스크롤바 · PageUp/PageDown\n'
             '카드마다 마지막 확인 시각이 표시됩니다. 조회가 실패하면 이전 값과 원인이 남고, 다시 확인·로그인 안내가 나타납니다.\n'
             'Ctrl++ / Ctrl+- 크기 조절 · Ctrl+0 기본 크기\n'
-            '제목 드래그로 이동 · 우클릭으로 설정\n\n'
-            '10% 이하·소진 시 한 번 알림 (12% 초과 회복 시 재설정)\n'
+            '제목 드래그로 이동 · 제목 더블클릭으로 한 줄/상세 전환 · 우클릭으로 설정\n\n'
+            '10% 이하·소진 시 한 번 알림 (12% 초과 회복 시 재설정). 알림을 켜면 예시 알림이 한 번 뜹니다.\n'
             '로그인 파일 변경 자동 감지 · 조회 제한 15초\n'
             '잠금 중 조회 중지 · 해제 시 즉시 조회\n'
             '새 버전이 있으면 제목 옆에 초록 ↑ 업데이트 버튼이 나타납니다.'
@@ -3145,8 +3135,6 @@ class UsageWidget:
             )
         except Exception as exc:
             self.notify(messagebox.showerror, 'Claude 연동', str(exc) or '연동에 실패했습니다.', parent=self.root)
-        finally:
-            self._sync_claude_menu()
 
     def make_desktop_shortcut(self):
         try:
@@ -3159,7 +3147,7 @@ class UsageWidget:
     def pick_services(self):
         self.push_overlay()
         dialog = tk.Toplevel(self.root)
-        dialog.title('표시할 서비스')
+        dialog.title('서비스·로그인 관리')
         dialog.configure(bg=BG)
         dialog.resizable(False, False)
         dialog.transient(self.root)
@@ -3186,12 +3174,23 @@ class UsageWidget:
             note.pack(side='left', padx=8)
             notes[key] = note
             label, action = prepare_action(key)
+            controls = tk.Frame(block, bg=BG)
+            controls.pack(anchor='w', pady=(4, 0))
             button = tk.Button(
-                block, text=label, bg=CARD, fg=TEXT, bd=0, padx=10, pady=3, cursor='hand2',
+                controls, text=label, bg=CARD, fg=TEXT, bd=0, padx=10, pady=3, cursor='hand2',
                 command=lambda a=action: self._service_setup_action(a),
             )
-            button.pack(anchor='w', pady=(4, 0))
+            button.pack(side='left')
             actions[key] = button
+            if key == 'claude':
+                def claude_login():
+                    # The login turns Claude on; keep the dialog from turning it back off.
+                    chosen['claude'].set(True)
+                    self._claude_integration_action('claude-login')
+                tk.Button(
+                    controls, text='Claude 로그인', bg=CARD, fg=TEXT, bd=0, padx=10, pady=3, cursor='hand2',
+                    command=claude_login,
+                ).pack(side='left', padx=(6, 0))
         tk.Label(
             dialog,
             text='Claude 연동은 ~/.claude/settings.json을 자동으로 바꾸지 않습니다. 연동 버튼을 눌렀을 때만 statusLine wrapper를 설치합니다.',
@@ -3229,7 +3228,7 @@ class UsageWidget:
 
         def commit():
             if not any(item.get() for item in chosen.values()):
-                messagebox.showinfo('표시할 서비스', '하나 이상 선택하세요.', parent=dialog)
+                messagebox.showinfo('서비스·로그인 관리', '하나 이상 선택하세요.', parent=dialog)
                 return
             for key in FETCHERS:
                 was = self.enabled[key].get()
@@ -3520,6 +3519,7 @@ class UsageWidget:
 
     def popup(self, event):
         self.tip.hide()
+        self._fill_usage_pages()
         if not self._menu_held:
             self._menu_held = True
             self._arm_menu_raise()
@@ -3725,9 +3725,12 @@ class UsageWidget:
         if self.notify(messagebox.askyesno, '로그인 안내', '\n'.join(lines), parent=self.root):
             self._service_setup_action(action)
 
-    def test_toast(self):
-        if self.toast and not self.locked:
-            self.toast.send('test', 'AI Usage 알림 테스트', '한도 임박·소진 알림이 이곳에 표시됩니다.')
+    def toggle_notifications(self):
+        self.persist()
+        # Turning alerts on shows one right away, so a blocked Windows
+        # notification setting is found now rather than at 10%.
+        if self.notifications.get() and self.toast and not self.locked:
+            self.toast.send('test', 'AI Usage 알림 켜짐', '남은 양이 10% 이하가 되거나 소진되면 이렇게 알려 드립니다.')
 
     def environment(self, now):
         if self.preview:
@@ -4046,9 +4049,12 @@ class UsageWidget:
                 self.mini_title.place(x=m.p(12), y=0, height=mini_h)
             else:
                 self.mini_title.place_forget()
-        label = f"업데이트 {version}" if ready else '업데이트'
         try:
-            self.menu.entryconfig(self._update_menu, label=label, state=('normal' if ready else 'disabled'))
+            self.menu.entryconfig(
+                self._update_menu,
+                label=update_menu_label(version if ready else None),
+                command=self.install_update if ready else self.check_update_now,
+            )
         except tk.TclError:
             pass
 

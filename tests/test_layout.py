@@ -36,7 +36,6 @@ class LayoutTests(unittest.TestCase):
         for guard in (
             patch.object(u, 'login_present', return_value=False),
             patch('claude_integration.ensure_bridge_copy'),
-            patch.object(u.UsageWidget, '_sync_claude_menu'),
             patch.object(u, 'work_area', return_value=(0, 0, 800, 600)),
             patch.object(u, 'monitor_area', return_value=(0, 0, 800, 600)),
         ):

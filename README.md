@@ -20,7 +20,7 @@ Windows에서 GPT·Cursor·Claude 잔여 사용량을 보는 작은 위젯입니
 
 - GPT는 설치된 Codex CLI에 공식 로컬 인터페이스(`codex app-server`)로 사용량을 물어봅니다. 위젯은 Codex 로그인 토큰을 읽지 않습니다.
 - Claude는 공식 statusLine 값과 Claude Code 자신에게 보내는 사용량 조회만 씁니다. 계정 토큰에 접근하지 않습니다.
-- Cursor는 공개된 사용량 API가 없어, Cursor 앱이 쓰는 내부 사용량 조회를 Cursor 로그인 정보로 호출합니다. Cursor 약관상 회색지대일 수 있으니 판단해서 사용하세요. 우클릭에서 Cursor 조회를 끌 수 있습니다.
+- Cursor는 공개된 사용량 API가 없어, Cursor 앱이 쓰는 내부 사용량 조회를 Cursor 로그인 정보로 호출합니다. Cursor 약관상 회색지대일 수 있으니 판단해서 사용하세요. 우클릭 → 서비스·로그인 관리에서 Cursor 조회를 끌 수 있습니다.
 
 새 버전이 올라가면 위젯의 **업데이트** 버튼이 켜집니다.
 

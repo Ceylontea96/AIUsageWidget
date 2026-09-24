@@ -298,14 +298,50 @@ class UiTests(unittest.TestCase):
         w.mini_pill.hide()
         self.assertEqual(w.mini_pill.tip_text, '')
 
+    def menu_labels(self, menu):
+        return [None if menu.type(i)=='separator' else menu.entrycget(i,'label') for i in range(menu.index('end')+1)]
+
+    def test_menu_holds_only_what_has_no_other_control(self):
+        self.assertEqual(self.menu_labels(self.w.menu), [
+            '크기', None,
+            '서비스·로그인 관리...', '사용량 페이지 열기', None,
+            '항상 위', 'Windows 시작 시 실행', '한도 임박·소진 알림', None,
+            f'업데이트 확인 ({u.APP_VERSION})...', '도움말 · 표시 기준...', '바탕화면 바로가기 만들기', None,
+            '종료',
+        ])
+
+    def test_usage_pages_follow_enabled_services(self):
+        w=self.w
+        for key in u.FETCHERS: w.enabled[key].set(key!='cursor')
+        w._fill_usage_pages()
+        self.assertEqual(self.menu_labels(w.usage_pages), ['GPT','Claude'])
+        for key in u.FETCHERS: w.enabled[key].set(False)
+        w._fill_usage_pages()
+        self.assertEqual(self.menu_labels(w.usage_pages), ['켜 둔 서비스 없음'])
+        self.assertEqual(w.usage_pages.entrycget(0,'state'), 'disabled')
+
+    def test_one_update_entry_checks_then_installs(self):
+        w=self.w
+        index=w._update_menu
+        w.update_info={'version':'9.9.9','zip':'https://example.com/a.zip','notes':''}
+        w.set_update_chrome()
+        self.assertEqual(w.menu.entrycget(index,'label'), '업데이트 9.9.9 설치...')
+        w.update_info=None
+        w.set_update_chrome()
+        self.assertEqual(w.menu.entrycget(index,'label'), f'업데이트 확인 ({u.APP_VERSION})...')
+
+    def test_turning_alerts_on_sends_one_sample(self):
+        w=self.w
+        w.toast=Mock()
+        w.notifications.set(False); w.toggle_notifications()
+        w.toast.send.assert_not_called()
+        w.notifications.set(True); w.toggle_notifications()
+        self.assertEqual(w.toast.send.call_count, 1)
+        w.toast=None
+
     def test_version_in_menu_and_help(self):
         w=self.w
-        labels=[]
-        for i in range(w.menu.index('end')+1):
-            if w.menu.type(i)=='command':
-                labels.append(w.menu.entrycget(i,'label'))
-        self.assertIn(f'버전 {u.APP_VERSION}', labels)
-        self.assertIn('바탕화면 바로가기 생성', labels)
+        self.assertIn(f'업데이트 확인 ({u.APP_VERSION})...', self.menu_labels(w.menu))
         help_text = w.help_text()
         self.assertIn(f'현재 버전 {u.APP_VERSION}', help_text)
         self.assertIn('제휴되지 않은 비공식', help_text)
