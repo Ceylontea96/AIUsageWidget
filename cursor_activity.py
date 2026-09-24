@@ -51,6 +51,9 @@ class CursorActivityMonitor:
         self.was_fast = False
         self.was_visual = False
         self._missing_logged = False
+        self._root_mtime = None
+        self._transcript_dirs = []
+        self._folders = None
 
     @staticmethod
     def _classify(event):
@@ -300,6 +303,39 @@ class CursorActivityMonitor:
         self.was_visual = visual
         self.was_fast = fast
 
+    def _folder_times(self):
+        """Change times of the folders a new transcript can appear in.
+
+        A folder's time moves only when an entry is added or removed directly
+        inside it, so three levels are watched: projects, each project's
+        agent-transcripts, and the conversation folders (with their
+        subagents) that are running or were written in the last ten minutes.
+        Older conversations are left to the slow full rescan.
+        """
+        try:
+            root_time = self.root.stat().st_mtime_ns
+        except OSError:
+            return None
+        if root_time != self._root_mtime:
+            self._root_mtime = root_time
+            try:
+                self._transcript_dirs = [project / 'agent-transcripts' for project in self.root.iterdir()]
+            except OSError:
+                self._transcript_dirs = []
+        folders = [self.root, *self._transcript_dirs]
+        recent = time.time() - STALE_TIMEOUT
+        for path, state in self.files.items():
+            if state.status in (ACTIVE, GRACE) or state.last_mtime >= recent:
+                conversation = path.parent.parent if path.parent.name == 'subagents' else path.parent
+                folders += [conversation, conversation / 'subagents']
+        times = []
+        for folder in dict.fromkeys(folders):
+            try:
+                times.append((folder, folder.stat().st_mtime_ns))
+            except OSError:
+                times.append((folder, None))
+        return tuple(times)
+
     def poll(self, now):
         if now - self.last_scan < SCAN_INTERVAL:
             self._log_transitions(now)
@@ -307,9 +343,13 @@ class CursorActivityMonitor:
         self.last_scan = now
         # Consume tracked appends before discovery can evict a newly-active file.
         refresh = self._read_appends(now)
-        if now - self.last_discovery >= DISCOVERY_INTERVAL:
+        folders = self._folder_times()
+        if now - self.last_discovery >= DISCOVERY_INTERVAL or folders != self._folders:
             self.last_discovery = now
             refresh |= self._discover(now)
+            # Discovery may add conversations to watch, so take the times again.
+            folders = self._folder_times()
+        self._folders = folders
         self.initialized = True
         self._log_transitions(now)
         return refresh

@@ -116,15 +116,46 @@ class CursorActivityTests(unittest.TestCase):
         self.assertTrue(monitor.poll(2.4))
         self.assertTrue(monitor.visual_active(2.4))
 
-    def test_new_transcript_in_old_project_is_rediscovered(self):
+    def test_new_transcript_in_old_project_is_found_on_the_next_scan(self):
         (self.root / 'old-project').mkdir()
         monitor = ca.CursorActivityMonitor(self.root)
         monitor.poll(0.0)
         self.transcript('old-project', [{'role': 'user'}])
-        self.assertFalse(monitor.poll(ca.DISCOVERY_INTERVAL - 0.1))
-        rediscovered_at = ca.DISCOVERY_INTERVAL + ca.SCAN_INTERVAL
-        self.assertTrue(monitor.poll(rediscovered_at))
-        self.assertTrue(monitor.visual_active(rediscovered_at))
+        # Found through the folder times, not the twelve-second rescan.
+        self.assertTrue(monitor.poll(ca.SCAN_INTERVAL))
+        self.assertTrue(monitor.visual_active(ca.SCAN_INTERVAL))
+
+    def test_new_project_and_new_conversation_are_found_quickly(self):
+        monitor = ca.CursorActivityMonitor(self.root)
+        monitor.poll(0.0)
+        self.transcript('brand-new', [{'role': 'user'}])
+        self.assertTrue(monitor.poll(1.0))
+        first = self.transcript('project', [{'role': 'user'}, {'type': 'turn_ended'}])
+        monitor.poll(2.0)
+        second = first.parent.parent / 'second' / 'events.jsonl'
+        second.parent.mkdir()
+        second.write_text(json.dumps({'role': 'user'}) + '\n', encoding='utf-8')
+        self.assertTrue(monitor.poll(3.0))
+        self.assertIn(second, monitor.files)
+
+    def test_a_new_subagent_of_a_recent_conversation_is_found_quickly(self):
+        main = self.transcript('project', [{'role': 'user'}])
+        monitor = ca.CursorActivityMonitor(self.root)
+        monitor.poll(0.0)
+        subagent = main.parent / 'subagents' / 'helper.jsonl'
+        subagent.parent.mkdir()
+        subagent.write_text(json.dumps({'role': 'user'}) + '\n', encoding='utf-8')
+        monitor.poll(1.0)
+        self.assertIn(subagent, monitor.files)
+
+    def test_unchanged_folders_do_not_trigger_a_full_rescan(self):
+        self.transcript('project', [{'role': 'user'}])
+        monitor = ca.CursorActivityMonitor(self.root)
+        monitor.poll(0.0)
+        with patch.object(monitor, '_candidate_files', wraps=monitor._candidate_files) as rescan:
+            for step in range(1, 10):
+                monitor.poll(step * ca.SCAN_INTERVAL)
+        self.assertEqual(rescan.call_count, 0)
 
     def test_active_transcript_is_pinned_over_tracking_limit(self):
         active = self.transcript('active', [{'role': 'user'}])
