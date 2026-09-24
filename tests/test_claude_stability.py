@@ -410,6 +410,28 @@ class CliFeatureTests(unittest.TestCase):
         self.assertEqual(shown.internal['source'], 'claude_statusline')
         self.assertEqual(shown.plan, 'Pro')
 
+    def test_claude_ai_usage_shape_from_newer_cli(self):
+        # Claude Code 2.1.280's get_usage, trimmed: window objects, utilization in percent.
+        window = {'limit_dollars':None,'used_dollars':None,'remaining_dollars':None,'locked_reason':None}
+        body = {'subscription_type':'pro','rate_limits_available':True,'rate_limits':{
+            'five_hour':{'utilization':13,'resets_at':'2030-01-01T00:00:00+00:00',**window},
+            'seven_day':{'utilization':76,'resets_at':'2030-01-05T00:00:00+00:00',**window},
+            'seven_day_opus':None,
+            'nimbus_quill':{'utilization':0,'resets_at':None,**window},
+            'extra_usage':{'is_enabled':False,'utilization':None},
+            'seven_day_breakdown':{'rows':[{'key':'claude_code','percent':99}]},
+        }}
+        snap=providers.claude_usage_from_control_output(self.response(body),1000)
+        self.assertTrue(snap.ok)
+        self.assertEqual(snap.plan,'Pro')
+        self.assertEqual(sorted(i.remaining_percent for i in snap.main_limits),[24,87])
+        # Outside that shape a bare utilization still says nothing about its scale.
+        for row in ({'utilization':13}, {'utilization':13,'kind':'five_hour','resets_at':'2030-01-01T00:00:00Z'}):
+            body={'rate_limits':{'five_hour':row}}
+            self.assertFalse(providers.claude_usage_from_control_output(self.response(body),1000).ok)
+        body={'rate_limits':{'five_hour':{'utilization':130,'resets_at':'2030-01-01T00:00:00Z'}}}
+        self.assertFalse(providers.claude_usage_from_control_output(self.response(body),1000).ok)
+
     def test_ambiguous_or_invalid_cli_percent_is_unavailable(self):
         for row in ({'utilization':0.2}, {'percent':20,'utilization':0.8}, {'percent':True},
                     {'percent':float('nan')}, {'percent':101}, {'percent':20,'utilization_scale':'unknown','utilization':0.2}):

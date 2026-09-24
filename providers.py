@@ -1570,8 +1570,14 @@ def claude_windows_from_rate_limits(rate_limits: Any, limits: Any = None) -> dic
             if not isinstance(raw, dict):
                 continue
             key = window_key(raw.get("kind", raw_key))
-            if key is not None:
-                rows[key].append(raw)
+            if key is None:
+                continue
+            if (raw_key in WINDOW_KEYS and "kind" not in raw and "resets_at" in raw
+                    and "percent" not in raw and "utilization_scale" not in raw):
+                # Claude Code 2.1.2xx sends the claude.ai usage shape: a window
+                # object named five_hour/seven_day whose utilization is 0-100.
+                raw = {**raw, "utilization_scale": "percent"}
+            rows[key].append(raw)
     windows: dict[str, dict[str, Any]] = {}
     for key, candidates in rows.items():
         used = _claude_cli_used_percent(candidates)
@@ -1713,7 +1719,7 @@ def fetch_claude_cli(now: float | None = None) -> ProviderSnapshot:
             )
             auth = json.loads(status.stdout)
             if isinstance(auth, dict) and auth.get("loggedIn") is False:
-                snap.error = "Claude Code 로그인이 필요합니다. 우클릭 → Claude 로그인에서 연결하세요."
+                snap.error = "Claude Code 로그인이 필요합니다. 우클릭 → 서비스·로그인 관리 → Claude 로그인에서 연결하세요."
                 snap.internal["requires_login"] = True
         except (OSError, ValueError, subprocess.TimeoutExpired):
             pass

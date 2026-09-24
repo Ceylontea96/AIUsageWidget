@@ -29,6 +29,9 @@ settings.json을 읽지 못하면 어떤 설정도 변경하지 않습니다.
 statusLine은 실제 입력에서 version과 알려진 rate_limits 창의 숫자/리셋 schema를 검증합니다.
 CLI는 실제 get_usage control_response와 session/weekly_all 등의 알려진 kind,
 명시적 percent 또는 검증 가능한 utilization scale을 검사합니다.
+Claude Code 2.1.2xx부터는 `rate_limits.five_hour`/`seven_day` 창 객체에 `utilization`과
+`resets_at`만 담아 보냅니다. claude.ai 사용량과 같은 이 형식에서만 `utilization`을 0~100 퍼센트로
+읽습니다. 창 이름·`resets_at`이 없거나 `kind`가 붙은 행의 단위 없는 utilization은 계속 거부합니다.
 새로운 고버전이라도 해당 schema가 없거나 모호하면 unavailable로 처리합니다.
 네트워크 endpoint를 추가하거나 credential을 직접 읽지 않습니다.
 
