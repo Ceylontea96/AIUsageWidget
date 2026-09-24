@@ -12,7 +12,7 @@ import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
 
-APP_VERSION = '3.7.2'
+APP_VERSION = '3.7.3'
 USER_AGENT = f'AIUsageWidget/{APP_VERSION}'
 LAUNCHER_EXE = 'AI Usage.exe'
 JSON_LIMIT = 256 * 1024
