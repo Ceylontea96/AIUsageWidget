@@ -348,6 +348,32 @@ class UiTests(unittest.TestCase):
         self.assertIn('실패하거나 바뀔 수 있습니다', help_text)
         self.assertIn('AI Usage.exe', help_text)
 
+    def test_activity_has_its_own_quarter_second_beat(self):
+        w=self.w
+        w.preview=False
+        polled=[]
+        scheduled=[]
+        with patch.object(w,'_poll_activity',side_effect=lambda now: polled.append(now)), \
+             patch.object(w.root,'after',side_effect=lambda ms, fn: scheduled.append((ms, fn)) or 'id'):
+            w._activity_tick()
+        w.preview=True
+        self.assertEqual(len(polled),1)
+        self.assertEqual(scheduled,[(u.ACTIVITY_TICK_MS, w._activity_tick)])
+        self.assertEqual(u.ACTIVITY_TICK_MS,250)
+
+    def test_claude_activity_reaches_its_card_and_chip(self):
+        w=self.w
+        w.enabled['claude'].set(True)
+        state={'on':True}
+        w.claude_activity=Mock(visual_active=lambda now: state['on'])
+        seen=[]
+        for c in (w.cards['claude'], w.mini_values['claude']):
+            c.set_activity=lambda a, c=c: seen.append((type(c).__name__, a))
+        w._sync_activity_ui(1.0)
+        state['on']=False
+        w._sync_activity_ui(2.0)
+        self.assertEqual(seen, [('Card',True),('Chip',True),('Card',False),('Chip',False)])
+
     def test_service_chip_colours_stay_apart(self):
         def rgb(color):
             return [int(color[i:i+2],16) for i in (1,3,5)]

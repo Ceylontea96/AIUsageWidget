@@ -28,6 +28,7 @@ from additional_ui import AdditionalBlock, additional_count, expanded_body_budge
 from bar_raster import cover_round_rect as _cover_round_rect, progress_rgba, ringed_progress_rgba
 from frame_clock import FAST as FRAME_FAST, SLOW as FRAME_SLOW, clock_for
 from codex_activity import CodexActivityMonitor, FAST_INTERVAL, LOG
+from claude_activity import ClaudeActivityMonitor
 from cursor_activity import CursorActivityMonitor
 from providers import (
     claude_plan_label,
@@ -818,6 +819,7 @@ def compact_row_layout(*, count, chip_width, controls_left, scale_px,
 
 
 ACTIVE_HOLD = 60
+ACTIVITY_TICK_MS = 250
 # statusLine only runs in terminal Claude Code. When it is silent the widget
 # asks the CLI itself; that costs a process, not tokens, so keep it infrequent.
 CLAUDE_CLI_INTERVAL = 60.0
@@ -2042,6 +2044,10 @@ class BarShimmer:
         except tk.TclError:
             return
         if self._frame_interval() is None:
+            # Frames stop here. Forget the last frame's time, or the first frame
+            # of the next activity would count the whole quiet spell and jump
+            # straight to full thickness instead of growing.
+            self._emphasis_t0 = None
             clock.release(self)
         else:
             clock.wake(self)
@@ -2796,6 +2802,7 @@ class UsageWidget:
         self.watcher = AuthWatcher()
         self.codex_activity = CodexActivityMonitor()
         self.cursor_activity = CursorActivityMonitor()
+        self.claude_activity = ClaudeActivityMonitor()
         self.codex_last_request = float('-inf')
         self.request_started = dict.fromkeys(FETCHERS, float('-inf'))
         self.poll_pending = dict.fromkeys(FETCHERS, False)
@@ -2832,6 +2839,7 @@ class UsageWidget:
         self.last_save = 0
         self.cache_signature = ''
         self.timer = None
+        self.activity_timer = None
         self.icons = {}
         self._layout = None
         self._region_h = None
@@ -2877,6 +2885,7 @@ class UsageWidget:
         self.root.bind_all('<Control-KP_0>', self._scale_reset)
         self.root.bind_all('<Button-3>', self.popup)
         self.tick()
+        self._activity_tick()
 
     def _load_icons(self):
         try:
@@ -3979,11 +3988,14 @@ class UsageWidget:
         now = time.monotonic() if now is None else now
         gpt_active = (not self.preview and self.enabled['chatgpt'].get()
                       and getattr(self, 'codex_activity', None) is not None
-                      and self.codex_activity.fast(now))
+                      and self.codex_activity.visual_active(now))
         cursor_active = (self.enabled['cursor'].get()
                          and getattr(self, 'cursor_activity', None) is not None
                          and self.cursor_activity.visual_active(now))
-        states = {'chatgpt': gpt_active, 'cursor': cursor_active}
+        claude_active = (self.enabled['claude'].get()
+                         and getattr(self, 'claude_activity', None) is not None
+                         and self.claude_activity.visual_active(now))
+        states = {'chatgpt': gpt_active, 'cursor': cursor_active, 'claude': claude_active}
         ui_active = getattr(self, '_ui_active', None)
         if ui_active is None:
             ui_active = {}
@@ -4063,6 +4075,41 @@ class UsageWidget:
         d = m.p(6)
         self.footer_dot.create_oval(0,0,d,d,fill=dot,outline='')
 
+    def _activity_tick(self):
+        # Activity has its own quarter-second beat so a turn's start and end
+        # reach the bars without waiting for the one-second idle tick. Each
+        # monitor keeps its own interval: Claude and Codex 0.25 s, Cursor 0.75 s.
+        if self.closing:
+            return
+        if not self.preview:
+            self._poll_activity(time.monotonic())
+        self.activity_timer = self.root.after(ACTIVITY_TICK_MS, self._activity_tick)
+
+    def _poll_activity(self, now):
+        """Read the activity monitors, then move quota polling and the bars."""
+        was_fast = self.codex_activity.was_fast
+        was_cursor = self.cursor_activity.was_fast
+        activity, quota_event = self.codex_activity.poll(now)
+        cursor_hit = self.cursor_activity.poll(now) if self.enabled['cursor'].get() else False
+        if self.enabled['claude'].get():
+            self.claude_activity.poll(now)
+        if not self.locked and self.enabled['chatgpt'].get():
+            fast = self.codex_activity.fast(now)
+            if (activity or quota_event) and not self.failures['chatgpt']:
+                self._request_fast_poll('chatgpt', now)
+            if was_fast and not fast and not self.failures['chatgpt']:
+                self.due['chatgpt'] = now + next_interval(self.snapshots.get('chatgpt'), active=False)
+        if not self.locked and self.enabled['cursor'].get() and not self.failures['cursor']:
+            cursor_fast = self.cursor_activity.fast(now) or getattr(self, 'usage_until', {}).get('cursor', 0) > now
+            if cursor_hit:
+                self._request_fast_poll('cursor', now)
+            elif cursor_fast:
+                started = self.request_started.get('cursor', float('-inf'))
+                self.due['cursor'] = min(self.due['cursor'], next_fast_due(started, now))
+            if was_cursor and not cursor_fast and not cursor_hit:
+                self.due['cursor'] = now + next_interval(self.snapshots.get('cursor'), active=False)
+        self._sync_activity_ui(now)
+
     def tick(self):
         if self.closing:
             return
@@ -4073,26 +4120,7 @@ class UsageWidget:
         now = time.monotonic()
         self.environment(now)
         if not self.preview:
-            was_fast = self.codex_activity.was_fast
-            was_cursor = self.cursor_activity.was_fast
-            activity, quota_event = self.codex_activity.poll(now)
-            cursor_hit = self.cursor_activity.poll(now) if self.enabled['cursor'].get() else False
-            if not self.locked and self.enabled['chatgpt'].get():
-                fast = self.codex_activity.fast(now)
-                if (activity or quota_event) and not self.failures['chatgpt']:
-                    self._request_fast_poll('chatgpt', now)
-                if was_fast and not fast and not self.failures['chatgpt']:
-                    self.due['chatgpt'] = now + next_interval(self.snapshots.get('chatgpt'), active=False)
-            if not self.locked and self.enabled['cursor'].get() and not self.failures['cursor']:
-                cursor_fast = self.cursor_activity.fast(now) or getattr(self, 'usage_until', {}).get('cursor', 0) > now
-                if cursor_hit:
-                    self._request_fast_poll('cursor', now)
-                elif cursor_fast:
-                    started = self.request_started.get('cursor', float('-inf'))
-                    self.due['cursor'] = min(self.due['cursor'], next_fast_due(started, now))
-                if was_cursor and not cursor_fast and not cursor_hit:
-                    self.due['cursor'] = now + next_interval(self.snapshots.get('cursor'), active=False)
-            self._sync_activity_ui(now)
+            self._poll_activity(now)
         completed = []
         for key, snap, error in self.runner.poll(now):
             completed.append(key)
@@ -4270,6 +4298,8 @@ class UsageWidget:
         self.runner.close()
         if self.timer:
             self.root.after_cancel(self.timer)
+        if getattr(self, 'activity_timer', None):
+            self.root.after_cancel(self.activity_timer)
         # All callbacks belong to this application's Tk interpreter, including
         # short-lived menu/tooltip callbacks that do not retain their IDs.
         for callback in self.root.tk.splitlist(self.root.tk.call('after', 'info')):

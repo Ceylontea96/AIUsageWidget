@@ -209,6 +209,29 @@ class ShimmerUiTests(unittest.TestCase):
         self.assertEqual(heights[5], card.metrics.bar_h)
         self.assertEqual(len(set(offsets)), 1)
 
+    def test_a_later_activity_grows_again_instead_of_jumping(self):
+        # The first activity settles; seconds later the next one must grow over
+        # the usual time, not count the quiet spell as one long frame.
+        for control in (self.weekly_card(), u.Chip(self.root)):
+            with self.subTest(control=type(control).__name__):
+                if isinstance(control, u.Chip):
+                    control.configure(text='GPT 90%', percent=90, bg=u.CHIP_CODEX, animate=False)
+                now = 10.0
+                self.pump(control, now, True)
+                for _ in range(40):
+                    now += 0.033
+                    self.pump(control, now)
+                self.pump(control, now, False)
+                for _ in range(60):
+                    now += 0.033
+                    self.pump(control, now)
+                self.assertEqual(control._emphasis, 0.0)
+                now += 5.0
+                self.pump(control, now, True)
+                now += 0.016
+                self.pump(control, now)
+                self.assertLess(control._emphasis, 0.2, 'one frame in, the bar has only begun to grow')
+
     def test_fractional_thickness_changes_pixels_without_moving_image(self):
         frames = []
         for height in (8.0, 8.1, 8.2, 8.3):
