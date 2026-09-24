@@ -40,14 +40,30 @@ function Get-Codex {
     Refresh-Path
     $cmd = Get-Command codex -ErrorAction SilentlyContinue
     if ($cmd -and $cmd.Source) { return $cmd.Source }
-    foreach ($candidate in @(
-            (Join-Path $env:USERPROFILE '.codex\bin\codex.exe'),
-            (Join-Path $env:USERPROFILE '.local\bin\codex.exe'),
-            (Join-Path $env:LOCALAPPDATA 'Programs\codex\codex.exe'),
-            (Join-Path $env:APPDATA 'npm\codex.cmd')
-        )) {
-        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    # Keep in step with _known_locations in codex_app_server.py.
+    $candidates = @()
+    if ($env:CODEX_INSTALL_DIR) { $candidates += (Join-Path $env:CODEX_INSTALL_DIR 'codex.exe') }
+    $candidates += @(
+        (Join-Path $env:LOCALAPPDATA 'Programs\OpenAI\Codex\bin\codex.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\codex.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\codex\codex.exe')
+    )
+    $packages = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'
+    $candidates += @(Get-ChildItem -Path (Join-Path $packages 'OpenAI.Codex_*\codex-*-windows-msvc.exe') -ErrorAction SilentlyContinue | ForEach-Object FullName)
+    $candidates += @(Get-ChildItem -Path (Join-Path $packages 'OpenAI.Codex_*\codex.exe') -ErrorAction SilentlyContinue | ForEach-Object FullName)
+    $candidates += @(
+        (Join-Path $env:USERPROFILE 'scoop\shims\codex.exe'),
+        (Join-Path $env:USERPROFILE '.codex\bin\codex.exe'),
+        (Join-Path $env:USERPROFILE '.local\bin\codex.exe'),
+        (Join-Path $env:APPDATA 'npm\codex.cmd')
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
     }
+    # The Codex desktop app bundles codex.exe in a hashed folder that is not on PATH.
+    $bundled = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'OpenAI\Codex\bin\*\codex.exe') -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($bundled) { return $bundled.FullName }
     return $null
 }
 

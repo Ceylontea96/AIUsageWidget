@@ -1,11 +1,13 @@
 """GPT usage through Codex's own app-server: adapter, client and runner. Offline."""
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -236,8 +238,74 @@ class ResolveTests(unittest.TestCase):
                 self.assertEqual(cas.resolve_codex_executable(), shim)
         with patch.object(cas.shutil, "which", return_value=r"C:\tools\codex.exe"):
             self.assertEqual(cas.resolve_codex_executable(), Path(r"C:\tools\codex.exe"))
-        with patch.object(cas.shutil, "which", return_value=None):
+        with patch.object(cas.shutil, "which", return_value=None), patch.object(cas, "_known_locations", return_value=[]), \
+                patch.object(cas, "desktop_codex_executable", return_value=None):
             self.assertIsNone(cas.resolve_codex_executable())
+
+    def test_desktop_app_bundle_when_not_on_path(self):
+        with self.machine() as root:
+            older = self.touch(root / "local/OpenAI/Codex/bin/aaaa/codex.exe")
+            newer = self.touch(root / "local/OpenAI/Codex/bin/bbbb/codex.exe")
+            os.utime(older, (1_000_000, 1_000_000))
+            os.utime(newer, (2_000_000, 2_000_000))
+            self.assertEqual(cas.resolve_codex_executable(), newer)
+        with self.machine():
+            self.assertIsNone(cas.desktop_codex_executable())
+            self.assertIsNone(cas.resolve_codex_executable())
+
+    def test_path_saved_after_the_widget_started(self):
+        with self.machine() as root:
+            installed = self.touch(root / "new-install/codex.exe")
+            with patch.object(cas, "_saved_path", return_value=[str(installed.parent)]):
+                self.assertEqual(cas.find_codex(), installed)
+
+    def test_each_installer_location_off_path(self):
+        cases = (
+            "local/Programs/OpenAI/Codex/bin/codex.exe",
+            "local/Microsoft/WinGet/Links/codex.exe",
+            "local/Microsoft/WinGet/Packages/OpenAI.Codex_Microsoft.Winget.Source_8wekyb3d8bbwe/codex-x86_64-pc-windows-msvc.exe",
+            "home/scoop/shims/codex.exe",
+            "roaming/npm/codex.cmd",
+        )
+        for relative in cases:
+            with self.subTest(relative), self.machine() as root:
+                installed = self.touch(root / relative)
+                self.assertEqual(cas.find_codex(), installed)
+
+    def test_install_dir_and_moved_npm_prefix(self):
+        with self.machine() as root:
+            target = self.touch(root / "custom/codex.exe")
+            with patch.dict(cas.os.environ, {"CODEX_INSTALL_DIR": str(target.parent)}):
+                self.assertEqual(cas.find_codex(), target)
+        with self.machine() as root:
+            shim = self.touch(root / "npm-global/codex.cmd")
+            (root / "home/.npmrc").write_text(f"cache=x{os.linesep}prefix={shim.parent}{os.linesep}", encoding="utf-8")
+            self.assertEqual(cas.find_codex(), shim)
+
+    def test_a_cli_wins_over_the_desktop_app(self):
+        with self.machine() as root:
+            self.touch(root / "local/OpenAI/Codex/bin/aaaa/codex.exe")
+            cli = self.touch(root / "local/Microsoft/WinGet/Links/codex.exe")
+            self.assertEqual(cas.find_codex(), cli)
+
+    @contextmanager
+    def machine(self):
+        """An empty machine: nothing on PATH, home and app folders in a temp dir."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("home", "local", "roaming"):
+                (root / name).mkdir()
+            environ = {"PATH": "", "LOCALAPPDATA": str(root / "local"), "APPDATA": str(root / "roaming")}
+            with patch.dict(cas.os.environ, environ), patch.object(cas.Path, "home", return_value=root / "home"), \
+                    patch.object(cas, "_saved_path", return_value=[]):
+                cas.os.environ.pop("CODEX_INSTALL_DIR", None)
+                yield root
+
+    @staticmethod
+    def touch(path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"MZ")
+        return path
 
 
 class FakeJob:

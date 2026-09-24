@@ -40,17 +40,9 @@ def _first_file(paths):
 
 
 def codex_cli_path():
-    found = shutil.which('codex') or shutil.which('codex.exe')
-    if found:
-        return Path(found)
-    home = Path.home()
-    local = Path(os.environ.get('LOCALAPPDATA', ''))
-    return _first_file((
-        home / '.codex' / 'bin' / 'codex.exe',
-        home / '.local' / 'bin' / 'codex.exe',
-        local / 'Programs' / 'codex' / 'codex.exe',
-        Path(os.environ.get('APPDATA', '')) / 'npm' / 'codex.cmd',
-    ))
+    # The same lookup the GPT read uses, so the button and the read agree.
+    from codex_app_server import find_codex
+    return find_codex()
 
 
 def cursor_app_path():
@@ -69,12 +61,12 @@ def login_status(key, paths=None):
     if key == 'claude':
         from claude_integration import integration_label
         return integration_label()
+    if key == 'chatgpt' and not codex_cli_path():
+        return 'Codex CLI 없음 · ChatGPT 앱만으로는 안 됨'
     if login_present(key, paths):
         return '로그인 감지됨'
     if key == 'chatgpt':
-        if codex_cli_path():
-            return 'CLI 있음 · 이 PC에서 로그인 없음'
-        return 'Codex CLI 없음 · ChatGPT 앱만으로는 안 됨'
+        return 'CLI 있음 · 이 PC에서 로그인 없음'
     if cursor_app_path():
         return '앱 있음 · 이 PC에서 로그인 없음'
     return 'Cursor 앱 없음'
@@ -89,7 +81,9 @@ def prepare_action(key):
             return '연동 해제', 'claude-uninstall'
         return 'Claude 연동', 'claude-setup'
     if key == 'chatgpt':
-        if login_present(key) or codex_cli_path():
+        # GPT is read through the Codex CLI, so a login left behind by the
+        # desktop app alone is not enough to skip installing it.
+        if codex_cli_path():
             return '로그인', 'codex-login'
         return '설치하고 로그인', 'codex-install'
     if login_present(key) or cursor_app_path():

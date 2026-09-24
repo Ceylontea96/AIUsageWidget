@@ -79,10 +79,16 @@ class RuntimeTests(unittest.TestCase):
     def test_login_status_and_prepare_buttons(self):
         with tempfile.TemporaryDirectory() as directory:
             auth=Path(directory)/'auth.json';auth.write_text('{}')
-            with patch('runtime.login_present', side_effect=lambda key, paths=None: key=='chatgpt'), patch('runtime.codex_cli_path', return_value=None), patch('runtime.cursor_app_path', return_value=None):
+            with patch('runtime.login_present', side_effect=lambda key, paths=None: key=='chatgpt'), patch('runtime.codex_cli_path', return_value=Path(directory)/'codex.exe'), patch('runtime.cursor_app_path', return_value=None):
                 self.assertEqual(login_status('chatgpt'), '로그인 감지됨')
                 self.assertEqual(login_status('cursor'), 'Cursor 앱 없음')
                 self.assertEqual(prepare_action('chatgpt'), ('로그인', 'codex-login'))
+                self.assertEqual(prepare_action('cursor'), ('설치하고 열기', 'cursor-install'))
+            # A login the desktop app left behind is not a CLI to read through.
+            with patch('runtime.login_present', return_value=True), patch('runtime.codex_cli_path', return_value=None):
+                self.assertEqual(login_status('chatgpt'), 'Codex CLI 없음 · ChatGPT 앱만으로는 안 됨')
+                self.assertEqual(prepare_action('chatgpt'), ('설치하고 로그인', 'codex-install'))
+            with patch('runtime.login_present', side_effect=lambda key, paths=None: key=='chatgpt'), patch('runtime.codex_cli_path', return_value=None), patch('runtime.cursor_app_path', return_value=None):
                 self.assertEqual(prepare_action('cursor'), ('설치하고 열기', 'cursor-install'))
             with patch('runtime.login_present', return_value=False), patch('runtime.codex_cli_path', return_value=None), patch('runtime.cursor_app_path', return_value=Path(directory)/'Cursor.exe'):
                 self.assertEqual(login_status('chatgpt'), 'Codex CLI 없음 · ChatGPT 앱만으로는 안 됨')

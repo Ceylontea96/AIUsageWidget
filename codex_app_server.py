@@ -12,6 +12,7 @@ reset credit; nothing here can send it.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import threading
@@ -37,11 +38,104 @@ class CodexAppServerError(RuntimeError):
     """A read that did not produce rate limits. The message is user-facing."""
 
 
-def resolve_codex_executable() -> Path | None:
-    found = shutil.which("codex")
-    if not found:
+def desktop_codex_executable() -> Path | None:
+    """The codex.exe bundled with the Codex desktop app, which is not on PATH.
+
+    Each app update adds a new hashed folder under bin; the newest one is the
+    one the app itself runs.
+    """
+    local = os.environ.get("LOCALAPPDATA")
+    if not local:
         return None
-    path = Path(found)
+    hits = list(Path(local, "OpenAI", "Codex", "bin").glob("*/codex.exe"))
+    if not hits:
+        return None
+    return max(hits, key=lambda hit: hit.stat().st_mtime)
+
+
+def _saved_path() -> list[str]:
+    """PATH as saved in the registry now.
+
+    A widget started before Codex was installed still carries the PATH it
+    started with, so the installer's new entry is only visible here.
+    """
+    try:
+        import winreg
+    except ImportError:
+        return []
+    entries = []
+    for root, key in (
+        (winreg.HKEY_CURRENT_USER, r"Environment"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+    ):
+        try:
+            with winreg.OpenKey(root, key) as handle:
+                value, _ = winreg.QueryValueEx(handle, "Path")
+        except OSError:
+            continue
+        entries += [os.path.expandvars(part) for part in str(value).split(";") if part.strip()]
+    return entries
+
+
+def _npm_prefix() -> Path | None:
+    """A global npm folder moved with `npm config set prefix`, read without starting node."""
+    try:
+        lines = (Path.home() / ".npmrc").read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None
+    for line in lines:
+        name, _, value = line.partition("=")
+        if name.strip() == "prefix" and value.strip():
+            return Path(os.path.expandvars(value.strip().strip('"')))
+    return None
+
+
+def _known_locations() -> list[Path]:
+    """Where each way of installing Codex puts it, whether or not PATH says so."""
+    home = Path.home()
+    places = []
+    if os.environ.get("CODEX_INSTALL_DIR"):
+        places.append(Path(os.environ["CODEX_INSTALL_DIR"], "codex.exe"))
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        places += [
+            Path(local, "Programs", "OpenAI", "Codex", "bin", "codex.exe"),  # official install script
+            Path(local, "Microsoft", "WinGet", "Links", "codex.exe"),
+            Path(local, "Programs", "codex", "codex.exe"),
+        ]
+        # winget keeps the unzipped binary under its release name when it cannot link it.
+        packages = Path(local, "Microsoft", "WinGet", "Packages")
+        places += sorted(packages.glob("OpenAI.Codex_*/codex-*-windows-msvc.exe"))
+        places += sorted(packages.glob("OpenAI.Codex_*/codex.exe"))
+    places += [
+        home / "scoop" / "shims" / "codex.exe",
+        home / ".codex" / "bin" / "codex.exe",
+        home / ".local" / "bin" / "codex.exe",
+    ]
+    if os.environ.get("APPDATA"):
+        places.append(Path(os.environ["APPDATA"], "npm", "codex.cmd"))
+    prefix = _npm_prefix()
+    if prefix:
+        places.append(prefix / "codex.cmd")
+    return places
+
+
+def find_codex() -> Path | None:
+    """The Codex to run: PATH as it is now, then every known install place, then the desktop app."""
+    search = os.pathsep.join([os.environ.get("PATH", ""), *_saved_path()])
+    found = shutil.which("codex", path=search)
+    if found:
+        return Path(found)
+    for place in _known_locations():
+        if place.is_file():
+            return place
+    return desktop_codex_executable()
+
+
+def resolve_codex_executable() -> Path | None:
+    path = find_codex()
+    if path is None:
+        return None
     if path.suffix.lower() == ".exe":
         return path
     for pattern in _NATIVE_PATTERNS:
