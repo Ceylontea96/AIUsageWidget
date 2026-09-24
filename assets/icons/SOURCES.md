@@ -17,13 +17,15 @@ endorsed by OpenAI or Anysphere.
   the brand archive it links to,
   <https://cdn.openai.com/brand/openai-logos.zip>
 - **Path inside the archive:** `OpenAI-logos/PNGs/OAI_OpenAI-Blossom_White.png`
-- **Project files:** `service_gpt.png`, `service_gpt@2x.png`
-- **Transformation:** downscaled to 20px and 40px. Original colors and
-  proportions are kept; the mark is not recolored, cropped, stretched or
-  otherwise altered.
+- **Project file:** `service_gpt.png`, a 132px master of the whole 716px
+  file, clear space included.
+- **Transformation:** downscaled by area averaging, first to the 132px master
+  and then at runtime to the size each UI scale needs (33px at scale 1, which
+  makes the mark itself about 16px). Original colors and proportions are kept;
+  the mark is not recolored, cropped, stretched or otherwise altered.
 - **Use:** a small secondary icon identifying the ChatGPT/OpenAI provider row.
   It is not used as this project's primary branding.
-- **Verified:** 2026-09-20, against the archive above.
+- **Verified:** 2026-09-25, against the archive above.
 
 The OpenAI name, the Blossom mark and other OpenAI trademarks are OpenAI's
 property and are used here under OpenAI's brand guidelines, which state that
@@ -32,24 +34,30 @@ non-exclusive and non-transferable, and that OpenAI may end it at any time.
 Nothing here relicenses those marks under this project's MIT license, and
 nothing here implies a partnership, sponsorship or endorsement.
 
-> NOTE: the guidelines specify clear space around the Blossom. This project's
-> UI geometry has not been checked against that rule. Clear-space compliance
-> should be reviewed separately.
+> NOTE: the guidelines specify clear space around the Blossom. The file's own
+> transparent margin is kept at every size, and the card title starts to the
+> right of it. Whether that margin equals the guideline's clear-space rule has
+> not been checked; that should be reviewed separately.
 
 ## Cursor provider icon
 
 - **Provider:** Cursor
-- **Asset used:** `APP_ICON_2D_DARK.png` (the 2D dark app icon)
+- **Asset used:** `CUBE_2D_DARK.png` (the 2D cube logo for dark backgrounds;
+  its fill is the light `#EDECEC`)
 - **Official source:** Cursor brand guidelines, <https://cursor.com/brand>, and
   the brand archive it links to,
   <https://ptht05hbb1ssoooe.public.blob.vercel-storage.com/assets/brand/cursor-brand-assets.zip>
-- **Path inside the archive:** `App Icons/PNG/APP_ICON_2D_DARK.png`
-- **Project files:** `service_cursor.png`, `service_cursor@2x.png`
-- **Transformation:** downscaled to 20px and 40px. Original colors and
-  proportions are kept; no recoloring or reshaping.
+- **Path inside the archive:** `General Logos/Cube/PNG/CUBE_2D_DARK.png`
+- **Project file:** `service_cursor.png`, a 56x64 master of the 1401x1597 file.
+- **Transformation:** downscaled by area averaging, first to the master and
+  then at runtime to the size each UI scale needs (17px tall at scale 1).
+  Original colors and proportions are kept; no recoloring, cropping or
+  reshaping. Until 2026-09-25 the project used the app icon
+  `App Icons/PNG/APP_ICON_2D_DARK.png`, whose dark tile showed as a box on the
+  card; the logo without the tile replaced it.
 - **Naming:** the product is referred to as "Cursor", as the guidelines ask —
   never "Cursor AI" or "Cursor Code".
-- **Verified:** 2026-09-20, against the archive above.
+- **Verified:** 2026-09-25, against the archive above.
 
 The Cursor name and logo are Anysphere's property. The assets are published on
 Cursor's brand page and are used here to identify the Cursor provider,

@@ -48,6 +48,30 @@ class RasterIdentityTests(unittest.TestCase):
             with self.subTest(args=args, kwargs=kwargs):
                 self.assertEqual(fast(*args, **kwargs), reference(*args, **kwargs))
 
+    def test_ringed_pill_keeps_round_ends(self):
+        m = u.Metrics()
+        width, height, ring_w = m.chip_w, m.chip_canvas_h, m.p(2, 1)
+        bg, ring = (0x10, 0x20, 0x30), (0xF0, 0x40, 0x40)
+        for shape in (m.chip_h, (m.chip_h + height) / 2, height):
+            for percent in (0, 4, 87, 100):
+                with self.subTest(shape=shape, percent=percent):
+                    fill = u.chip_fill_width(width - 2 * ring_w, percent)
+                    _, _, rows = bar_raster.ringed_progress_rgba(
+                        width, height, shape, ring_w, '#F04040', fill, u.CHIP_TRACK, u.CODEX, '#102030')
+                    _, _, outer = bar_raster.progress_rgba(
+                        width, height, shape / 2, 0, '#F04040', '#F04040', '#102030', shape_height=shape)
+                    for y in range(height):
+                        for x in range(width):
+                            outside = tuple(outer[y][x * 4:x * 4 + 3]) == bg
+                            if outside:
+                                # Nothing may show outside the ring, such as an inner square corner.
+                                self.assertEqual(tuple(rows[y][x * 4:x * 4 + 3]), bg, (x, y))
+                    # The ring shows on the top edge and at both round ends.
+                    middle = int((height - shape) / 2) + 1
+                    self.assertEqual(tuple(rows[middle][width // 2 * 4:width // 2 * 4 + 3]), ring)
+                    self.assertEqual(tuple(rows[height // 2][4:7]), ring)
+                    self.assertEqual(tuple(rows[height // 2][(width - 2) * 4:(width - 2) * 4 + 3]), ring)
+
     def test_photo_uses_the_cached_renderer(self):
         root = u.tk.Tk()
         root.withdraw()

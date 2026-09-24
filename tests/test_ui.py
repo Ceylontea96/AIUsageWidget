@@ -348,6 +348,22 @@ class UiTests(unittest.TestCase):
         self.assertIn('실패하거나 바뀔 수 있습니다', help_text)
         self.assertIn('AI Usage.exe', help_text)
 
+    def test_service_chip_colours_stay_apart(self):
+        def rgb(color):
+            return [int(color[i:i+2],16) for i in (1,3,5)]
+        def luminance(color):
+            c=[x/255 for x in rgb(color)]
+            c=[x/12.92 if x<=0.03928 else ((x+0.055)/1.055)**2.4 for x in c]
+            return 0.2126*c[0]+0.7152*c[1]+0.0722*c[2]
+        def distance(a,b):
+            return sum((x-y)**2 for x,y in zip(rgb(a),rgb(b)))**.5
+        others=(u.CHIP_WARN,u.CHIP_DANGER,u.CHIP_STALE)
+        for key,fill in u.CHIP_OK.items():
+            with self.subTest(key=key):
+                # Cursor's old #75411F sat 17 from Claude and read as the same service.
+                self.assertGreater(min(distance(fill,o) for o in (*others,*u.CHIP_OK.values()) if o!=fill), 40)
+                self.assertGreaterEqual((luminance(u.CHIP_FG)+.05)/(luminance(fill)+.05), 4.5)
+
     def test_menu_checkmark_is_white(self):
         self.assertEqual(str(self.w.menu.cget('selectcolor')).upper(), '#FFFFFF')
 

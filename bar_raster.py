@@ -153,3 +153,33 @@ def progress_rgba(width, height, radius, fill_width, track, fill, background, sh
                     row += memo[key] * (b - a)
         rows.append(row)
     return width, height, rows
+
+
+def ringed_progress_rgba(width, height, shape_height, ring_width, ring, fill_width, track, fill, background,
+                         shimmer=None, glow=0.65):
+    """A progress pill inside a ring of `ring` colour, as one opaque image.
+
+    The inner bar is drawn inset and blended into the ring colour, then only
+    the columns its rounded shape covers are copied over the ring. Copying the
+    whole inner rectangle would put its square corners outside the ring's
+    round ends. `fill_width` is measured on the inner bar.
+    """
+    width = max(1, int(round(width)))
+    height = max(1, int(round(height)))
+    shape_height = max(0.0, min(float(height), float(shape_height)))
+    ring_width = max(0, int(ring_width))
+    _, _, rows = progress_rgba(width, height, shape_height / 2, 0.0, ring, ring, background,
+                               shape_height=shape_height, glow=glow)
+    inner_w = width - 2 * ring_width
+    inner_h = int(round(shape_height)) - 2 * ring_width
+    if inner_w <= 0 or inner_h <= 0:
+        return width, height, rows
+    top = (height - inner_h) // 2
+    _, _, inner = progress_rgba(inner_w, inner_h, inner_h / 2, fill_width, track, fill, ring,
+                                shimmer=shimmer, shape_height=float(inner_h), glow=glow)
+    for y, runs in enumerate(bar_layout(inner_w, inner_h, inner_h / 2, 0.0, float(inner_h))):
+        row, source = rows[top + y], inner[y]
+        for x0, x1, covered, _ in runs:
+            if covered > 0.0:
+                row[(ring_width + x0) * 4:(ring_width + x1) * 4] = source[x0 * 4:x1 * 4]
+    return width, height, rows

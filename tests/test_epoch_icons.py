@@ -282,10 +282,45 @@ class ServiceIconTests(unittest.TestCase):
 
     def test_every_mapped_icon_is_present_on_disk(self):
         icons = PROJECT / 'assets' / 'icons'
-        for name in u.SERVICE_ICONS.values():
-            for suffix in ('', '@2x'):
-                with self.subTest(asset=f'{name}{suffix}'):
-                    self.assertTrue((icons / f'{name}{suffix}.png').is_file())
+        for name, _ in u.SERVICE_ICONS.values():
+            with self.subTest(asset=name):
+                self.assertTrue((icons / f'{name}.png').is_file())
+
+    def visible_height(self, key, scale):
+        name, height = u.SERVICE_ICONS[key]
+        w, h, rows = u.read_png_rgba(u.service_icon_png(name, u.px(height, scale, 1)))
+        lit = [y for y in range(h) if any(rows[y][x*4+3] > 64 for x in range(w))]
+        return lit[-1] - lit[0] + 1
+
+    def test_marks_look_the_same_size_at_every_scale(self):
+        # The Blossom file carries clear space; the cube has none. Their
+        # visible marks, not their files, are what must match.
+        for scale in (0.75, 1.0, 1.15, 1.5):
+            with self.subTest(scale=scale):
+                gpt, cursor = self.visible_height('chatgpt', scale), self.visible_height('cursor', scale)
+                self.assertLessEqual(abs(gpt - cursor), 2)
+                self.assertAlmostEqual(gpt, 16 * scale, delta=2)
+
+    def test_collapse_chevron_points_its_way_with_soft_edges(self):
+        down = u.read_png_rgba(u.chevron_png(11, True, u.ICON, 1.6))
+        right = u.read_png_rgba(u.chevron_png(11, False, u.ICON, 1.6))
+        self.assertEqual(down[:2], (11, 11))
+        self.assertNotEqual(down[2], right[2])
+        for _, _, rows in (down, right):
+            alphas = {row[x*4+3] for row in rows for x in range(11)}
+            self.assertIn(255, alphas)
+            self.assertTrue(any(0 < a < 255 for a in alphas))
+            # Drawn in the header icons' colour, not the dim meta grey.
+            lit = next(row[x*4:x*4+3] for row in rows for x in range(11) if row[x*4+3] == 255)
+            self.assertEqual('#%02X%02X%02X' % tuple(lit), u.ICON.upper())
+
+    def test_shrinking_keeps_soft_edges(self):
+        # Area averaging leaves partial alpha on the outline; nearest-pixel
+        # picking, which the old Tk zoom/subsample did, leaves none.
+        name, height = u.SERVICE_ICONS['chatgpt']
+        w, h, rows = u.read_png_rgba(u.service_icon_png(name, height))
+        alphas = {rows[y][x*4+3] for y in range(h) for x in range(w)}
+        self.assertTrue(any(0 < a < 255 for a in alphas))
 
     def test_the_whole_icon_folder_is_packaged(self):
         # publish_update.ps1 copies the directory, so a new asset needs no

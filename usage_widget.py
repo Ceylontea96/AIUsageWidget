@@ -25,7 +25,7 @@ from pathlib import Path
 from tkinter import messagebox, font as tkfont
 
 from additional_ui import AdditionalBlock, additional_count, expanded_body_budget, layout_additional
-from bar_raster import cover_round_rect as _cover_round_rect, progress_rgba
+from bar_raster import cover_round_rect as _cover_round_rect, progress_rgba, ringed_progress_rgba
 from frame_clock import FAST as FRAME_FAST, SLOW as FRAME_SLOW, clock_for
 from codex_activity import CodexActivityMonitor, FAST_INTERVAL, LOG
 from cursor_activity import CursorActivityMonitor
@@ -151,7 +151,7 @@ TOKENS = {'width': 380,
            'fg_muted': '#8B8F99',
            'fg_dim': '#5B6069',
            'codex': '#10A37F',
-           'cursor': '#F0883E',
+           'cursor': '#A78BFA',
            'claude': '#C96442',
            'warn': '#F5B544',
            'danger': '#EF4444',
@@ -161,7 +161,7 @@ TOKENS = {'width': 380,
            'icon_hover': '#E7E8EC',
            'close_hover_bg': '#3A2020',
            'chip_codex_fill': '#1F6B5A',
-           'chip_cursor_fill': '#75411F',
+           'chip_cursor_fill': '#5B4A9E',
            'chip_claude_fill': '#6B3A2A',
            'chip_warn_fill': '#C48A22',
            'chip_danger_fill': '#B44545',
@@ -173,7 +173,7 @@ TOKENS = {'width': 380,
            'reset_caption_on_gpt_bars': True,
            'reset_caption_format': {'5시간': 'HH:MM 재설정', '주간': 'M월 D일 HH:MM 재설정'},
            'compact_pill_format': '{service} {pct}%',
-           'chip_fills_are_own_palette': 'do not reuse detail bar hex (#10A37F/#F0883E) on chip '
+           'chip_fills_are_own_palette': 'do not reuse detail bar hex (#10A37F/#A78BFA) on chip '
                                          'fills; white text needs darker fill',
            'card_dot_no_halo': True,
            'title_is_one_line': True,
@@ -1113,23 +1113,145 @@ def load_icon(name, scale):
     return tk.PhotoImage(data=path.read_bytes(), format='png') if path.is_file() else None
 
 
-# Provider key -> icon asset stem. The renderer stays generic: a provider
-# without an entry simply draws no icon, it is not special-cased anywhere.
-SERVICE_ICONS = {'chatgpt': 'service_gpt', 'cursor': 'service_cursor'}
+# Provider key -> (icon asset stem, image height at scale 1). The heights make
+# the marks look the same size: the OpenAI Blossom file keeps its clear space
+# around a mark about half as tall, the Cursor cube has none. The renderer
+# stays generic: a provider without an entry simply draws no icon.
+SERVICE_ICONS = {'chatgpt': ('service_gpt', 33), 'cursor': ('service_cursor', 17)}
+
+
+def read_png_rgba(data):
+    """Decode an 8-bit RGBA, non-interlaced PNG, the only kind the icon masters are."""
+    if data[:8] != b'\x89PNG\r\n\x1a\n':
+        raise ValueError('not a PNG')
+    pos, idat, header = 8, [], None
+    while pos < len(data):
+        size, tag = struct.unpack('>I4s', data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + size]
+        if tag == b'IHDR':
+            header = struct.unpack('>IIBBBBB', body)
+        elif tag == b'IDAT':
+            idat.append(body)
+        pos += 12 + size
+    if header is None or header[2:4] != (8, 6) or header[6] != 0:
+        raise ValueError('unsupported PNG')
+    width, height = header[:2]
+    raw, stride, rows, prev, at = zlib.decompress(b''.join(idat)), width * 4, [], bytearray(width * 4), 0
+    for _ in range(height):
+        kind, line = raw[at], bytearray(raw[at + 1:at + 1 + stride])
+        at += 1 + stride
+        for i in range(stride):
+            left = line[i - 4] if i >= 4 else 0
+            up, corner = prev[i], (prev[i - 4] if i >= 4 else 0)
+            if kind == 1:
+                line[i] = (line[i] + left) & 255
+            elif kind == 2:
+                line[i] = (line[i] + up) & 255
+            elif kind == 3:
+                line[i] = (line[i] + (left + up) // 2) & 255
+            elif kind == 4:
+                guess = left + up - corner
+                pa, pb, pc = abs(guess - left), abs(guess - up), abs(guess - corner)
+                line[i] = (line[i] + (left if pa <= pb and pa <= pc else up if pb <= pc else corner)) & 255
+        rows.append(line)
+        prev = line
+    return width, height, rows
+
+
+def shrink_rgba(width, height, rows, target_w, target_h):
+    """Area-average to a smaller size. Alpha is premultiplied so edges do not darken."""
+    def weights(source, target):
+        scale = source / target
+        spans = []
+        for t in range(target):
+            start, end = t * scale, (t + 1) * scale
+            spans.append([(s, min(end, s + 1) - max(start, s)) for s in range(int(start), min(source, math.ceil(end)))])
+        return spans, scale
+    cols, sx = weights(width, target_w)
+    lines, sy = weights(height, target_h)
+    wide = []
+    for row in rows:
+        out = []
+        for span in cols:
+            r = g = b = a = 0.0
+            for s, w in span:
+                alpha = row[s * 4 + 3] * w
+                r += row[s * 4] * alpha
+                g += row[s * 4 + 1] * alpha
+                b += row[s * 4 + 2] * alpha
+                a += alpha
+            out.append((r, g, b, a))
+        wide.append(out)
+    result = []
+    for span in lines:
+        row = bytearray()
+        for x in range(target_w):
+            r = g = b = a = 0.0
+            for s, w in span:
+                pr, pg, pb, pa = wide[s][x]
+                r += pr * w
+                g += pg * w
+                b += pb * w
+                a += pa * w
+            if a <= 0:
+                row += b'\x00\x00\x00\x00'
+                continue
+            row += bytes((min(255, int(r / a + .5)), min(255, int(g / a + .5)), min(255, int(b / a + .5)),
+                          min(255, int(a / (sx * sy) + .5))))
+        result.append(row)
+    return target_w, target_h, result
+
+
+@lru_cache(maxsize=16)
+def service_icon_png(name, height):
+    """The master shrunk to `height`, keeping its proportions. Cached per size."""
+    width, source_h, rows = read_png_rgba((ICON_DIR / f'{name}.png').read_bytes())
+    height = max(1, min(source_h, int(height)))
+    target_w = max(1, int(round(width * height / source_h)))
+    return _png_rgba(*shrink_rgba(width, source_h, rows, target_w, height), level=6)
+
+
+@lru_cache(maxsize=16)
+def chevron_png(size, down, color, stroke):
+    """A two-stroke chevron with soft edges, like the header's line icons.
+
+    Tk canvas lines have no anti-aliasing on Windows, so it is rasterised here
+    with 4x4 samples per pixel.
+    """
+    s = float(size)
+    if down:
+        points = ((.22*s, .38*s), (.5*s, .66*s), (.78*s, .38*s))
+    else:
+        points = ((.38*s, .22*s), (.66*s, .5*s), (.38*s, .78*s))
+    half = stroke / 2.0
+
+    def near(x, y):
+        for (ax, ay), (bx, by) in zip(points, points[1:]):
+            dx, dy = bx - ax, by - ay
+            t = max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)))
+            if math.hypot(x - ax - t * dx, y - ay - t * dy) <= half:
+                return True
+        return False
+
+    r, g, b = _hex_rgb(color)
+    rows = []
+    for py in range(size):
+        row = bytearray()
+        for px_ in range(size):
+            hits = sum(near(px_ + (i + .5) / 4, py + (j + .5) / 4) for i in range(4) for j in range(4))
+            row += bytes((r, g, b, int(round(255 * hits / 16))))
+        rows.append(row)
+    return _png_rgba(size, size, rows, level=6)
 
 
 def load_service_icon(key, scale):
-    name = SERVICE_ICONS.get(key)
-    if not name:
+    entry = SERVICE_ICONS.get(key)
+    if not entry:
         return None
-    suffix = '@2x'
-    path = ICON_DIR / f'{name}{suffix}.png'
+    name, height = entry
     try:
-        if not path.is_file():
-            return None
-        source = tk.PhotoImage(data=path.read_bytes(), format='png')
-        return source.zoom(max(1,round(24*scale))).subsample(source.width())
-    except (OSError, tk.TclError):
+        return tk.PhotoImage(data=service_icon_png(name, px(height, scale, 1)), format='png')
+    except (OSError, ValueError, zlib.error, tk.TclError):
         return None
 
 
@@ -2097,35 +2219,39 @@ class Chip(BarShimmer, tk.Canvas):
     def _shimmer_ready(self):
         return self.fill != CHIP_STALE and self.percent > 0
 
-    def _paint_shimmer(self):
+    def _bar_photo(self):
+        """The pill, ringed in the warning colour when a secondary quota is low.
+
+        The ring takes no width: the compact row has no room for a marker
+        beside the label, and one drawn over the corner pulled the label off
+        centre. Ring and bar are one image so the ring's round ends stay clean.
+        """
         width, height = self.chip_width, self.metrics.chip_canvas_h
         shape_height = self.metrics.chip_h + (height-self.metrics.chip_h) * self._emphasis
-        self.fill_width = chip_fill_width(width, self.percent)
-        self._photo = progress_photo(width, height, shape_height / 2, self.fill_width,
-                                     CHIP_TRACK, self.fill, BG,
-                                     shimmer=self._shimmer_phase_for(0), shape_height=shape_height)
+        shimmer = self._shimmer_phase_for(0)
+        if not self._warning_color:
+            self.fill_width = chip_fill_width(width, self.percent)
+            # Fill is clipped to the track so the leading cap cannot bulge outside.
+            return progress_photo(width, height, shape_height / 2, self.fill_width, CHIP_TRACK, self.fill, BG,
+                                  shimmer=shimmer, shape_height=shape_height)
+        ring_w = self.metrics.p(2, 1)
+        self.fill_width = chip_fill_width(max(1, width - 2 * ring_w), self.percent)
+        w, h, rows = ringed_progress_rgba(width, height, shape_height, ring_w, self._warning_color,
+                                          self.fill_width, CHIP_TRACK, self.fill, BG,
+                                          shimmer=shimmer, glow=SHIMMER_GLOW)
+        return tk.PhotoImage(data=_png_rgba(w, h, rows, level=1), format='png')
+
+    def _paint_shimmer(self):
+        self._photo = self._bar_photo()
         self.itemconfigure('track', image=self._photo)
 
     def _redraw(self):
         self.delete('all')
         width, height = self.chip_width, self.metrics.chip_canvas_h
-        shape_height = self.metrics.chip_h + (height-self.metrics.chip_h) * self._emphasis
-        self.fill_width = chip_fill_width(width,self.percent)
-        # Fill is clipped to the track so the leading cap cannot bulge outside.
-        self._photo = progress_photo(width, height, shape_height / 2, self.fill_width, CHIP_TRACK, self.fill, BG,
-                                     shimmer=self._shimmer_phase_for(0), shape_height=shape_height)
-        self.create_image(0, 0, image=self._photo, anchor='nw', tags='track')
-        label_y = height / 2 + (self.metrics.p(3) if self._warning_color else 0)
-        self.create_text(width/2,label_y,text=self.text,fill=CHIP_FG,font=self.metrics.font(FONT_CHIP),tags='label')
-        if self._warning_color:
-            # Use a drawn symbol rather than a font glyph, with its own space
-            # above the label so three full service names still fit at all scales.
-            p = self.metrics.p
-            x = width - p(7)
-            self.create_polygon(x, 0, x-p(5), p(8), x+p(5), p(8),
-                                fill=self._warning_color, outline='', tags='quota_warning')
-            self.create_line(x, p(3), x, p(5), fill=BG, width=max(1,p(1)), tags='quota_warning')
-            self.create_rectangle(x, p(6), x+1, p(7), fill=BG, outline='', tags='quota_warning')
+        self._photo = self._bar_photo()
+        tags = ('track', 'quota_warning') if self._warning_color else 'track'
+        self.create_image(0, 0, image=self._photo, anchor='nw', tags=tags)
+        self.create_text(width/2,height/2,text=self.text,fill=CHIP_FG,font=self.metrics.font(FONT_CHIP),tags='label')
 
 
 def design_severity(value, stale=False, blocked=False):
@@ -2538,7 +2664,10 @@ class Card(BarShimmer, tk.Frame):
             c.create_image(m.p(27),m.p(27),image=self._service_icon,tags='service_icon')
         text(46,18,TITLES[self.key],FONT_SERVICE)
         if self.on_toggle:
-            text(4,19,'▸' if self.collapsed else '▾',FONT_META,MUTED,tags='collapse_toggle')
+            # Same colour as the header's line icons, centred on the service icon row.
+            self._chevron = tk.PhotoImage(data=chevron_png(m.p(11, 8), not self.collapsed, ICON, max(1.5, 1.6*m.scale)),
+                                          format='png')
+            c.create_image(m.p(8), m.p(27), image=self._chevron, tags='collapse_toggle')
         plan = '' if snap.plan=='-' else snap.plan.upper()
         font = tkfont.Font(root=c,font=m.font(FONT_PLAN))
         plan_w = font.measure(plan)+m.p(14) if plan else 0

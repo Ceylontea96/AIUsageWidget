@@ -210,7 +210,7 @@ class RefinedTests(unittest.TestCase):
         finally:
             root.destroy()
 
-    def test_compact_warning_does_not_overlap_text_at_supported_scales(self):
+    def test_compact_warning_rings_the_chip_without_moving_the_label(self):
         root = u.tk.Tk()
         root.withdraw()
         try:
@@ -229,14 +229,15 @@ class RefinedTests(unittest.TestCase):
                         snap = ProviderSnapshot(key, name, 'Pro', True, None, '', main_limits=[
                             quota('autoPercentUsed' if key == 'cursor' else 'five_hour', '5시간', 100, FIVE_H, source=key),
                             quota('weekly', '주간', 4, WEEK, source=key)])
+                        before = chip.bbox('label')
                         chip.observe_usage(snap)
                         label = chip.bbox('label')
-                        marker = chip.bbox('quota_warning')
-                        self.assertIsNotNone(marker)
+                        ring = chip.bbox('quota_warning')
+                        self.assertIsNotNone(ring)
+                        self.assertEqual(label, before)
                         self.assertGreaterEqual(label[0], 0)
                         self.assertLessEqual(label[2], width)
-                        self.assertLessEqual(label[3], m.chip_canvas_h)
-                        self.assertLessEqual(marker[3], label[1])
+                        self.assertEqual((ring[0], ring[2]), (0, width))
                         chip.destroy()
         finally:
             root.destroy()
