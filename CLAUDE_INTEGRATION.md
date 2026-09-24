@@ -35,6 +35,34 @@ Claude Code 2.1.2xx부터는 `rate_limits.five_hour`/`seven_day` 창 객체에 `
 새로운 고버전이라도 해당 schema가 없거나 모호하면 unavailable로 처리합니다.
 네트워크 endpoint를 추가하거나 credential을 직접 읽지 않습니다.
 
+## 활동 감지 (애니메이션)
+
+Claude 막대와 칩은 Claude Code가 작업 중일 때 굵어지고 빛이 지나갑니다. 판단에는 세션 상태만
+쓰며, 대화 기록(`projects/**/*.jsonl`)은 열지 않습니다. 코드는 `claude_activity.py`입니다.
+
+- 빠른 경로: `<Claude 설정 폴더>/sessions/<숫자>.json`을 0.25초마다 읽습니다. 설정 폴더는
+  `CLAUDE_CONFIG_DIR`, 없으면 `~/.claude`입니다. 이름이 `숫자.json`인 파일만 열고, 옆의 `.key`
+  파일은 열지 않습니다. `pid`, `status`, `state`, `kind`, `version`, `procStart`만 읽고 저장하지 않습니다.
+- 검증: 파일 이름과 내부 `pid`가 같아야 하고, 그 프로세스가 살아 있으며 `procStart`가 실제
+  생성 시각(FILETIME)과 같아야 합니다. 비정상 종료로 남은 파일과 재사용된 PID를 거릅니다.
+- 판정: `status == busy` 또는 `state == working`이면 사용 중입니다. `waiting`, `idle`,
+  `blocked`, `done`, `failed`, `stopped`는 사용 중이 아닙니다. 세션 하나라도 사용 중이면 Claude가
+  사용 중이고, 모두 끝난 상태가 0.5초(확인 두 번) 이어지면 애니메이션이 멈춥니다.
+- 자기 제외: 위젯이 실행한 `claude`(사용량 조회, 버전 확인, 로그인, 아래 검증)는 위젯 프로세스의
+  자손으로 판별해 제외합니다. 부모를 따라 올라가며 PID와 생성 시각을 함께 비교하고, 자식보다
+  늦게 생긴 부모는 재사용된 PID로 봅니다. `entrypoint`는 물려받은 환경을 따르므로 기준으로 쓰지
+  않습니다(Remote Control 세션도 `sdk-cli`입니다). 판정은 세션마다 한 번만 하고 기억합니다.
+- 공식 인터페이스 검증: `sessions/*.json`은 문서화된 형식이 아니므로, Claude Code 버전마다 그
+  버전의 첫 세션이 보일 때와, 파일이 세 번 연속 해석되지 않을 때 `claude agents --json`을 한 번
+  실행해 비교합니다. 상태 값은 두 번 읽는 사이에 바뀔 수 있어 형식만 비교하고, 다르면 1초 뒤 한
+  번 더 봅니다. 목록에 세션이 없으면 판단 불가로 보고 파일을 계속 씁니다.
+- 대비: 파일을 믿을 수 없으면 `claude agents --json`을 5초마다 실행해 판단합니다. 그것도
+  안 되면 Claude 애니메이션만 끕니다. 사용량 조회는 영향을 받지 않습니다.
+- 알려진 제한: 메인 에이전트는 `idle`인데 서브에이전트만 일하는 순간은 감지하지 못합니다.
+  질문(AskUserQuestion)을 기다리는 백그라운드 세션은 Claude Code가 `busy`/`working`으로
+  보고하므로(anthropics/claude-code#77804) 사용 중으로 표시됩니다. claude.ai 웹, 데스크톱 앱의
+  일반 채팅, 모바일, 원격 세션은 이 PC에 세션 파일이 없어 감지되지 않습니다.
+
 ## 사용량 캐시의 정확한 persisted whitelist
 
 세션 파일: `%APPDATA%/AiUsageWidget/claude/sessions/<session_key>.json`.
