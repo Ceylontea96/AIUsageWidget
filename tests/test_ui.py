@@ -252,6 +252,19 @@ class UiTests(unittest.TestCase):
         w.set_update_chrome()
         self.assertEqual(w.mini_pill.cget('height'),str(u.px(22,1.3)))
 
+    def test_update_pill_is_an_anti_aliased_image(self):
+        w=self.w
+        w.update_info={'version':'9.9.9','zip':'x','notes':'','sha256':''}
+        w.set_update_chrome()
+        kinds=[w.update_pill.type(item) for item in w.update_pill.find_all()]
+        self.assertEqual(kinds,['image','text'])
+        w._update_busy=True
+        w.set_update_chrome()
+        self.assertEqual([w.update_pill.type(item) for item in w.update_pill.find_all()],['image','text'])
+        w._update_busy=False
+        w.update_info=None
+        w.set_update_chrome()
+
     def test_update_pill_pulse_starts_and_stops(self):
         w=self.w
         u.UpdatePill.animate=True

@@ -1338,6 +1338,16 @@ def _png_rgba(width, height, rows, level=9):
     return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', ihdr) + chunk(b'IDAT', zlib.compress(raw, level)) + chunk(b'IEND', b'')
 
 
+PILL_PULSE_STEPS = 24
+
+
+@lru_cache(maxsize=128)
+def pill_png(width, height, fill, background):
+    """A solid anti-aliased stadium, the update button's shape."""
+    w, h, rows = progress_rgba(width, height, height / 2, width, fill, fill, background)
+    return _png_rgba(w, h, rows, level=1)
+
+
 def progress_bar_png(width, height, radius, fill_width, track, fill, background, samples=1, shimmer=None, shape_height=None):
     w, h, rows = progress_bar_rgba(width, height, radius, fill_width, track, fill, background,
                                    samples=samples, shimmer=shimmer, shape_height=shape_height)
@@ -1950,22 +1960,22 @@ class UpdatePill(tk.Canvas):
             return
         w, h = self.width_px, self.metrics.pill_h
         if self.ready:
-            peak = lighten(CODEX)
             if self.hover:
                 amount = 1.0
             elif self.animate:
-                amount = 0.5 * (1.0 + math.sin(self._pulse_phase))
+                # Stepped, so the pulse reuses a handful of cached images.
+                amount = round(0.5 * (1.0 + math.sin(self._pulse_phase)) * PILL_PULSE_STEPS) / PILL_PULSE_STEPS
             else:
                 amount = 0.28
-            fill = blend(CODEX, peak, amount)
-            glow = blend(peak, lighten(CODEX, 0.42), amount)
-            round_rect(self, 0, 0, w, h, h / 2, glow)
-            inset = max(1.0, min(h / 6.0, float(self.metrics.p(1))))
-            round_rect(self, inset, inset, w - inset, h - inset, max(0.0, (h - 2 * inset) / 2), fill)
+            fill = blend(CODEX, lighten(CODEX), amount)
             fg = BG
         else:
-            round_rect(self, 0, 0, w, h, h / 2, CARD)
-            fg = MUTED
+            # The chips' empty track: CARD is too close to the header to read as a button.
+            fill, fg = CHIP_TRACK, MUTED
+        # Drawn as an anti-aliased image like the chips: Tk's canvas ovals
+        # left the round ends visibly stepped.
+        self._photo = tk.PhotoImage(data=pill_png(w, h, fill, BG), format='png')
+        self.create_image(0, 0, image=self._photo, anchor='nw')
         self.create_text(w / 2, h / 2, text=self.text, fill=fg, font=self.metrics.font(FONT_PILL))
 
 
