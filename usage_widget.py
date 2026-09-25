@@ -1015,7 +1015,7 @@ def startup_path():
 
 
 def startup_script(root=None):
-    """The logon entry: the widget's own launcher, which finds Python each time.
+    """The logon entry: the widget's launcher validates cached Python or finds it.
 
     Naming pythonw.exe here broke Windows startup silently whenever Python was
     upgraded or reinstalled somewhere else.
@@ -3369,6 +3369,7 @@ class UsageWidget:
 
     def load_cache(self):
         cache = read_json(CACHE_PATH)
+        restored_any = False
         for key in FETCHERS:
             data = cache.get(key)
             try:
@@ -3381,9 +3382,14 @@ class UsageWidget:
                 if cache.get('version') != 3:
                     continue
                 self.snapshots[key] = snap
-                self.render(key)
+                restored_any = True
+                self.render(key, relayout=False)
             except (ValueError, TypeError, AttributeError, OverflowError):
                 continue
+        if restored_any:
+            # All restored cards must have their final heights before laying
+            # out the window; intermediate layouts force redundant Tk paints.
+            self.relayout()
 
     def refresh(self):
         from claude_integration import invalidate_version_cache, claude_ready
@@ -3670,14 +3676,16 @@ class UsageWidget:
         except (OSError, ValueError):
             pass
 
-    def render(self, key):
+    def render(self, key, *, relayout=True):
         if not self.enabled[key].get():
             self.mini_values[key].configure(text=TITLES[key] + ' 꺼짐', fg=MUTED, bg=CHIP_STALE, percent=0, animate=False)
-            self.apply_mode()
+            if relayout:
+                self.apply_mode()
             return
         snap = self.snapshots[key]
         self.cards[key].render(snap)
-        self.relayout()
+        if relayout:
+            self.relayout()
         hero = representative_percent(snap)
         value = '—' if hero is None else f'{hero:.0f}%'
         fill, fg = chip_style(key, snap)

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import usage_widget as u
-from providers import ProviderSnapshot, QuotaItem
+from providers import ProviderSnapshot, QuotaItem, LimitGroup, snapshot_to_dict
 
 
 def snapshot(key):
@@ -64,6 +64,72 @@ class LayoutTests(unittest.TestCase):
                     w.body_view.yview_moveto(1)
                     self.assertGreater(w.body_view.yview()[0], 0)
                     self.assertAlmostEqual(w.body_view.yview()[1], 1, places=2)
+
+    def test_cache_restores_valid_cards_with_one_layout_and_skips_bad_entries(self):
+        w = self.w
+        w.snapshots.clear()
+        w.enabled['cursor'].set(False)
+        cache = {key: snapshot_to_dict(snapshot(key)) for key in u.FETCHERS}
+        cache['chatgpt']['key'] = 'wrong-provider'
+        u.save_json(u.CACHE_PATH, dict(cache, version=3))
+        with patch.object(w, 'relayout', wraps=w.relayout) as layout:
+            w.load_cache()
+            layout.assert_called_once_with()
+        self.assertEqual(set(w.snapshots), {'cursor', 'claude'})
+        self.assertEqual(w.cards['cursor'].winfo_manager(), '')
+        self.assertEqual(w.mini_values['cursor'].cget('text'), 'Cursor 꺼짐')
+        self.assertEqual(w.cards['claude'].rows.itemcget('hero', 'text'), '91%')
+        u.save_json(u.CACHE_PATH, dict(cache, version=2))
+        with patch.object(w, 'relayout', wraps=w.relayout) as layout:
+            w.load_cache()
+            layout.assert_not_called()
+
+    def test_batched_cache_matches_sequential_startup_layout(self):
+        # PhotoImage uses Tk's default root; compare one live interpreter at a time.
+        self.w.close()
+        snapshots = {key: snapshot(key) for key in u.FETCHERS}
+        extra = replace(snapshots['chatgpt'].main_limits[0],
+                        quota_id='chatgpt:additional:extra', category='additional')
+        snapshots['chatgpt'].additional_groups = [
+            LimitGroup('extra', 'chatgpt', '추가 한도', 'additional', limits=[extra])]
+        u.save_json(u.CACHE_PATH, dict(
+            {key: snapshot_to_dict(snap) for key, snap in snapshots.items()}, version=3))
+
+        def sequential(app):
+            cache = u.read_json(u.CACHE_PATH)
+            for key in u.FETCHERS:
+                app.snapshots[key] = u.snapshot_from_dict(cache[key])
+                app.render(key)
+
+        def visible_state(app):
+            app.root.update_idletasks()
+            return (app.root.geometry(), app.body_view.cget('scrollregion'),
+                    app.body_view.winfo_manager(), app.body_scroll.winfo_manager(),
+                    [(card.height, card.collapsed, card.winfo_manager(),
+                      [(card.rows.gettags(item), card.rows.itemcget(item, 'text'))
+                       for item in card.rows.find_all() if card.rows.type(item) == 'text'],
+                      app.mini_values[key].cget('text')) for key, card in app.cards.items()])
+
+        for scale, compact, collapsed in ((.75, False, {}),
+                                          (1, False, {'cursor': True}),
+                                          (1.5, True, {'chatgpt': True})):
+            with self.subTest(scale=scale, compact=compact):
+                u.save_json(u.SETTINGS_PATH, {'scale': scale, 'compact': compact,
+                    'collapsed': collapsed, 'enabled': dict.fromkeys(u.FETCHERS, True),
+                    'x': 720, 'y': 530})
+                with patch.object(u.UsageWidget, 'tick'), patch.object(u.UsageWidget, '_activity_tick'):
+                    with patch.object(u.UsageWidget, 'load_cache', sequential):
+                        reference = u.UsageWidget(preview=True)
+                    try:
+                        expected = visible_state(reference)
+                    finally:
+                        reference.close()
+                    batched = u.UsageWidget(preview=True)
+                    try:
+                        self.assertEqual(visible_state(batched), expected)
+                        self.assertEqual(set(batched.snapshots), set(u.FETCHERS))
+                    finally:
+                        batched.close()
 
     def test_collapse_keeps_quota_and_warning_and_shrinks_window(self):
         w = self.w
