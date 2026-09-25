@@ -119,3 +119,24 @@ python -B tools/compare_startup.py --samples 5 --cache populated --baseline-ref 
 원본은 `dist/launch-comparison-20260925-214833/results.json`, 공유용 데이터는 [바로 시작 비교 20회](startup-fast-launch-2026-09-25.json)에 있다. 공유용 데이터의 시간은 실행 요청 기준 밀리초이고 절대 경로를 넣지 않았다.
 
 검증: `tests/test_launch.py`가 한글과 작은따옴표가 든 폴더에서 캐시 기록 조건(창 등록 전, 다른 프로세스), 무효화(파일 4종 변경, 폴더 이동, 손상, Python 삭제), 실패 시 설치 경로 복귀, 설치 경로 직접 사용, 로그온 VBS의 `--startup`과 기존 경로 복귀, VBS 로그의 ASCII 기록을 확인한다.
+
+## 후속 개선: HTTP 연결 준비를 첫 요청으로 미루기
+
+`providers.py`는 import할 때 `urllib.request.build_opener()`로 공용 URL opener를 만들었다. 이 호출이 시스템 인증서 저장소를 읽느라 약 40ms가 걸리는데, 실제 요청은 조회 작업 스레드에서만 한다. 이제 opener는 첫 요청 때 만든다. 여러 조회가 동시에 첫 요청을 보내도 잠금으로 한 번만 만든다.
+
+- import 단독 측정(Python 3.14, 각 10회 이상): `providers` import가 중앙값 약 149ms에서 약 107ms로, `providers` 자체 실행 시간이 46ms에서 16ms로 줄었다.
+- 전체 시작 측정: `tools/compare_startup.py --file providers.py --cache populated --samples 5`. 변경 전(`HEAD`)과 변경 후 `providers.py`를 번갈아 20회 실행했다.
+
+| 중앙값 (범위) | 변경 전 | 변경 후 | 감소 |
+|---|---:|---:|---:|
+| EXE의 import 구간 | 235ms | 202ms | 33ms |
+| Python 직접 import 구간 | 245ms | 221ms | 24ms |
+| EXE 첫 화면 준비 | 1,480ms (1,468–1,664) | 1,420ms (1,384–1,548) | 60ms |
+| Python 직접 첫 화면 준비 | 775ms (747–793) | 773ms (760–997) | 약 0ms |
+
+- import 구간은 10쌍 모두에서 줄었다(쌍별 9–50ms).
+- 전체 시간의 차이는 실행마다의 변동(생성자 구간만 해도 ±40ms)보다 작아, 이 표본으로는 전체 시작이 빨라졌다고 단정할 수 없다. 개선 폭은 import 구간 수십 ms로 본다.
+
+원본은 `dist/startup-comparison-20260925-215604/results.json`에 있다. 데이터에 변경 후 `providers.py`의 SHA-256을 기록했다.
+
+검증: `tests/test_widget.py`가 `providers` import만으로는 opener를 만들지 않는지, 동시에 들어온 첫 요청 8개가 opener를 한 번만 만드는지 확인한다. 두 테스트 모두 변경 전 코드에서는 실패한다. 전체 **514개 테스트 통과**.

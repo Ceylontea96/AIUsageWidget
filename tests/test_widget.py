@@ -269,6 +269,39 @@ class WidgetTests(unittest.TestCase):
         with patch.object(p._OPENER,'open',return_value=Response(b'[]')):
             with self.assertRaises(RuntimeError):p.http_json('GET','https://example.invalid',{})
 
+    def test_importing_providers_builds_no_http_opener(self):
+        # build_opener loads the certificate store; the widget process never
+        # makes a request, so importing must not pay for it.
+        import subprocess, sys
+        done = subprocess.run([sys.executable, '-B', '-c',
+                               'import providers; print(providers._OPENER._real is None)'],
+                              cwd=Path(p.__file__).parent, capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.stdout.strip(), 'True', done.stderr)
+
+    def test_concurrent_first_requests_build_one_opener(self):
+        import threading
+        built = []
+
+        class Opener:
+            def open(self, *args, **kwargs):
+                return 'response'
+
+        def build():
+            built.append(1)
+            time.sleep(0.05)  # widen the window in which a second build could start
+            return Opener()
+
+        lazy = p._LazyOpener()
+        results = []
+        with patch.object(p.urllib.request, 'build_opener', side_effect=build):
+            threads = [threading.Thread(target=lambda: results.append(lazy.open('url'))) for _ in range(8)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        self.assertEqual(len(built), 1)
+        self.assertEqual(results, ['response'] * 8)
+
     def test_record_crash_writes_traceback(self):
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(u, 'APP_DIR', Path(directory)):

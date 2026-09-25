@@ -7,6 +7,7 @@ import json
 import math
 import os
 import sqlite3
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -30,7 +31,27 @@ USER_AGENT = (
 HTTP_TIMEOUT = 8.0
 SQLITE_RETRY_S = 2.0
 
-_OPENER = urllib.request.build_opener()
+class _LazyOpener:
+    """The shared URL opener, built at the first request instead of on import.
+
+    build_opener() loads the system certificate store, about 40 ms that the
+    widget used to pay on every start although only poll workers make
+    requests. The lock keeps concurrent first requests to one build.
+    """
+
+    def __init__(self) -> None:
+        self._real = None
+        self._lock = threading.Lock()
+
+    def open(self, *args, **kwargs):
+        if self._real is None:
+            with self._lock:
+                if self._real is None:
+                    self._real = urllib.request.build_opener()
+        return self._real.open(*args, **kwargs)
+
+
+_OPENER = _LazyOpener()
 _CURSOR_MEM: dict[str, Any] = {}
 _PLAN_MEM: dict[str, Any] = {"name": "", "until": 0.0}
 
