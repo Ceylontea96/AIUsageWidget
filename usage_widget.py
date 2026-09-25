@@ -421,6 +421,23 @@ def compact_warning(snap):
     return min(candidates, key=lambda item: item.remaining_percent) if candidates else None
 
 
+def compact_ring_color(snap):
+    """The compact chip's ring: the most severe of its own quota and the others.
+
+    The ring was only for a low secondary quota, so an exhausted or blocked
+    service whose other quota was merely low got a yellow ring, and at 0% its
+    red fill has no width to show. Its own danger now rings red first.
+    """
+    if snap is None or not snap.ok or snap.stale:
+        return None
+    if representative_state(snap) == 'danger':
+        return DANGER
+    warning = compact_warning(snap)
+    if warning is None:
+        return None
+    return WARN if remaining_band(warning.remaining_percent) == 'warn' else DANGER
+
+
 def _checked_phrase(stamp, now, *, confirmed):
     """Relative time for one service. Empty when this snapshot was never stamped."""
     try:
@@ -1928,8 +1945,7 @@ class Chip(BarShimmer, tk.Canvas):
     def observe_usage(self, snap):
         self._usage_snapshot = snap
         self.tip_text = compact_tooltip(snap)
-        warning = compact_warning(snap)
-        color = None if warning is None else (WARN if remaining_band(warning.remaining_percent) == 'warn' else DANGER)
+        color = compact_ring_color(snap)
         if color != self._warning_color:
             self._warning_color = color
             self._redraw()

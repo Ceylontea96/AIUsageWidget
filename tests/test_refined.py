@@ -211,6 +211,35 @@ class RefinedTests(unittest.TestCase):
         finally:
             destroy_root(root)
 
+    def test_a_chip_in_danger_rings_red_even_if_the_other_quota_is_only_low(self):
+        # GPT out of its 5-hour quota with 38% of the week left: the 0% fill
+        # has no width, so the ring must not read as a mere caution.
+        hero = quota('primary_window', '5시간', 0, FIVE_H)
+        weekly = quota('secondary_window', '주간', 38, WEEK)
+        snap = ProviderSnapshot('chatgpt', 'GPT', 'Plus', True, 0, '', main_limits=[hero, weekly], blocked=True)
+        self.assertEqual(u.compact_warning(snap).quota_id, weekly.quota_id)
+        self.assertEqual(u.compact_ring_color(snap), u.DANGER)
+        for value in (15, 4):
+            low = replace(hero, remaining_percent=value)
+            self.assertEqual(u.compact_ring_color(replace(snap, main_limits=[low, weekly], blocked=False)), u.DANGER)
+        # The hero's own caution band keeps the previous rule: the ring is the other quota's.
+        calm = replace(hero, remaining_percent=40)
+        self.assertEqual(u.compact_ring_color(replace(snap, main_limits=[calm, weekly], blocked=False)), u.WARN)
+        fine = replace(weekly, remaining_percent=80)
+        self.assertIsNone(u.compact_ring_color(replace(snap, main_limits=[calm, fine], blocked=False)))
+        self.assertIsNone(u.compact_ring_color(replace(snap, stale=True)))
+        self.assertIsNone(u.compact_ring_color(replace(snap, ok=False)))
+        root = u.tk.Tk()
+        root.withdraw()
+        try:
+            chip = u.Chip(root)
+            chip.configure(text='GPT 0%', percent=0, bg=u.CHIP_DANGER, animate=False)
+            chip.observe_usage(snap)
+            self.assertEqual(chip._warning_color, u.DANGER)
+            self.assertTrue(chip.find_withtag('quota_warning'))
+        finally:
+            destroy_root(root)
+
     def test_compact_warning_rings_the_chip_without_moving_the_label(self):
         root = u.tk.Tk()
         root.withdraw()
