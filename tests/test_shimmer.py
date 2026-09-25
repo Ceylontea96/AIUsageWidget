@@ -1,8 +1,10 @@
 import unittest
+from tests.tk_support import destroy_root
 from dataclasses import replace
 from unittest.mock import patch
 
 import usage_widget as u
+import widget_raster as raster
 from providers import ProviderSnapshot, QuotaBar, QuotaItem, snapshot_to_dict, snapshot_from_dict
 
 FIVE_H = 18000.0
@@ -82,7 +84,7 @@ class UsageActivityTests(unittest.TestCase):
 
 class ShimmerRasterTests(unittest.TestCase):
     def pixels(self, fill_width, phase=None, samples=1):
-        return u.progress_bar_rgba(100, 8, 4, fill_width, '#262A36', '#4FE0B0', '#1A1D26',
+        return raster.progress_bar_rgba(100, 8, 4, fill_width, '#262A36', '#4FE0B0', '#1A1D26',
                                    shimmer=phase, samples=samples)[2]
 
     def test_light_changes_fill_only_and_keeps_track_clipping(self):
@@ -110,13 +112,14 @@ class ShimmerUiTests(unittest.TestCase):
         self.root.withdraw()
 
     def tearDown(self):
-        self.root.destroy()
+        destroy_root(self.root)
 
     def pump(self, control, now, active=None):
         with patch.object(control, 'winfo_ismapped', return_value=True), patch.object(u.time, 'monotonic', return_value=now):
             if active is not None:
                 control.set_activity(active)
-            control._shimmer_tick()
+            control._frame(now)
+            control._sync_frames()
 
     def weekly_card(self):
         card = u.Card(self.root, 'chatgpt')
@@ -153,7 +156,8 @@ class ShimmerUiTests(unittest.TestCase):
             chip._paint_shimmer()
         self.assertEqual(label, chip.find_withtag('label'))
         self.assertEqual(chip.itemcget(label[0], 'text'), 'Codex 60%')
-        chip._shimmer_tick()
+        chip._frame(u.time.monotonic())
+        chip._sync_frames()
         self.assertFalse(chip._frame_scheduled)
         self.assertTrue(chip._active)
         chip.configure(bg=u.CHIP_STALE)
@@ -235,7 +239,7 @@ class ShimmerUiTests(unittest.TestCase):
     def test_fractional_thickness_changes_pixels_without_moving_image(self):
         frames = []
         for height in (8.0, 8.1, 8.2, 8.3):
-            w, h, rows = u.progress_bar_rgba(40, 14, height / 2, 30, u.TRACK, u.CODEX, u.CARD, shape_height=height)
+            w, h, rows = raster.progress_bar_rgba(40, 14, height / 2, 30, u.TRACK, u.CODEX, u.CARD, shape_height=height)
             self.assertEqual((w, h), (40, 14))
             self.assertEqual(rows, list(reversed(rows)))
             frames.append(b''.join(rows))
@@ -269,7 +273,8 @@ class ShimmerUiTests(unittest.TestCase):
 
     def advance_length(self, control, now):
         with patch.object(u.time, 'monotonic', return_value=now):
-            control._anim_tick()
+            control._frame(now)
+            control._sync_frames()
 
     def test_small_changes_tween_in_both_directions_with_shimmer(self):
         for start, end in ((60, 59.9), (59.9, 60)):

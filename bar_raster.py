@@ -7,7 +7,7 @@ runs of equal coverage plus the exact columns under the round ends. That
 layout is cached per shape, and a frame only mixes colours, once per run.
 
 `progress_rgba` returns the same bytes as computing every pixel on its own
-(`usage_widget.progress_bar_rgba` with samples=1); the tests compare the two.
+(`widget_raster.progress_bar_rgba` with samples=1); the tests compare the two.
 """
 from __future__ import annotations
 

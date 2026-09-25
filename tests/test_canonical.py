@@ -324,7 +324,7 @@ class BlockedSemanticsTests(unittest.TestCase):
                     'additional_rate_limits': [{'limit_id': 'g', 'rate_limit': {
                         'primary_window': window(100, FIVE_H)}}]})
         self.assertFalse(snap.blocked)
-        self.assertFalse(qp.provider_exhausted(snap))
+        self.assertEqual(u.service_state(snap), 'ok')
         self.assertEqual(snap.additional_groups[0].limits[0].remaining_percent, 0)
 
 
@@ -343,14 +343,16 @@ class ScopeContractTests(unittest.TestCase):
         self.assertEqual(u.representative_percent(snap), 80)
         self.assertEqual(u.representative_state(snap), 'ok')
         self.assertEqual(u.service_state(snap), 'ok')
-        self.assertFalse(qp.provider_exhausted(snap))
+        self.assertFalse(qp.representative_blocked(snap))
         self.assertEqual(qp.limiting_quota(snap).remaining_percent, 80)
         self.assertIsNone(AlertGate().observe('chatgpt', snap))
 
     def test_scoped_quota_is_still_visible_for_its_own_warning(self):
-        exhausted = [item for item in qp.scoped_limits(self.snapshot())
-                     if item.remaining_percent == 0]
+        exhausted = [row for row in additional_ui.layout_additional(self.snapshot().additional_groups)
+                     if row.kind == 'window' and row.percent == 0]
         self.assertEqual(len(exhausted), 1)
+        self.assertTrue(exhausted[0].warn)
+        self.assertEqual(exhausted[0].quota_id, self.snapshot().additional_groups[0].limits[0].quota_id)
 
     def test_scoped_quota_does_not_speed_up_polling(self):
         snap = self.snapshot()
@@ -514,12 +516,10 @@ class CursorInternalOnlyTests(unittest.TestCase):
             'service': u.service_remaining(snap),
             'service_state': u.service_state(snap),
             'blocked': qp.representative_blocked(snap),
-            'exhausted': qp.provider_exhausted(snap),
             'limiting': qp.limiting_quota(snap).remaining_percent,
             'marks': u.remaining_marks(snap),
             'poll': u.next_interval(snap),
             'alert': AlertGate().observe('cursor', snap),
-            'colour': u.color_for(snap),
             'chip': u.chip_style('cursor', snap),
         }
 
@@ -530,7 +530,7 @@ class CursorInternalOnlyTests(unittest.TestCase):
         # The badge follows the canonical main quota, which is the 70% pool.
         self.assertEqual(u.service_remaining(snap), 70)
         self.assertEqual(u.service_state(snap), 'ok')
-        self.assertFalse(qp.provider_exhausted(snap))
+        self.assertFalse(qp.representative_blocked(snap))
         self.assertFalse(snap.blocked)
         self.assertIsNone(AlertGate().observe('cursor', snap))
         self.assertEqual(u.next_interval(snap), 30)

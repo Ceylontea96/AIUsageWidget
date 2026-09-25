@@ -1,6 +1,7 @@
 import inspect
 import tempfile
 import unittest
+from tests.tk_support import destroy_root
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -80,7 +81,7 @@ class AdditionalRendererTests(unittest.TestCase):
         self.metrics = u.Metrics(1.0)
 
     def tearDown(self):
-        self.root.destroy()
+        destroy_root(self.root)
 
     def _render(self, groups, source, expanded=True, max_body=240, metrics=None):
         tagged = [

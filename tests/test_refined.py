@@ -1,4 +1,5 @@
 import unittest
+from tests.tk_support import destroy_root
 from datetime import datetime
 from dataclasses import replace
 import usage_widget as u
@@ -32,7 +33,7 @@ class RefinedTests(unittest.TestCase):
             card.refresh_clock(end+1)
             self.assertEqual(card.rows.itemcget('countdown','text'),'곧')
             card.destroy()
-        finally: root.destroy()
+        finally: destroy_root(root)
     def test_secondary_countdowns_use_each_quotas_reset(self):
         now = datetime(2030, 1, 1, 12).timestamp()
         root = u.tk.Tk()
@@ -56,7 +57,7 @@ class RefinedTests(unittest.TestCase):
             self.assertEqual([card.rows.itemcget(i, 'text') for i in labels],
                              ['곧', '7일 남음'])
         finally:
-            root.destroy()
+            destroy_root(root)
 
     def test_secondary_countdowns_follow_reorder_and_removal(self):
         now = datetime(2030, 1, 1, 12).timestamp()
@@ -82,7 +83,7 @@ class RefinedTests(unittest.TestCase):
                         [card.rows.itemcget(i, 'text')
                          for i in card.rows.find_withtag('week_remaining')], expected)
         finally:
-            root.destroy()
+            destroy_root(root)
 
     def test_countdown_and_severity_boundaries(self):
         self.assertEqual(u.reset_countdown(3600,0),'1시간 0분')
@@ -139,7 +140,7 @@ class RefinedTests(unittest.TestCase):
                         self.assertGreaterEqual(box[0],0)
                         self.assertLessEqual(box[2],card.metrics.card_w)
             card.destroy()
-        finally: root.destroy()
+        finally: destroy_root(root)
 
     def test_representative_state_ignores_a_secondary_quotas_percentage(self):
         # A low secondary window moves the risk channel, never the hero's own
@@ -208,7 +209,7 @@ class RefinedTests(unittest.TestCase):
             chip.observe_usage(replace(snap, stale=True))
             self.assertFalse(chip.find_withtag('quota_warning'))
         finally:
-            root.destroy()
+            destroy_root(root)
 
     def test_compact_warning_rings_the_chip_without_moving_the_label(self):
         root = u.tk.Tk()
@@ -240,7 +241,7 @@ class RefinedTests(unittest.TestCase):
                         self.assertEqual((ring[0], ring[2]), (0, width))
                         chip.destroy()
         finally:
-            root.destroy()
+            destroy_root(root)
 
     def test_secondary_alert_names_the_quota_that_is_running_out(self):
         snap=ProviderSnapshot('chatgpt','GPT','Plus',True,None,'5시간 기준 잔여',
@@ -274,4 +275,4 @@ class RefinedTests(unittest.TestCase):
             self.assertNotIn('18% 사용', texts)
             self.assertTrue(card.rows.find_withtag('ring'))
         finally:
-            card.destroy(); root.destroy()
+            card.destroy(); destroy_root(root)

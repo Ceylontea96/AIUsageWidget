@@ -1,16 +1,18 @@
 """Animation cost: the cached bar renderer, the shared frame clock, the ring cache."""
 import random
 import unittest
+from tests.tk_support import destroy_root
 from unittest.mock import patch
 
 import bar_raster
 import frame_clock as fc
 import usage_widget as u
+import widget_raster as raster
 from providers import ProviderSnapshot, QuotaItem
 
 
 def reference(*args, **kwargs):
-    width, height, rows = u.progress_bar_rgba(*args, **kwargs)
+    width, height, rows = raster.progress_bar_rgba(*args, **kwargs)
     return width, height, [bytes(row) for row in rows]
 
 
@@ -76,11 +78,15 @@ class RasterIdentityTests(unittest.TestCase):
         root = u.tk.Tk()
         root.withdraw()
         try:
-            with patch.object(u, 'progress_bar_png', side_effect=AssertionError('slow path')):
+            with patch.object(raster, 'progress_bar_png', side_effect=AssertionError('slow path')):
                 photo = u.progress_photo(80, 10, 4, 40, u.TRACK, u.CODEX, u.CARD, shimmer=0.4, shape_height=8)
             self.assertEqual((photo.width(), photo.height()), (80, 10))
+            with patch.object(raster, 'progress_bar_png', wraps=raster.progress_bar_png) as encode:
+                photo = u.progress_photo(80, 10, 4, 40, u.TRACK, u.CODEX, u.CARD, samples=2)
+                encode.assert_called_once()
+            self.assertEqual((photo.width(), photo.height()), (80, 10))
         finally:
-            root.destroy()
+            destroy_root(root)
 
 
 class FakeWidget:
@@ -246,7 +252,7 @@ class WidgetFrameTests(unittest.TestCase):
     def setUp(self):
         self.root = u.tk.Tk()
         self.root.withdraw()
-        self.addCleanup(self.root.destroy)
+        self.addCleanup(destroy_root, self.root)
 
     def frame(self, control, now, active=None):
         with patch.object(control, 'winfo_ismapped', return_value=True), \
@@ -293,16 +299,16 @@ class WidgetFrameTests(unittest.TestCase):
     def test_ring_growth_uses_a_few_cached_images(self):
         card = u.Card(self.root, 'chatgpt')
         card.render(snapshot())
-        u.ring_png.cache_clear()
+        raster.ring_png.cache_clear()
         signatures = set()
         for step in range(40):
             self.frame(card, 10 + step * 0.01, True)
             signatures.add(card._ring_signature)
         self.assertLessEqual(len(signatures), u.RING_EMPHASIS_STEPS + 1)
-        before = u.ring_png.cache_info()
+        before = raster.ring_png.cache_info()
         card._ring_signature = None
         card._paint_ring()
-        self.assertEqual(u.ring_png.cache_info().hits, before.hits + 1)
+        self.assertEqual(raster.ring_png.cache_info().hits, before.hits + 1)
 
 
 if __name__ == '__main__':

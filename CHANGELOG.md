@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [3.10.3] - 2026-09-25
+
+### Changed
+- PNG 처리와 막대·링·아이콘 이미지 생성을 `widget_raster.py`로 분리했습니다. UI는 색상과 효과 값을 전달하며, 이미지 모듈은 Tk나 사용자 설정에 의존하지 않습니다. 배포 목록과 격리된 패키지 import 검사도 함께 갱신했습니다.
+- 사용하지 않는 색상·시간 표시·설치 경로·잠금·한도 보조 함수를 정리하고, 해당 테스트를 실제 앱의 표시와 잠금 복구 경로로 옮겼습니다. 애니메이션 테스트도 실제 프레임 콜백을 검증합니다.
+
+### Fixed
+- UI 테스트가 Tk 창을 닫기 전에 대기 중인 테마 이벤트를 처리하도록 해, 다음 테스트에서 이미 파괴된 창의 `ThemeChanged` 경고가 나오던 문제를 고쳤습니다.
+
 ## [3.10.2] - 2026-09-25
 
 ### Fixed
@@ -479,7 +488,11 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.3.1...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.10.3...HEAD
+[3.10.3]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.10.3
+[3.10.2]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.10.2
+[3.10.1]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.10.1
+[3.10.0]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.10.0
 [3.3.1]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.3.1
 [3.3.0]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.3.0
 [3.2.27]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.2.27

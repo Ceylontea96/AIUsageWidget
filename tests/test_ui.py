@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch, call
 import usage_widget as u
+import widget_raster as raster
 from providers import ProviderSnapshot,QuotaBar,QuotaItem,error_snapshot
 
 
@@ -747,7 +748,7 @@ class UiTests(unittest.TestCase):
         self.assertEqual(self.w.mini_values['claude'].cget('text'),'Claude 80%')
 
     def test_cursor_secondary_severity_does_not_change_hero_or_compact(self):
-        for remaining, expected in ((80,u.blend(u.CARD,u.CURSOR,.7)), (25,u.WARN), (10,u.DANGER), (3,'#DC2626')):
+        for remaining, expected in ((80,raster.blend(u.CARD,u.CURSOR,.7)), (25,u.WARN), (10,u.DANGER), (3,'#DC2626')):
             with self.subTest(remaining=remaining):
                 snap=ProviderSnapshot('cursor','Cursor','Pro',True,80,'Cursor Models 기준 잔여',
                     main_limits=[limit('autoPercentUsed','Cursor Models',80,source='cursor'),
@@ -811,7 +812,7 @@ class UiTests(unittest.TestCase):
         card.render(ProviderSnapshot('chatgpt','GPT','Plus',True,80,'5시간 기준 잔여',bars=[QuotaBar('5시간',80,20,'')]))
         with patch.object(card,'animate',True), patch.object(card,'winfo_ismapped',return_value=True), patch.object(card,'_start_shimmer'), patch.object(card,'_paint_shimmer') as paint:
             card.set_activity(True)
-            card._shimmer_tick()
+            card._frame(u.time.monotonic())
             paint.assert_called_once()
 
     def test_stale_statusline_allows_cli_fallback(self):
@@ -967,7 +968,7 @@ def _contrast(foreground, background):
         return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
 
     def luminance(color):
-        red, green, blue = u._hex_rgb(color)
+        red, green, blue = raster.hex_rgb(color)
         return 0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue)
 
     light, dark = max(luminance(foreground), luminance(background)), min(luminance(foreground), luminance(background))

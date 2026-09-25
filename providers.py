@@ -209,25 +209,6 @@ def dollars(cents: float | int | None) -> str:
     return f"${cents / 100:.2f}"
 
 
-def fmt_eta(seconds: float | int | None) -> str:
-    if seconds is None:
-        return ""
-    try:
-        total = max(0, int(seconds))
-    except (TypeError, ValueError):
-        return ""
-    hours, rem = divmod(total, 3600)
-    minutes, _secs = divmod(rem, 60)
-    days, hours = divmod(hours, 24)
-    if days:
-        return f"{days}일 {hours}시간 후"
-    if hours:
-        return f"{hours}시간 {minutes}분 후"
-    if minutes:
-        return f"{minutes}분 후"
-    return "곧"
-
-
 def fmt_local(ts: float | int | None, fmt: str = "%m/%d %H:%M") -> str:
     if ts is None:
         return ""

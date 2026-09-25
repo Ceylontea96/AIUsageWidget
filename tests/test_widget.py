@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import providers as p
 import usage_widget as u
+import widget_raster as raster
 
 
 def codex(primary=10, weekly=20, reached=False):
@@ -52,7 +53,7 @@ class WidgetTests(unittest.TestCase):
         self.assertEqual(s.hero_percent,90)
         self.assertTrue(s.blocked)
         self.assertEqual(s.hero_caption,'주간 소진')
-        self.assertEqual(u.color_for(s),u.DANGER)
+        self.assertEqual(u.chip_style('chatgpt', s), (u.CHIP_DANGER, u.CHIP_FG))
 
     def test_short_exhaustion(self):
         self.assertEqual(codex(100,20).hero_caption,'5시간 소진')
@@ -61,7 +62,7 @@ class WidgetTests(unittest.TestCase):
         s=codex(10,20,True)
         self.assertTrue(s.blocked)
         self.assertIn('상세 확인',s.hero_caption)
-        self.assertEqual(u.color_for(s),u.DANGER)
+        self.assertEqual(u.chip_style('chatgpt', s), (u.CHIP_DANGER, u.CHIP_FG))
 
     def test_five_hour_window_is_preferred_for_hero(self):
         self.assertEqual(codex(10,80).hero_percent,90)
@@ -147,7 +148,7 @@ class WidgetTests(unittest.TestCase):
         self.assertEqual(u.clamp_position(100, 2000, 360, 44, work, monitor), (100, 1036))
         self.assertEqual(u.clamp_position(100, 990, 360, 44, work, monitor), (100, 996))
         self.assertEqual(u.clamp_position(-80, -20, 360, 44, work, monitor), (8, 8))
-        w,h,rows=u.progress_bar_rgba(100,8,4,12,'#262A36','#F26D6D','#1A1D26')
+        w,h,rows=raster.progress_bar_rgba(100,8,4,12,'#262A36','#F26D6D','#1A1D26')
         def px(x,y):
             return tuple(rows[y][x*4:x*4+4])
         mid_top, cap_top = px(50,0), px(11,0)
@@ -158,7 +159,7 @@ class WidgetTests(unittest.TestCase):
         self.assertLess(rest[0], 80)
         self.assertGreater(fill[3], 250)
         self.assertGreater(rest[3], 250)
-        sw,sh,srows=u.padded_stadium_rgba(3,40,1.5,'#F26D6D','#1A1D26',pad=1,samples=4)
+        sw,sh,srows=raster.padded_stadium_rgba(3,40,1.5,'#F26D6D','#1A1D26',pad=1,samples=4)
         self.assertEqual((sw,sh),(5,42))
         bg, tip, mid = srows[0][0], srows[1][8], srows[21][8]
         self.assertLess(srows[0][0], 40)
@@ -167,10 +168,11 @@ class WidgetTests(unittest.TestCase):
         self.assertLess(srows[1][0], tip)
         stale=codex();stale.stale=True
         self.assertEqual(u.representative_state(stale),'stale')
-        self.assertEqual(u.color_for(stale),u.STALE_HERO)
+        self.assertEqual(u.chip_style('chatgpt', stale), (u.CHIP_STALE, u.CHIP_FG))
 
     def test_day_format(self):
-        self.assertEqual(p.fmt_eta(123*3600),'5일 3시간 후')
+        self.assertEqual(u.reset_countdown(123*3600, now=0, monthly=True), '5일 후')
+        self.assertEqual(u.reset_countdown(123*3600, now=0), '123시간 0분')
 
     def test_backoff_and_recovery(self):
         s=codex()
@@ -196,7 +198,7 @@ class WidgetTests(unittest.TestCase):
                 self.assertTrue(u.is_widget_root(root))
                 self.assertFalse(u.is_widget_root(directory))
                 self.assertEqual(u.save_install_root(root), root.resolve())
-                self.assertEqual(u.read_install_root(), root.resolve())
+                self.assertEqual(u.read_json(store)['root'], str(root.resolve()))
                 u.save_install_root(root, shortcut_asked=True)
                 self.assertTrue(u.read_json(store)['shortcut_asked'])
 
@@ -293,7 +295,10 @@ class WidgetTests(unittest.TestCase):
                 self.assertIn('hello', (root / 'launch.log').read_text(encoding='utf-8'))
                 (root / 'widget.lock').write_text('0\n', encoding='ascii')
                 (root / 'widget.instance').write_text('0\n0\n', encoding='ascii')
-                self.assertTrue(u.clear_stale_lock())
+                with patch.object(u, 'activate_existing', return_value=False), \
+                     patch.object(u.time, 'sleep'), patch.object(u, 'terminate_pid') as kill:
+                    self.assertEqual(u.recover_busy_lock(), 'cleared')
+                    kill.assert_not_called()
                 self.assertFalse((root / 'widget.lock').exists())
                 self.assertFalse((root / 'widget.instance').exists())
 

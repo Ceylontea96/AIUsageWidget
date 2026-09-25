@@ -10,11 +10,13 @@ import json
 import struct
 import time
 import unittest
+from tests.tk_support import destroy_root
 from pathlib import Path
 from unittest.mock import patch
 
 import providers as p
 import usage_widget as u
+import widget_raster as raster
 
 PROJECT = Path(__file__).resolve().parent.parent
 
@@ -113,7 +115,7 @@ class CursorResetTests(unittest.TestCase):
             card.refresh_clock(self.now)
             self.assertEqual(card.rows.itemcget('countdown', 'text'), '8일 후')
         finally:
-            root.destroy()
+            destroy_root(root)
 
     def test_a_missing_or_broken_cycle_end_is_not_invented(self):
         for value in (None, '', 'soon', float('nan')):
@@ -268,7 +270,7 @@ class ServiceIconTests(unittest.TestCase):
         self.root.withdraw()
 
     def tearDown(self):
-        self.root.destroy()
+        destroy_root(self.root)
 
     def test_known_providers_resolve_to_a_packaged_asset(self):
         for key in ('chatgpt', 'cursor'):
@@ -288,7 +290,7 @@ class ServiceIconTests(unittest.TestCase):
 
     def visible_height(self, key, scale):
         name, height = u.SERVICE_ICONS[key]
-        w, h, rows = u.read_png_rgba(u.service_icon_png(name, u.px(height, scale, 1)))
+        w, h, rows = raster.read_png_rgba(u.service_icon_png(name, u.px(height, scale, 1)))
         lit = [y for y in range(h) if any(rows[y][x*4+3] > 64 for x in range(w))]
         return lit[-1] - lit[0] + 1
 
@@ -302,8 +304,8 @@ class ServiceIconTests(unittest.TestCase):
                 self.assertAlmostEqual(gpt, 16 * scale, delta=2)
 
     def test_collapse_chevron_points_its_way_with_soft_edges(self):
-        down = u.read_png_rgba(u.chevron_png(11, True, u.ICON, 1.6))
-        right = u.read_png_rgba(u.chevron_png(11, False, u.ICON, 1.6))
+        down = raster.read_png_rgba(raster.chevron_png(11, True, u.ICON, 1.6))
+        right = raster.read_png_rgba(raster.chevron_png(11, False, u.ICON, 1.6))
         self.assertEqual(down[:2], (11, 11))
         self.assertNotEqual(down[2], right[2])
         for _, _, rows in (down, right):
@@ -318,7 +320,7 @@ class ServiceIconTests(unittest.TestCase):
         # Area averaging leaves partial alpha on the outline; nearest-pixel
         # picking, which the old Tk zoom/subsample did, leaves none.
         name, height = u.SERVICE_ICONS['chatgpt']
-        w, h, rows = u.read_png_rgba(u.service_icon_png(name, height))
+        w, h, rows = raster.read_png_rgba(u.service_icon_png(name, height))
         alphas = {rows[y][x*4+3] for y in range(h) for x in range(w)}
         self.assertTrue(any(0 < a < 255 for a in alphas))
 

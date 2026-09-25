@@ -117,15 +117,6 @@ def global_main_limits(snap: Any) -> list[Any]:
     ]
 
 
-def scoped_limits(snap: Any) -> list[Any]:
-    """Every scoped quota, from additional groups and from main_limits alike."""
-    found = [item for item in _items(snap) if str(getattr(item, "scope", "")) != GLOBAL_SCOPE]
-    for group in getattr(snap, "additional_groups", None) or []:
-        for item in getattr(group, "limits", None) or []:
-            found.append(item)
-    return found
-
-
 def measured(items: Iterable[Any]) -> list[Any]:
     return [item for item in items if _number(getattr(item, "remaining_percent", None)) is not None]
 
@@ -188,21 +179,6 @@ def limiting_quota(snap: Any) -> Any | None:
     if not candidates:
         return None
     return min(candidates, key=lambda item: float(item.remaining_percent))
-
-
-def exhausted_main_limits(snap: Any) -> list[Any]:
-    return [
-        item
-        for item in measured(global_main_limits(snap))
-        if float(item.remaining_percent) <= 0
-    ]
-
-
-def provider_exhausted(snap: Any) -> bool:
-    """True only when the provider itself is out, never for a scoped quota."""
-    if snap is None or not getattr(snap, "ok", False):
-        return False
-    return representative_blocked(snap) or bool(exhausted_main_limits(snap))
 
 
 def service_remaining(snap: Any) -> float | None:

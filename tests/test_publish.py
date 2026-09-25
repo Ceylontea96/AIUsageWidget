@@ -1,7 +1,9 @@
 """Exercise release guards in an isolated fixture: no network, builds or publish."""
 import os
+import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -171,8 +173,27 @@ class PackagedModuleTests(unittest.TestCase):
                     queue.append(node.module.split('.')[0])
         return seen
 
-    def test_every_runtime_module_is_packaged(self):
+    def package_files(self):
         script = Path('publish_update.ps1').read_text(encoding='utf-8')
+        copy = re.search(r'\$copy\s*=\s*@\((.*?)\)', script, re.S)
+        self.assertIsNotNone(copy, 'publish_update.ps1 must declare its copy list')
+        return re.findall(r"'([^']+)'", copy.group(1))
+
+    def test_every_runtime_module_is_packaged(self):
+        files = self.package_files()
         missing = sorted(name for name in self.runtime_modules()
-                         if f"'{name}.py'" not in script)
+                         if f'{name}.py' not in files)
         self.assertEqual(missing, [], f'not in publish_update.ps1 copy list: {missing}')
+
+    def test_packaged_python_modules_import_without_the_working_tree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for filename in self.package_files():
+                if filename.endswith('.py'):
+                    shutil.copyfile(filename, Path(directory) / filename)
+            result = subprocess.run(
+                [sys.executable, '-B', '-I', '-c',
+                 'import sys; sys.path.insert(0, sys.argv[1]); import usage_widget, poll_worker', directory],
+                cwd=directory, capture_output=True, timeout=15,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
