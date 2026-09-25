@@ -1,0 +1,553 @@
+{
+  "measured_at": "2026-09-25",
+  "python": "3.14.2",
+  "tk": "8.6.15",
+  "source_sha256": {
+    "usage_widget.py": "0569dde6cf59513c48951e4a38c47b931e23f9624ebc655bc0d77f85a9c01a3a",
+    "setup_and_run.ps1": "a3fbf0b15c63455da42ebd65aee4cfc37766cde4d24886a1431b2d04cbb16ad4",
+    "start_usage_widget.vbs": "af695aa6908b7ee912828c4bc0b6bb21b0f34e29c5b0b5567227b74db44a6177",
+    "launcher/AIUsageLauncher.cs": "a17fa363a3d61194a6e0bd4972ce6c50d44a5951d15d3855eb595f8bfcaccd54"
+  },
+  "samples": [
+    {
+      "route": "exe",
+      "warm_runtime": false,
+      "fast_path": false,
+      "pair": 0,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1570.2,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 61.0,
+        "ps_entry": 371.2,
+        "setup_start": 387.3,
+        "unblock_start": 472.4,
+        "unblock_end": 484.9,
+        "validation_start": 541.0,
+        "validation_end": 650.5,
+        "python_ready": 654.3,
+        "spawn_start": 658.4,
+        "spawn_end": 737.2,
+        "python_entry": 754.6,
+        "import_start": 784.3,
+        "import_end": 1014.3,
+        "constructor_start": 1024.9,
+        "constructor_end": 1566.0,
+        "ready": 1570.2,
+        "watch_end": 1952.8
+      }
+    },
+    {
+      "route": "exe",
+      "warm_runtime": true,
+      "fast_path": true,
+      "pair": 0,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 883.7,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 30.5,
+        "python_entry": 76.0,
+        "import_start": 109.9,
+        "import_end": 371.2,
+        "constructor_start": 384.4,
+        "constructor_end": 878.7,
+        "ready": 883.7
+      }
+    },
+    {
+      "route": "vbs",
+      "warm_runtime": false,
+      "fast_path": false,
+      "pair": 0,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1558.5,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 138.2,
+        "ps_entry": 478.6,
+        "setup_start": 495.4,
+        "unblock_start": 579.4,
+        "unblock_end": 591.6,
+        "validation_start": 644.0,
+        "validation_end": 745.0,
+        "python_ready": 748.6,
+        "spawn_start": 752.7,
+        "spawn_end": 836.5,
+        "python_entry": 853.5,
+        "import_start": 884.0,
+        "import_end": 1111.9,
+        "constructor_start": 1122.1,
+        "constructor_end": 1556.2,
+        "ready": 1558.5,
+        "watch_end": 2053.9
+      }
+    },
+    {
+      "route": "vbs",
+      "warm_runtime": true,
+      "fast_path": true,
+      "pair": 0,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1003.1,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 138.7,
+        "python_entry": 171.2,
+        "import_start": 204.0,
+        "import_end": 433.5,
+        "constructor_start": 446.2,
+        "constructor_end": 999.7,
+        "ready": 1003.1
+      }
+    },
+    {
+      "route": "exe",
+      "warm_runtime": true,
+      "fast_path": true,
+      "pair": 1,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 902.2,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 30.4,
+        "python_entry": 70.7,
+        "import_start": 105.6,
+        "import_end": 339.8,
+        "constructor_start": 352.8,
+        "constructor_end": 895.5,
+        "ready": 902.2
+      }
+    },
+    {
+      "route": "exe",
+      "warm_runtime": false,
+      "fast_path": false,
+      "pair": 1,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1422.6,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 28.5,
+        "ps_entry": 336.5,
+        "setup_start": 353.8,
+        "unblock_start": 437.5,
+        "unblock_end": 449.6,
+        "validation_start": 498.2,
+        "validation_end": 594.5,
+        "python_ready": 598.0,
+        "spawn_start": 601.5,
+        "spawn_end": 680.0,
+        "python_entry": 696.6,
+        "import_start": 726.7,
+        "import_end": 956.1,
+        "constructor_start": 966.3,
+        "constructor_end": 1414.8,
+        "ready": 1422.6,
+        "watch_end": 1899.2
+      }
+    },
+    {
+      "route": "vbs",
+      "warm_runtime": true,
+      "fast_path": true,
+      "pair": 1,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 889.1,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 140.6,
+        "python_entry": 176.6,
+        "import_start": 207.2,
+        "import_end": 434.7,
+        "constructor_start": 447.3,
+        "constructor_end": 886.2,
+        "ready": 889.1
+      }
+    },
+    {
+      "route": "vbs",
+      "warm_runtime": false,
+      "fast_path": false,
+      "pair": 1,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1572.9,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 146.4,
+        "ps_entry": 472.1,
+        "setup_start": 489.1,
+        "unblock_start": 573.5,
+        "unblock_end": 587.6,
+        "validation_start": 642.0,
+        "validation_end": 741.9,
+        "python_ready": 745.6,
+        "spawn_start": 749.4,
+        "spawn_end": 833.1,
+        "python_entry": 850.5,
+        "import_start": 883.9,
+        "import_end": 1109.9,
+        "constructor_start": 1120.4,
+        "constructor_end": 1570.5,
+        "ready": 1572.9,
+        "watch_end": 2048.4
+      }
+    },
+    {
+      "route": "exe",
+      "warm_runtime": false,
+      "fast_path": false,
+      "pair": 2,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1513.7,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 32.4,
+        "ps_entry": 404.9,
+        "setup_start": 420.9,
+        "unblock_start": 505.3,
+        "unblock_end": 521.4,
+        "validation_start": 571.0,
+        "validation_end": 669.5,
+        "python_ready": 673.0,
+        "spawn_start": 676.7,
+        "spawn_end": 765.4,
+        "python_entry": 785.3,
+        "import_start": 819.2,
+        "import_end": 1060.5,
+        "constructor_start": 1071.9,
+        "constructor_end": 1511.1,
+        "ready": 1513.7,
+        "watch_end": 1983.6
+      }
+    },
+    {
+      "route": "exe",
+      "warm_runtime": true,
+      "fast_path": true,
+      "pair": 2,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 837.7,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 30.4,
+        "python_entry": 68.4,
+        "import_start": 105.0,
+        "import_end": 389.6,
+        "constructor_start": 401.8,
+        "constructor_end": 833.4,
+        "ready": 837.7
+      }
+    },
+    {
+      "route": "vbs",
+      "warm_runtime": false,
+      "fast_path": false,
+      "pair": 2,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1536.2,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 131.9,
+        "ps_entry": 443.0,
+        "setup_start": 459.0,
+        "unblock_start": 535.8,
+        "unblock_end": 548.1,
+        "validation_start": 609.5,
+        "validation_end": 716.8,
+        "python_ready": 720.2,
+        "spawn_start": 723.6,
+        "spawn_end": 800.7,
+        "python_entry": 816.3,
+        "import_start": 848.7,
+        "import_end": 1076.6,
+        "constructor_start": 1086.4,
+        "constructor_end": 1532.9,
+        "ready": 1536.2,
+        "watch_end": 2009.2
+      }
+    },
+    {
+      "route": "vbs",
+      "warm_runtime": true,
+      "fast_path": true,
+      "pair": 2,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1122.2,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 181.5,
+        "python_entry": 239.3,
+        "import_start": 278.3,
+        "import_end": 530.6,
+        "constructor_start": 542.7,
+        "constructor_end": 1118.3,
+        "ready": 1122.2
+      }
+    },
+    {
+      "route": "exe",
+      "warm_runtime": true,
+      "fast_path": true,
+      "pair": 3,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 794.5,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 32.2,
+        "python_entry": 72.4,
+        "import_start": 111.5,
+        "import_end": 350.3,
+        "constructor_start": 361.9,
+        "constructor_end": 788.0,
+        "ready": 794.5
+      }
+    },
+    {
+      "route": "exe",
+      "warm_runtime": false,
+      "fast_path": false,
+      "pair": 3,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1459.4,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 27.9,
+        "ps_entry": 342.9,
+        "setup_start": 358.7,
+        "unblock_start": 434.9,
+        "unblock_end": 446.6,
+        "validation_start": 494.8,
+        "validation_end": 591.2,
+        "python_ready": 594.6,
+        "spawn_start": 598.1,
+        "spawn_end": 688.9,
+        "python_entry": 707.5,
+        "import_start": 746.0,
+        "import_end": 1001.8,
+        "constructor_start": 1012.2,
+        "constructor_end": 1456.3,
+        "ready": 1459.4,
+        "watch_end": 1905.3
+      }
+    },
+    {
+      "route": "vbs",
+      "warm_runtime": true,
+      "fast_path": true,
+      "pair": 3,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 992.4,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 142.1,
+        "python_entry": 177.2,
+        "import_start": 209.9,
+        "import_end": 467.3,
+        "constructor_start": 479.3,
+        "constructor_end": 989.8,
+        "ready": 992.4
+      }
+    },
+    {
+      "route": "vbs",
+      "warm_runtime": false,
+      "fast_path": false,
+      "pair": 3,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1568.8,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 153.4,
+        "ps_entry": 494.1,
+        "setup_start": 510.4,
+        "unblock_start": 592.5,
+        "unblock_end": 605.1,
+        "validation_start": 657.5,
+        "validation_end": 756.0,
+        "python_ready": 759.7,
+        "spawn_start": 764.4,
+        "spawn_end": 843.7,
+        "python_entry": 861.0,
+        "import_start": 891.5,
+        "import_end": 1114.0,
+        "constructor_start": 1124.3,
+        "constructor_end": 1565.5,
+        "ready": 1568.8,
+        "watch_end": 2056.7
+      }
+    },
+    {
+      "route": "exe",
+      "warm_runtime": false,
+      "fast_path": false,
+      "pair": 4,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1459.9,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 28.2,
+        "ps_entry": 331.3,
+        "setup_start": 347.3,
+        "unblock_start": 427.9,
+        "unblock_end": 439.8,
+        "validation_start": 486.7,
+        "validation_end": 582.3,
+        "python_ready": 585.3,
+        "spawn_start": 588.3,
+        "spawn_end": 668.2,
+        "python_entry": 685.2,
+        "import_start": 714.6,
+        "import_end": 956.0,
+        "constructor_start": 967.5,
+        "constructor_end": 1457.0,
+        "ready": 1459.9,
+        "watch_end": 1879.4
+      }
+    },
+    {
+      "route": "exe",
+      "warm_runtime": true,
+      "fast_path": true,
+      "pair": 4,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 793.6,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 29.2,
+        "python_entry": 67.6,
+        "import_start": 99.7,
+        "import_end": 351.4,
+        "constructor_start": 363.7,
+        "constructor_end": 788.8,
+        "ready": 793.6
+      }
+    },
+    {
+      "route": "vbs",
+      "warm_runtime": false,
+      "fast_path": false,
+      "pair": 4,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1517.7,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 129.0,
+        "ps_entry": 441.7,
+        "setup_start": 457.5,
+        "unblock_start": 534.1,
+        "unblock_end": 546.4,
+        "validation_start": 594.7,
+        "validation_end": 690.9,
+        "python_ready": 694.3,
+        "spawn_start": 698.6,
+        "spawn_end": 778.4,
+        "python_entry": 795.3,
+        "import_start": 827.3,
+        "import_end": 1060.7,
+        "constructor_start": 1071.6,
+        "constructor_end": 1514.6,
+        "ready": 1517.7,
+        "watch_end": 1989.4
+      }
+    },
+    {
+      "route": "vbs",
+      "warm_runtime": true,
+      "fast_path": true,
+      "pair": 4,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 918.0,
+      "events_ms": {
+        "request": 0.0,
+        "exe_entry": 130.3,
+        "python_entry": 163.0,
+        "import_start": 193.1,
+        "import_end": 438.8,
+        "constructor_start": 451.3,
+        "constructor_end": 915.0,
+        "ready": 918.0
+      }
+    }
+  ]
+}

@@ -1,0 +1,1542 @@
+{
+  "measured_at": "2026-09-25T21:26:58+09:00",
+  "baseline_ref": "1f178f02dd800bc2752eee7f8cf726e8403b6c68",
+  "widget_sha256": {
+    "before": "a52686c53758d17da15d8902816e757a9488fcd7a22db2692ae47fefe9dbc356",
+    "after": "c2960ab74687340f6cb908aa9d5416fc9d04a94810810c4e6a5bfb035d3b7a2b"
+  },
+  "python": "3.14.2 (tags/v3.14.2:df79316, Dec  5 2025, 17:18:21) [MSC v.1944 64 bit (AMD64)]",
+  "tk": "8.6.15",
+  "samples": [
+    {
+      "route": "exe",
+      "variant": "before",
+      "pair": 0,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1509.3793999985792,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 64.3785000029311
+        },
+        {
+          "name": "_load_icons",
+          "ms": 10.5420999971102
+        },
+        {
+          "name": "build",
+          "ms": 87.85320000242791
+        },
+        {
+          "name": "apply_mode",
+          "ms": 97.807100002683
+        },
+        {
+          "name": "apply_mode",
+          "ms": 80.7926999987103
+        },
+        {
+          "name": "relayout",
+          "ms": 81.19530000112718
+        },
+        {
+          "name": "apply_mode",
+          "ms": 32.906299999012845
+        },
+        {
+          "name": "relayout",
+          "ms": 33.501500001875684
+        },
+        {
+          "name": "apply_mode",
+          "ms": 38.971599999058526
+        },
+        {
+          "name": "relayout",
+          "ms": 40.05360000155633
+        },
+        {
+          "name": "load_cache",
+          "ms": 280.26429999954416
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.09810000119614415
+        },
+        {
+          "name": "relayout",
+          "ms": 0.9110999999393243
+        },
+        {
+          "name": "place",
+          "ms": 0.9141000009549316
+        }
+      ],
+      "events_ms": {
+        "python_entry": 633.1554,
+        "import_start": 656.3685,
+        "import_end": 921.7746,
+        "constructor_start": 941.6846,
+        "constructor_end": 1504.7613,
+        "ready": 1509.3794,
+        "request": 0.0,
+        "ps_entry": 334.4257,
+        "setup_start": 350.5758,
+        "unblock_start": 409.492,
+        "unblock_end": 422.2357,
+        "validation_start": 458.665,
+        "validation_end": 534.2243,
+        "python_ready": 537.8461,
+        "spawn_start": 541.243,
+        "spawn_end": 619.5415,
+        "watch_end": 1831.5334,
+        "exe_entry": 51.5181
+      }
+    },
+    {
+      "route": "exe",
+      "variant": "after",
+      "pair": 0,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1388.5107999994943,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 55.4255999995803
+        },
+        {
+          "name": "_load_icons",
+          "ms": 3.837000000203261
+        },
+        {
+          "name": "build",
+          "ms": 60.28209999931278
+        },
+        {
+          "name": "apply_mode",
+          "ms": 25.887299998430535
+        },
+        {
+          "name": "apply_mode",
+          "ms": 113.5814000008395
+        },
+        {
+          "name": "relayout",
+          "ms": 114.87409999972442
+        },
+        {
+          "name": "load_cache",
+          "ms": 227.16829999990296
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03730000025825575
+        },
+        {
+          "name": "relayout",
+          "ms": 0.7947999984025955
+        },
+        {
+          "name": "place",
+          "ms": 0.7985000011103693
+        }
+      ],
+      "events_ms": {
+        "python_entry": 684.1001,
+        "import_start": 704.9451,
+        "import_end": 958.4134,
+        "constructor_start": 977.9677,
+        "constructor_end": 1377.7104,
+        "ready": 1388.5108,
+        "request": 0.0,
+        "ps_entry": 337.2832,
+        "setup_start": 354.2728,
+        "unblock_start": 417.4427,
+        "unblock_end": 432.3278,
+        "validation_start": 477.7013,
+        "validation_end": 568.5837,
+        "python_ready": 572.8657,
+        "spawn_start": 576.9279,
+        "spawn_end": 670.1685,
+        "watch_end": 1881.2077,
+        "exe_entry": 54.7015
+      }
+    },
+    {
+      "route": "python",
+      "variant": "before",
+      "pair": 0,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 790.3237999998964,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 58.91680000058841
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.8469999993394595
+        },
+        {
+          "name": "build",
+          "ms": 66.84210000094026
+        },
+        {
+          "name": "apply_mode",
+          "ms": 51.11910000050557
+        },
+        {
+          "name": "apply_mode",
+          "ms": 72.80339999852004
+        },
+        {
+          "name": "relayout",
+          "ms": 73.81170000007842
+        },
+        {
+          "name": "apply_mode",
+          "ms": 60.998600001767045
+        },
+        {
+          "name": "relayout",
+          "ms": 61.4346000002115
+        },
+        {
+          "name": "apply_mode",
+          "ms": 62.08709999918938
+        },
+        {
+          "name": "relayout",
+          "ms": 62.66680000044289
+        },
+        {
+          "name": "load_cache",
+          "ms": 326.12910000170814
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.06609999763895757
+        },
+        {
+          "name": "relayout",
+          "ms": 0.7496000034734607
+        },
+        {
+          "name": "place",
+          "ms": 0.7528999994974583
+        }
+      ],
+      "events_ms": {
+        "python_entry": 21.0506,
+        "import_start": 42.5937,
+        "import_end": 236.4123,
+        "constructor_start": 246.8185,
+        "constructor_end": 778.3979,
+        "ready": 790.3238,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "python",
+      "variant": "after",
+      "pair": 0,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 719.5213999984844,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 71.20759999816073
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.0566999990260229
+        },
+        {
+          "name": "build",
+          "ms": 79.73679999849992
+        },
+        {
+          "name": "apply_mode",
+          "ms": 43.643799999699695
+        },
+        {
+          "name": "apply_mode",
+          "ms": 78.51310000114609
+        },
+        {
+          "name": "relayout",
+          "ms": 79.45440000185044
+        },
+        {
+          "name": "load_cache",
+          "ms": 211.02410000094096
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03760000254260376
+        },
+        {
+          "name": "relayout",
+          "ms": 0.2787000012176577
+        },
+        {
+          "name": "place",
+          "ms": 0.2806000011332799
+        }
+      ],
+      "events_ms": {
+        "python_entry": 19.3662,
+        "import_start": 39.3838,
+        "import_end": 264.9827,
+        "constructor_start": 278.9929,
+        "constructor_end": 709.43,
+        "ready": 719.5214,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "exe",
+      "variant": "after",
+      "pair": 1,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1201.9430000000284,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 67.39980000202195
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.2438999983714893
+        },
+        {
+          "name": "build",
+          "ms": 58.50309999732417
+        },
+        {
+          "name": "apply_mode",
+          "ms": 61.729400000331225
+        },
+        {
+          "name": "apply_mode",
+          "ms": 35.72189999977127
+        },
+        {
+          "name": "relayout",
+          "ms": 36.16189999956987
+        },
+        {
+          "name": "load_cache",
+          "ms": 158.28469999905792
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03559999822755344
+        },
+        {
+          "name": "relayout",
+          "ms": 0.22879999960423447
+        },
+        {
+          "name": "place",
+          "ms": 0.23050000163493678
+        }
+      ],
+      "events_ms": {
+        "python_entry": 627.0984,
+        "import_start": 647.3915,
+        "import_end": 826.3307,
+        "constructor_start": 836.6634,
+        "constructor_end": 1199.2726,
+        "ready": 1201.943,
+        "request": 0.0,
+        "ps_entry": 325.4973,
+        "setup_start": 342.0866,
+        "unblock_start": 402.503,
+        "unblock_end": 416.6817,
+        "validation_start": 453.87,
+        "validation_end": 532.0583,
+        "python_ready": 535.8659,
+        "spawn_start": 539.4135,
+        "spawn_end": 615.7939,
+        "watch_end": 1821.9171,
+        "exe_entry": 27.9903
+      }
+    },
+    {
+      "route": "exe",
+      "variant": "before",
+      "pair": 1,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1254.5606999992742,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 54.976599996734876
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.9884999999485444
+        },
+        {
+          "name": "build",
+          "ms": 62.49230000321404
+        },
+        {
+          "name": "apply_mode",
+          "ms": 47.95259999809787
+        },
+        {
+          "name": "apply_mode",
+          "ms": 37.50439999930677
+        },
+        {
+          "name": "relayout",
+          "ms": 38.05869999996503
+        },
+        {
+          "name": "apply_mode",
+          "ms": 22.46240000022226
+        },
+        {
+          "name": "relayout",
+          "ms": 22.655099997791694
+        },
+        {
+          "name": "apply_mode",
+          "ms": 22.789700000430457
+        },
+        {
+          "name": "relayout",
+          "ms": 22.966799999267096
+        },
+        {
+          "name": "load_cache",
+          "ms": 206.38600000165752
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.047100002120714635
+        },
+        {
+          "name": "relayout",
+          "ms": 0.2787000012176577
+        },
+        {
+          "name": "place",
+          "ms": 0.28139999994891696
+        }
+      ],
+      "events_ms": {
+        "python_entry": 645.6614,
+        "import_start": 665.9187,
+        "import_end": 854.6146,
+        "constructor_start": 863.6708,
+        "constructor_end": 1252.1234,
+        "ready": 1254.5607,
+        "request": 0.0,
+        "ps_entry": 346.628,
+        "setup_start": 363.5859,
+        "unblock_start": 423.7425,
+        "unblock_end": 437.6277,
+        "validation_start": 473.111,
+        "validation_end": 548.7786,
+        "python_ready": 552.2954,
+        "spawn_start": 555.5933,
+        "spawn_end": 633.2211,
+        "watch_end": 1844.659,
+        "exe_entry": 32.7729
+      }
+    },
+    {
+      "route": "python",
+      "variant": "after",
+      "pair": 1,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 646.866899998713,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 59.29810000088764
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.8364000022993423
+        },
+        {
+          "name": "build",
+          "ms": 71.69639999847277
+        },
+        {
+          "name": "apply_mode",
+          "ms": 30.50969999821973
+        },
+        {
+          "name": "apply_mode",
+          "ms": 96.84469999774592
+        },
+        {
+          "name": "relayout",
+          "ms": 97.48799999943003
+        },
+        {
+          "name": "load_cache",
+          "ms": 220.0477000005776
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03619999915827066
+        },
+        {
+          "name": "relayout",
+          "ms": 0.25269999969168566
+        },
+        {
+          "name": "place",
+          "ms": 0.2549999990151264
+        }
+      ],
+      "events_ms": {
+        "python_entry": 18.9178,
+        "import_start": 39.0819,
+        "import_end": 229.0312,
+        "constructor_start": 238.9858,
+        "constructor_end": 641.1206,
+        "ready": 646.8669,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "python",
+      "variant": "before",
+      "pair": 1,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 759.8590000015975,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 56.430700002238154
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.0738000019046012
+        },
+        {
+          "name": "build",
+          "ms": 63.16220000007888
+        },
+        {
+          "name": "apply_mode",
+          "ms": 26.98690000033821
+        },
+        {
+          "name": "apply_mode",
+          "ms": 105.6520999991335
+        },
+        {
+          "name": "relayout",
+          "ms": 106.66289999790024
+        },
+        {
+          "name": "apply_mode",
+          "ms": 61.27030000061495
+        },
+        {
+          "name": "relayout",
+          "ms": 61.55130000115605
+        },
+        {
+          "name": "apply_mode",
+          "ms": 55.049200000212295
+        },
+        {
+          "name": "relayout",
+          "ms": 55.659099998592865
+        },
+        {
+          "name": "load_cache",
+          "ms": 351.9047000008868
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03740000101970509
+        },
+        {
+          "name": "relayout",
+          "ms": 0.6843000010121614
+        },
+        {
+          "name": "place",
+          "ms": 0.6869999997434206
+        }
+      ],
+      "events_ms": {
+        "python_entry": 16.4559,
+        "import_start": 36.14,
+        "import_end": 217.1824,
+        "constructor_start": 227.6118,
+        "constructor_end": 750.4438,
+        "ready": 759.859,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "exe",
+      "variant": "before",
+      "pair": 2,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1278.2503000016732,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 69.82820000121137
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.8438999975624029
+        },
+        {
+          "name": "build",
+          "ms": 61.49849999928847
+        },
+        {
+          "name": "apply_mode",
+          "ms": 45.98540000006324
+        },
+        {
+          "name": "apply_mode",
+          "ms": 41.00130000006175
+        },
+        {
+          "name": "relayout",
+          "ms": 41.26210000322317
+        },
+        {
+          "name": "apply_mode",
+          "ms": 29.75920000244514
+        },
+        {
+          "name": "relayout",
+          "ms": 29.978899998241104
+        },
+        {
+          "name": "apply_mode",
+          "ms": 29.02909999829717
+        },
+        {
+          "name": "relayout",
+          "ms": 29.48140000080457
+        },
+        {
+          "name": "load_cache",
+          "ms": 213.935700001457
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.05030000102124177
+        },
+        {
+          "name": "relayout",
+          "ms": 0.35680000291904435
+        },
+        {
+          "name": "place",
+          "ms": 0.35939999725087546
+        }
+      ],
+      "events_ms": {
+        "python_entry": 644.7449,
+        "import_start": 665.6031,
+        "import_end": 858.2296,
+        "constructor_start": 868.5041,
+        "constructor_end": 1275.6509,
+        "ready": 1278.2503,
+        "request": 0.0,
+        "ps_entry": 317.2345,
+        "setup_start": 333.6797,
+        "unblock_start": 398.2301,
+        "unblock_end": 413.0943,
+        "validation_start": 453.9067,
+        "validation_end": 537.3111,
+        "python_ready": 540.9546,
+        "spawn_start": 545.0123,
+        "spawn_end": 632.6419,
+        "watch_end": 1842.1622,
+        "exe_entry": 28.7253
+      }
+    },
+    {
+      "route": "exe",
+      "variant": "after",
+      "pair": 2,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1142.7800999990723,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 55.58410000230651
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.9887999985949136
+        },
+        {
+          "name": "build",
+          "ms": 59.63949999932083
+        },
+        {
+          "name": "apply_mode",
+          "ms": 43.711800000892254
+        },
+        {
+          "name": "apply_mode",
+          "ms": 34.67910000108532
+        },
+        {
+          "name": "relayout",
+          "ms": 34.914100000605686
+        },
+        {
+          "name": "load_cache",
+          "ms": 146.83050000166986
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03529999958118424
+        },
+        {
+          "name": "relayout",
+          "ms": 0.22629999875789508
+        },
+        {
+          "name": "place",
+          "ms": 0.22799999715061858
+        }
+      ],
+      "events_ms": {
+        "python_entry": 601.0076,
+        "import_start": 622.5433,
+        "import_end": 808.3665,
+        "constructor_start": 817.9469,
+        "constructor_end": 1140.4838,
+        "ready": 1142.7801,
+        "request": 0.0,
+        "ps_entry": 293.9869,
+        "setup_start": 310.5202,
+        "unblock_start": 368.7284,
+        "unblock_end": 382.8264,
+        "validation_start": 424.1321,
+        "validation_end": 502.8473,
+        "python_ready": 506.9919,
+        "spawn_start": 510.5045,
+        "spawn_end": 588.2266,
+        "watch_end": 1804.6757,
+        "exe_entry": 22.5907
+      }
+    },
+    {
+      "route": "python",
+      "variant": "before",
+      "pair": 2,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 566.2063999989186,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 53.76780000005965
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.921900002140319
+        },
+        {
+          "name": "build",
+          "ms": 58.756299997185124
+        },
+        {
+          "name": "apply_mode",
+          "ms": 21.751700001914287
+        },
+        {
+          "name": "apply_mode",
+          "ms": 31.263400000170805
+        },
+        {
+          "name": "relayout",
+          "ms": 31.906899999739835
+        },
+        {
+          "name": "apply_mode",
+          "ms": 23.191699998278636
+        },
+        {
+          "name": "relayout",
+          "ms": 23.445899998478126
+        },
+        {
+          "name": "apply_mode",
+          "ms": 24.525600001652492
+        },
+        {
+          "name": "relayout",
+          "ms": 24.70069999981206
+        },
+        {
+          "name": "load_cache",
+          "ms": 187.03459999960614
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03290000313427299
+        },
+        {
+          "name": "relayout",
+          "ms": 0.2029999996011611
+        },
+        {
+          "name": "place",
+          "ms": 0.2043999993475154
+        }
+      ],
+      "events_ms": {
+        "python_entry": 17.0049,
+        "import_start": 35.8535,
+        "import_end": 214.2351,
+        "constructor_start": 224.4617,
+        "constructor_end": 561.9567,
+        "ready": 566.2064,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "python",
+      "variant": "after",
+      "pair": 2,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 578.8277999999991,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 66.5432999994664
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.3102000011713244
+        },
+        {
+          "name": "build",
+          "ms": 62.818499998684274
+        },
+        {
+          "name": "apply_mode",
+          "ms": 25.74329999697511
+        },
+        {
+          "name": "apply_mode",
+          "ms": 44.88319999654777
+        },
+        {
+          "name": "relayout",
+          "ms": 45.65110000112327
+        },
+        {
+          "name": "load_cache",
+          "ms": 167.4338999982865
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03720000313478522
+        },
+        {
+          "name": "relayout",
+          "ms": 0.25939999977708794
+        },
+        {
+          "name": "place",
+          "ms": 0.26140000045415945
+        }
+      ],
+      "events_ms": {
+        "python_entry": 16.7575,
+        "import_start": 37.8004,
+        "import_end": 219.6165,
+        "constructor_start": 230.0195,
+        "constructor_end": 575.0958,
+        "ready": 578.8278,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "exe",
+      "variant": "after",
+      "pair": 3,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1169.3089999971562,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 67.41909999982454
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.2206999999762047
+        },
+        {
+          "name": "build",
+          "ms": 66.34409999969648
+        },
+        {
+          "name": "apply_mode",
+          "ms": 53.16030000176397
+        },
+        {
+          "name": "apply_mode",
+          "ms": 31.849200000579003
+        },
+        {
+          "name": "relayout",
+          "ms": 32.08639999866136
+        },
+        {
+          "name": "load_cache",
+          "ms": 145.15670000037062
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03399999695830047
+        },
+        {
+          "name": "relayout",
+          "ms": 0.2229999990959186
+        },
+        {
+          "name": "place",
+          "ms": 0.22480000188807026
+        }
+      ],
+      "events_ms": {
+        "python_entry": 591.1357,
+        "import_start": 613.7684,
+        "import_end": 806.3078,
+        "constructor_start": 816.4681,
+        "constructor_end": 1167.0212,
+        "ready": 1169.309,
+        "request": 0.0,
+        "ps_entry": 292.3493,
+        "setup_start": 308.451,
+        "unblock_start": 365.3202,
+        "unblock_end": 377.8511,
+        "validation_start": 413.1573,
+        "validation_end": 487.2905,
+        "python_ready": 491.0068,
+        "spawn_start": 494.6168,
+        "spawn_end": 579.8801,
+        "watch_end": 1790.8045,
+        "exe_entry": 22.3133
+      }
+    },
+    {
+      "route": "exe",
+      "variant": "before",
+      "pair": 3,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1153.6546000024828,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 56.043399999907706
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.8272000013676006
+        },
+        {
+          "name": "build",
+          "ms": 59.00180000026012
+        },
+        {
+          "name": "apply_mode",
+          "ms": 41.63969999717665
+        },
+        {
+          "name": "apply_mode",
+          "ms": 31.27640000093379
+        },
+        {
+          "name": "relayout",
+          "ms": 31.532499997410923
+        },
+        {
+          "name": "apply_mode",
+          "ms": 25.654900000517955
+        },
+        {
+          "name": "relayout",
+          "ms": 25.95629999996163
+        },
+        {
+          "name": "apply_mode",
+          "ms": 22.034999998140847
+        },
+        {
+          "name": "relayout",
+          "ms": 22.259800000028918
+        },
+        {
+          "name": "load_cache",
+          "ms": 188.31429999772809
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.031699997634859756
+        },
+        {
+          "name": "relayout",
+          "ms": 0.19309999697725289
+        },
+        {
+          "name": "place",
+          "ms": 0.19460000112303533
+        }
+      ],
+      "events_ms": {
+        "python_entry": 577.9895,
+        "import_start": 598.3107,
+        "import_end": 780.0036,
+        "constructor_start": 790.4157,
+        "constructor_end": 1150.5777,
+        "ready": 1153.6546,
+        "request": 0.0,
+        "ps_entry": 288.47,
+        "setup_start": 304.1246,
+        "unblock_start": 361.1338,
+        "unblock_end": 372.9225,
+        "validation_start": 408.8286,
+        "validation_end": 484.2325,
+        "python_ready": 487.9466,
+        "spawn_start": 491.1822,
+        "spawn_end": 566.4427,
+        "watch_end": 1771.2306,
+        "exe_entry": 23.1257
+      }
+    },
+    {
+      "route": "python",
+      "variant": "after",
+      "pair": 3,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 534.1496000000916,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 55.9943000007479
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.8234999986598268
+        },
+        {
+          "name": "build",
+          "ms": 59.62109999745735
+        },
+        {
+          "name": "apply_mode",
+          "ms": 23.078399997757515
+        },
+        {
+          "name": "apply_mode",
+          "ms": 34.270799998921575
+        },
+        {
+          "name": "relayout",
+          "ms": 34.95949999705772
+        },
+        {
+          "name": "load_cache",
+          "ms": 146.08859999862034
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03420000211917795
+        },
+        {
+          "name": "relayout",
+          "ms": 0.22489999901154079
+        },
+        {
+          "name": "place",
+          "ms": 0.22649999664281495
+        }
+      ],
+      "events_ms": {
+        "python_entry": 17.3586,
+        "import_start": 36.7092,
+        "import_end": 216.9813,
+        "constructor_start": 226.5503,
+        "constructor_end": 529.8424,
+        "ready": 534.1496,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "python",
+      "variant": "before",
+      "pair": 3,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 639.9611000015284,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 59.467200000653975
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.8855999985826202
+        },
+        {
+          "name": "build",
+          "ms": 70.69090000004508
+        },
+        {
+          "name": "apply_mode",
+          "ms": 28.539199996885145
+        },
+        {
+          "name": "apply_mode",
+          "ms": 42.85810000146739
+        },
+        {
+          "name": "relayout",
+          "ms": 43.5408000012103
+        },
+        {
+          "name": "apply_mode",
+          "ms": 31.36610000001383
+        },
+        {
+          "name": "relayout",
+          "ms": 31.655100003263215
+        },
+        {
+          "name": "apply_mode",
+          "ms": 31.974599998648046
+        },
+        {
+          "name": "relayout",
+          "ms": 32.236000002740184
+        },
+        {
+          "name": "load_cache",
+          "ms": 220.3780000018014
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.033700001949910074
+        },
+        {
+          "name": "relayout",
+          "ms": 0.22230000104173087
+        },
+        {
+          "name": "place",
+          "ms": 0.2237999979115557
+        }
+      ],
+      "events_ms": {
+        "python_entry": 17.043,
+        "import_start": 37.6558,
+        "import_end": 223.3987,
+        "constructor_start": 233.5502,
+        "constructor_end": 633.639,
+        "ready": 639.9611,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "exe",
+      "variant": "before",
+      "pair": 4,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1159.213800001453,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 59.542000002693385
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.8631999990029726
+        },
+        {
+          "name": "build",
+          "ms": 58.594099999027094
+        },
+        {
+          "name": "apply_mode",
+          "ms": 44.15729999891482
+        },
+        {
+          "name": "apply_mode",
+          "ms": 30.14880000046105
+        },
+        {
+          "name": "relayout",
+          "ms": 30.566600002202904
+        },
+        {
+          "name": "apply_mode",
+          "ms": 24.490600000717677
+        },
+        {
+          "name": "relayout",
+          "ms": 24.6861000014178
+        },
+        {
+          "name": "apply_mode",
+          "ms": 24.040799999056617
+        },
+        {
+          "name": "relayout",
+          "ms": 24.355900000955444
+        },
+        {
+          "name": "load_cache",
+          "ms": 189.32210000275518
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.09160000263364054
+        },
+        {
+          "name": "relayout",
+          "ms": 0.45870000030845404
+        },
+        {
+          "name": "place",
+          "ms": 0.46160000056261197
+        }
+      ],
+      "events_ms": {
+        "python_entry": 585.8538,
+        "import_start": 604.416,
+        "import_end": 780.0406,
+        "constructor_start": 789.5046,
+        "constructor_end": 1156.8557,
+        "ready": 1159.2138,
+        "request": 0.0,
+        "ps_entry": 273.8095,
+        "setup_start": 293.3982,
+        "unblock_start": 360.787,
+        "unblock_end": 374.9549,
+        "validation_start": 414.3952,
+        "validation_end": 490.108,
+        "python_ready": 494.2806,
+        "spawn_start": 497.9065,
+        "spawn_end": 573.8229,
+        "watch_end": 1780.6861,
+        "exe_entry": 21.982
+      }
+    },
+    {
+      "route": "exe",
+      "variant": "after",
+      "pair": 4,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1120.3745000020717,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 53.24299999847426
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.8323000001837499
+        },
+        {
+          "name": "build",
+          "ms": 59.37330000233487
+        },
+        {
+          "name": "apply_mode",
+          "ms": 45.329900000069756
+        },
+        {
+          "name": "apply_mode",
+          "ms": 34.64919999896665
+        },
+        {
+          "name": "relayout",
+          "ms": 34.88959999958752
+        },
+        {
+          "name": "load_cache",
+          "ms": 146.52720000231056
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03510000169626437
+        },
+        {
+          "name": "relayout",
+          "ms": 0.24020000273594633
+        },
+        {
+          "name": "place",
+          "ms": 0.24290000146720558
+        }
+      ],
+      "events_ms": {
+        "python_entry": 588.0189,
+        "import_start": 607.2957,
+        "import_end": 786.9682,
+        "constructor_start": 796.5497,
+        "constructor_end": 1117.7895,
+        "ready": 1120.3745,
+        "request": 0.0,
+        "ps_entry": 302.41,
+        "setup_start": 318.5712,
+        "unblock_start": 375.452,
+        "unblock_end": 386.8634,
+        "validation_start": 423.072,
+        "validation_end": 495.5618,
+        "python_ready": 499.166,
+        "spawn_start": 502.4942,
+        "spawn_end": 576.5555,
+        "watch_end": 1784.3037,
+        "exe_entry": 24.2898
+      }
+    },
+    {
+      "route": "python",
+      "variant": "before",
+      "pair": 4,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 591.9950999996217,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 57.90540000089095
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.8177000017894898
+        },
+        {
+          "name": "build",
+          "ms": 60.439600001700455
+        },
+        {
+          "name": "apply_mode",
+          "ms": 37.90379999918514
+        },
+        {
+          "name": "apply_mode",
+          "ms": 30.42519999871729
+        },
+        {
+          "name": "relayout",
+          "ms": 31.224899998051114
+        },
+        {
+          "name": "apply_mode",
+          "ms": 22.933099997317186
+        },
+        {
+          "name": "relayout",
+          "ms": 23.12730000267038
+        },
+        {
+          "name": "apply_mode",
+          "ms": 23.30660000006901
+        },
+        {
+          "name": "relayout",
+          "ms": 23.565200001030462
+        },
+        {
+          "name": "load_cache",
+          "ms": 187.89250000190805
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03319999814266339
+        },
+        {
+          "name": "relayout",
+          "ms": 0.19830000019283034
+        },
+        {
+          "name": "place",
+          "ms": 0.20009999934700318
+        }
+      ],
+      "events_ms": {
+        "python_entry": 17.053,
+        "import_start": 36.2526,
+        "import_end": 216.447,
+        "constructor_start": 226.3956,
+        "constructor_end": 588.6209,
+        "ready": 591.9951,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "python",
+      "variant": "after",
+      "pair": 4,
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 558.5035999974934,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 64.61679999847547
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.9264000000257511
+        },
+        {
+          "name": "build",
+          "ms": 59.40270000064629
+        },
+        {
+          "name": "apply_mode",
+          "ms": 24.162199999409495
+        },
+        {
+          "name": "apply_mode",
+          "ms": 35.55190000042785
+        },
+        {
+          "name": "relayout",
+          "ms": 36.18759999881149
+        },
+        {
+          "name": "load_cache",
+          "ms": 149.91770000051474
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03810000271187164
+        },
+        {
+          "name": "relayout",
+          "ms": 0.24540000231354497
+        },
+        {
+          "name": "place",
+          "ms": 0.24699999994481914
+        }
+      ],
+      "events_ms": {
+        "python_entry": 19.2015,
+        "import_start": 40.9547,
+        "import_end": 227.0446,
+        "constructor_start": 237.8873,
+        "constructor_end": 554.7705,
+        "ready": 558.5036,
+        "request": 0.0
+      }
+    }
+  ]
+}

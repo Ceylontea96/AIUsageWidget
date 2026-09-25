@@ -1,0 +1,2839 @@
+{
+  "measured_at": "2026-09-25T21:17:28+09:00",
+  "source": "1f178f02dd800bc2752eee7f8cf726e8403b6c68",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "python": "3.14.2 (tags/v3.14.2:df79316, Dec  5 2025, 17:18:21) [MSC v.1944 64 bit (AMD64)]",
+  "tk": "8.6.15",
+  "samples": [
+    {
+      "route": "exe",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 1358.0267999968783,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 69.548899999063
+        },
+        {
+          "name": "_load_icons",
+          "ms": 10.96529999995255
+        },
+        {
+          "name": "build",
+          "ms": 73.18559999839636
+        },
+        {
+          "name": "apply_mode",
+          "ms": 56.42509999961476
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.11069999891333282
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.11799999992945231
+        },
+        {
+          "name": "relayout",
+          "ms": 1.0507000006327871
+        },
+        {
+          "name": "place",
+          "ms": 1.0551999985182192
+        }
+      ],
+      "events_ms": {
+        "python_entry": 746.9939,
+        "import_start": 770.8304,
+        "import_end": 1097.3455,
+        "constructor_start": 1123.0193,
+        "constructor_end": 1353.6754,
+        "ready": 1358.0268,
+        "request": 0.0,
+        "ps_entry": 373.4201,
+        "setup_start": 390.6933,
+        "unblock_start": 456.0333,
+        "unblock_end": 469.8757,
+        "validation_start": 517.4277,
+        "validation_end": 633.542,
+        "python_ready": 638.1022,
+        "spawn_start": 642.3733,
+        "spawn_end": 730.078,
+        "watch_end": 1945.4686,
+        "exe_entry": 58.6538
+      }
+    },
+    {
+      "route": "vbs",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 1282.0388000000094,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 72.48670000262791
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.2894999999844003
+        },
+        {
+          "name": "build",
+          "ms": 67.42170000143233
+        },
+        {
+          "name": "apply_mode",
+          "ms": 48.58750000130385
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.10269999984302558
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.08019999950192869
+        },
+        {
+          "name": "relayout",
+          "ms": 0.9585999978298787
+        },
+        {
+          "name": "place",
+          "ms": 0.9619999982533045
+        }
+      ],
+      "events_ms": {
+        "python_entry": 812.8792,
+        "import_start": 834.9139,
+        "import_end": 1056.205,
+        "constructor_start": 1069.2711,
+        "constructor_end": 1275.303,
+        "ready": 1282.0388,
+        "request": 0.0,
+        "ps_entry": 465.9262,
+        "setup_start": 483.7943,
+        "unblock_start": 553.297,
+        "unblock_end": 567.8788,
+        "validation_start": 611.7236,
+        "validation_end": 700.5731,
+        "python_ready": 704.5067,
+        "spawn_start": 709.4942,
+        "spawn_end": 798.3266,
+        "watch_end": 2003.4141
+      }
+    },
+    {
+      "route": "powershell",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 1037.0006000011927,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 61.56819999887375
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.8818000023893546
+        },
+        {
+          "name": "build",
+          "ms": 67.31199999921955
+        },
+        {
+          "name": "apply_mode",
+          "ms": 31.040699999721255
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.08150000212481245
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.09440000212634914
+        },
+        {
+          "name": "relayout",
+          "ms": 0.8280999973067082
+        },
+        {
+          "name": "place",
+          "ms": 0.830699998914497
+        }
+      ],
+      "events_ms": {
+        "python_entry": 616.528,
+        "import_start": 637.2786,
+        "import_end": 843.3551,
+        "constructor_start": 856.8622,
+        "constructor_end": 1034.4291,
+        "ready": 1037.0006,
+        "request": 0.0,
+        "ps_entry": 276.3006,
+        "setup_start": 294.0983,
+        "unblock_start": 366.0591,
+        "unblock_end": 380.9906,
+        "validation_start": 423.3492,
+        "validation_end": 509.9057,
+        "python_ready": 513.8426,
+        "spawn_start": 518.7189,
+        "spawn_end": 601.0735,
+        "watch_end": 1818.63
+      }
+    },
+    {
+      "route": "python",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 476.89159999936237,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 75.04540000081761
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.1297999990347307
+        },
+        {
+          "name": "build",
+          "ms": 71.15840000187745
+        },
+        {
+          "name": "apply_mode",
+          "ms": 32.17900000163354
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.10230000043520704
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.06310000026132911
+        },
+        {
+          "name": "relayout",
+          "ms": 1.0053999976662453
+        },
+        {
+          "name": "place",
+          "ms": 1.0086000002047513
+        }
+      ],
+      "events_ms": {
+        "python_entry": 23.2625,
+        "import_start": 45.5192,
+        "import_end": 259.5094,
+        "constructor_start": 271.4458,
+        "constructor_end": 471.9793,
+        "ready": 476.8916,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "python",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 482.86880000159726,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 73.59080000242102
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.0963000022456981
+        },
+        {
+          "name": "build",
+          "ms": 73.98790000297595
+        },
+        {
+          "name": "apply_mode",
+          "ms": 33.05460000046878
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.09869999848888256
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.053499999921768904
+        },
+        {
+          "name": "relayout",
+          "ms": 0.7779000006848946
+        },
+        {
+          "name": "place",
+          "ms": 0.7808000009390526
+        }
+      ],
+      "events_ms": {
+        "python_entry": 18.784,
+        "import_start": 42.6467,
+        "import_end": 264.4068,
+        "constructor_start": 279.0974,
+        "constructor_end": 479.5296,
+        "ready": 482.8688,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "powershell",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 1060.5818999974872,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 64.72770000254968
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.2010999998892657
+        },
+        {
+          "name": "build",
+          "ms": 67.20660000064527
+        },
+        {
+          "name": "apply_mode",
+          "ms": 27.500200001668418
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.10110000221175142
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.056799999583745375
+        },
+        {
+          "name": "relayout",
+          "ms": 0.8048000017879531
+        },
+        {
+          "name": "place",
+          "ms": 0.8077999991655815
+        }
+      ],
+      "events_ms": {
+        "python_entry": 634.3835,
+        "import_start": 658.7919,
+        "import_end": 868.4323,
+        "constructor_start": 878.9846,
+        "constructor_end": 1056.6758,
+        "ready": 1060.5819,
+        "request": 0.0,
+        "ps_entry": 291.6264,
+        "setup_start": 309.4315,
+        "unblock_start": 377.3377,
+        "unblock_end": 389.6661,
+        "validation_start": 437.9289,
+        "validation_end": 528.978,
+        "python_ready": 532.5918,
+        "spawn_start": 538.4761,
+        "spawn_end": 621.3703,
+        "watch_end": 1834.8055
+      }
+    },
+    {
+      "route": "vbs",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 1237.8428999982134,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 66.03430000177468
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.001900000119349
+        },
+        {
+          "name": "build",
+          "ms": 72.08510000054957
+        },
+        {
+          "name": "apply_mode",
+          "ms": 57.56239999755053
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.14450000162469223
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.13069999840809032
+        },
+        {
+          "name": "relayout",
+          "ms": 0.9800999978324398
+        },
+        {
+          "name": "place",
+          "ms": 0.9831999996094964
+        }
+      ],
+      "events_ms": {
+        "python_entry": 769.6308,
+        "import_start": 792.1669,
+        "import_end": 1001.0648,
+        "constructor_start": 1011.6031,
+        "constructor_end": 1230.1489,
+        "ready": 1237.8429,
+        "request": 0.0,
+        "ps_entry": 431.4983,
+        "setup_start": 449.958,
+        "unblock_start": 521.7034,
+        "unblock_end": 534.9529,
+        "validation_start": 577.215,
+        "validation_end": 665.5151,
+        "python_ready": 669.526,
+        "spawn_start": 673.1632,
+        "spawn_end": 756.0792,
+        "watch_end": 1973.7298
+      }
+    },
+    {
+      "route": "exe",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 1126.095700001315,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 66.49879999895347
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.026499998260988
+        },
+        {
+          "name": "build",
+          "ms": 66.04270000025281
+        },
+        {
+          "name": "apply_mode",
+          "ms": 47.38639999777661
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.08049999814829789
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.044600001274375245
+        },
+        {
+          "name": "relayout",
+          "ms": 0.756800000090152
+        },
+        {
+          "name": "place",
+          "ms": 0.7598999982292298
+        }
+      ],
+      "events_ms": {
+        "python_entry": 666.5235,
+        "import_start": 690.2488,
+        "import_end": 907.8615,
+        "constructor_start": 919.4589,
+        "constructor_end": 1120.5072,
+        "ready": 1126.0957,
+        "request": 0.0,
+        "ps_entry": 325.5126,
+        "setup_start": 344.7383,
+        "unblock_start": 412.3198,
+        "unblock_end": 425.006,
+        "validation_start": 472.1796,
+        "validation_end": 559.7868,
+        "python_ready": 563.9869,
+        "spawn_start": 568.2338,
+        "spawn_end": 652.4089,
+        "watch_end": 1865.1011,
+        "exe_entry": 30.0235
+      }
+    },
+    {
+      "route": "exe",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 1100.4280999986804,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 63.81920000058017
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.8807999984128401
+        },
+        {
+          "name": "build",
+          "ms": 67.59799999781535
+        },
+        {
+          "name": "apply_mode",
+          "ms": 49.50059999828227
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.08890000026440248
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.10290000136592425
+        },
+        {
+          "name": "relayout",
+          "ms": 0.7240000013553072
+        },
+        {
+          "name": "place",
+          "ms": 0.7275999996636529
+        }
+      ],
+      "events_ms": {
+        "python_entry": 642.8618,
+        "import_start": 664.7643,
+        "import_end": 881.3214,
+        "constructor_start": 895.7057,
+        "constructor_end": 1096.1458,
+        "ready": 1100.4281,
+        "request": 0.0,
+        "ps_entry": 307.6781,
+        "setup_start": 325.5716,
+        "unblock_start": 388.7559,
+        "unblock_end": 405.4875,
+        "validation_start": 450.8745,
+        "validation_end": 536.2592,
+        "python_ready": 540.4608,
+        "spawn_start": 544.5037,
+        "spawn_end": 629.6188,
+        "watch_end": 1848.1489,
+        "exe_entry": 25.658
+      }
+    },
+    {
+      "route": "vbs",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 1246.8650000009802,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 63.38529999993625
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.8880999994289596
+        },
+        {
+          "name": "build",
+          "ms": 66.75329999779933
+        },
+        {
+          "name": "apply_mode",
+          "ms": 49.37380000046687
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.08130000060191378
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.05059999966761097
+        },
+        {
+          "name": "relayout",
+          "ms": 0.5837999997311272
+        },
+        {
+          "name": "place",
+          "ms": 0.5868000007467344
+        }
+      ],
+      "events_ms": {
+        "python_entry": 791.4654,
+        "import_start": 816.1711,
+        "import_end": 1033.0631,
+        "constructor_start": 1044.2632,
+        "constructor_end": 1242.9585,
+        "ready": 1246.865,
+        "request": 0.0,
+        "ps_entry": 453.0905,
+        "setup_start": 471.3317,
+        "unblock_start": 541.883,
+        "unblock_end": 557.3258,
+        "validation_start": 599.2574,
+        "validation_end": 684.5641,
+        "python_ready": 688.371,
+        "spawn_start": 692.3591,
+        "spawn_end": 777.919,
+        "watch_end": 1990.7926
+      }
+    },
+    {
+      "route": "powershell",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 1077.7737000025809,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 69.41989999904763
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.6826999999466352
+        },
+        {
+          "name": "build",
+          "ms": 64.17620000138413
+        },
+        {
+          "name": "apply_mode",
+          "ms": 27.938300001551397
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.08179999713320285
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.05739999687648378
+        },
+        {
+          "name": "relayout",
+          "ms": 1.0359000007156283
+        },
+        {
+          "name": "place",
+          "ms": 1.0390999996161554
+        }
+      ],
+      "events_ms": {
+        "python_entry": 621.9739,
+        "import_start": 646.399,
+        "import_end": 880.52,
+        "constructor_start": 894.0142,
+        "constructor_end": 1074.347,
+        "ready": 1077.7737,
+        "request": 0.0,
+        "ps_entry": 278.2507,
+        "setup_start": 296.3642,
+        "unblock_start": 364.3851,
+        "unblock_end": 378.5733,
+        "validation_start": 421.4842,
+        "validation_end": 507.0727,
+        "python_ready": 511.9154,
+        "spawn_start": 516.7874,
+        "spawn_end": 608.2184,
+        "watch_end": 1817.694
+      }
+    },
+    {
+      "route": "python",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 460.7170999988739,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 60.805100001743995
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.9064999976544641
+        },
+        {
+          "name": "build",
+          "ms": 68.33909999841126
+        },
+        {
+          "name": "apply_mode",
+          "ms": 27.580699999816716
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.09330000102636404
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.040899998566601425
+        },
+        {
+          "name": "relayout",
+          "ms": 0.7315000002563465
+        },
+        {
+          "name": "place",
+          "ms": 0.7344000005105045
+        }
+      ],
+      "events_ms": {
+        "python_entry": 23.9977,
+        "import_start": 46.6195,
+        "import_end": 269.412,
+        "constructor_start": 281.7288,
+        "constructor_end": 458.1684,
+        "ready": 460.7171,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "python",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 453.3391000004485,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 65.00139999843668
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.4130999988992698
+        },
+        {
+          "name": "build",
+          "ms": 67.35349999871687
+        },
+        {
+          "name": "apply_mode",
+          "ms": 25.976900000387104
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.07819999882485718
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.041700001020217314
+        },
+        {
+          "name": "relayout",
+          "ms": 0.7306000006792601
+        },
+        {
+          "name": "place",
+          "ms": 0.7334000001719687
+        }
+      ],
+      "events_ms": {
+        "python_entry": 17.3152,
+        "import_start": 39.7679,
+        "import_end": 259.6597,
+        "constructor_start": 274.2153,
+        "constructor_end": 449.5856,
+        "ready": 453.3391,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "powershell",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 1039.221600000019,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 63.894800001435215
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.3556000012613367
+        },
+        {
+          "name": "build",
+          "ms": 65.25200000032783
+        },
+        {
+          "name": "apply_mode",
+          "ms": 26.78840000226046
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.07480000203941017
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03999999898951501
+        },
+        {
+          "name": "relayout",
+          "ms": 0.7030999986454844
+        },
+        {
+          "name": "place",
+          "ms": 0.7057000002532732
+        }
+      ],
+      "events_ms": {
+        "python_entry": 608.508,
+        "import_start": 633.3086,
+        "import_end": 850.1069,
+        "constructor_start": 861.7423,
+        "constructor_end": 1036.3019,
+        "ready": 1039.2216,
+        "request": 0.0,
+        "ps_entry": 271.7056,
+        "setup_start": 289.3588,
+        "unblock_start": 358.7194,
+        "unblock_end": 377.3365,
+        "validation_start": 420.3626,
+        "validation_end": 506.454,
+        "python_ready": 510.726,
+        "spawn_start": 514.5033,
+        "spawn_end": 597.1467,
+        "watch_end": 1811.7651
+      }
+    },
+    {
+      "route": "vbs",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 1352.3070999981428,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 74.59730000118725
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.6948999982560053
+        },
+        {
+          "name": "build",
+          "ms": 75.25639999948908
+        },
+        {
+          "name": "apply_mode",
+          "ms": 60.536599998158636
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.15770000027259812
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.07879999975557439
+        },
+        {
+          "name": "relayout",
+          "ms": 0.7743999995000195
+        },
+        {
+          "name": "place",
+          "ms": 0.7775999984005466
+        }
+      ],
+      "events_ms": {
+        "python_entry": 839.8091,
+        "import_start": 863.4575,
+        "import_end": 1099.9629,
+        "constructor_start": 1111.7407,
+        "constructor_end": 1347.524,
+        "ready": 1352.3071,
+        "request": 0.0,
+        "ps_entry": 453.2692,
+        "setup_start": 474.0855,
+        "unblock_start": 558.8732,
+        "unblock_end": 577.3415,
+        "validation_start": 626.2886,
+        "validation_end": 730.6468,
+        "python_ready": 735.8701,
+        "spawn_start": 740.9532,
+        "spawn_end": 825.814,
+        "watch_end": 2035.7381
+      }
+    },
+    {
+      "route": "exe",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 1185.423200000514,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 68.10229999973672
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.450499999918975
+        },
+        {
+          "name": "build",
+          "ms": 69.23950000054901
+        },
+        {
+          "name": "apply_mode",
+          "ms": 51.97240000052261
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.09390000195708126
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.11069999891333282
+        },
+        {
+          "name": "relayout",
+          "ms": 1.4405000001715962
+        },
+        {
+          "name": "place",
+          "ms": 1.4443000000028405
+        }
+      ],
+      "events_ms": {
+        "python_entry": 706.5393,
+        "import_start": 732.9853,
+        "import_end": 956.7491,
+        "constructor_start": 969.564,
+        "constructor_end": 1180.1436,
+        "ready": 1185.4232,
+        "request": 0.0,
+        "ps_entry": 337.0758,
+        "setup_start": 359.9223,
+        "unblock_start": 437.5726,
+        "unblock_end": 453.57,
+        "validation_start": 497.4715,
+        "validation_end": 587.7907,
+        "python_ready": 592.6338,
+        "spawn_start": 596.9967,
+        "spawn_end": 687.9471,
+        "watch_end": 1907.1537,
+        "exe_entry": 30.5991
+      }
+    },
+    {
+      "route": "exe",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 1265.201899997919,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 103.61349999948288
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.8517000025894959
+        },
+        {
+          "name": "build",
+          "ms": 98.37129999868921
+        },
+        {
+          "name": "apply_mode",
+          "ms": 60.657599999103695
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.16200000027311035
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.11930000255233608
+        },
+        {
+          "name": "relayout",
+          "ms": 1.3151999992260244
+        },
+        {
+          "name": "place",
+          "ms": 1.3192000005801674
+        }
+      ],
+      "events_ms": {
+        "python_entry": 662.0535,
+        "import_start": 683.9707,
+        "import_end": 950.6878,
+        "constructor_start": 968.6277,
+        "constructor_end": 1259.1005,
+        "ready": 1265.2019,
+        "request": 0.0,
+        "ps_entry": 310.1437,
+        "setup_start": 327.1074,
+        "unblock_start": 394.0359,
+        "unblock_end": 410.957,
+        "validation_start": 458.3563,
+        "validation_end": 549.8096,
+        "python_ready": 554.8966,
+        "spawn_start": 559.21,
+        "spawn_end": 647.5273,
+        "watch_end": 1866.6166,
+        "exe_entry": 26.8127
+      }
+    },
+    {
+      "route": "vbs",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 1313.3292999991681,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 68.32539999959408
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.6134999968926422
+        },
+        {
+          "name": "build",
+          "ms": 66.50789999912377
+        },
+        {
+          "name": "apply_mode",
+          "ms": 29.893500002799556
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.07610000102431513
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.13549999857787043
+        },
+        {
+          "name": "relayout",
+          "ms": 1.1726000011549331
+        },
+        {
+          "name": "place",
+          "ms": 1.1759000008169096
+        }
+      ],
+      "events_ms": {
+        "python_entry": 842.6497,
+        "import_start": 866.7406,
+        "import_end": 1112.4076,
+        "constructor_start": 1126.6882,
+        "constructor_end": 1310.2765,
+        "ready": 1313.3293,
+        "request": 0.0,
+        "ps_entry": 494.1942,
+        "setup_start": 512.606,
+        "unblock_start": 580.7628,
+        "unblock_end": 596.1024,
+        "validation_start": 639.746,
+        "validation_end": 732.6338,
+        "python_ready": 736.3077,
+        "spawn_start": 739.782,
+        "spawn_end": 829.3372,
+        "watch_end": 2047.7688
+      }
+    },
+    {
+      "route": "powershell",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 1139.4662999991851,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 71.61129999803961
+        },
+        {
+          "name": "_load_icons",
+          "ms": 2.14369999957853
+        },
+        {
+          "name": "build",
+          "ms": 96.48969999761903
+        },
+        {
+          "name": "apply_mode",
+          "ms": 40.88380000030156
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.09440000212634914
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.24619999749120325
+        },
+        {
+          "name": "relayout",
+          "ms": 1.830500001233304
+        },
+        {
+          "name": "place",
+          "ms": 1.8343999981880188
+        }
+      ],
+      "events_ms": {
+        "python_entry": 637.9805,
+        "import_start": 663.0833,
+        "import_end": 887.8432,
+        "constructor_start": 900.4889,
+        "constructor_end": 1134.8307,
+        "ready": 1139.4663,
+        "request": 0.0,
+        "ps_entry": 274.3148,
+        "setup_start": 294.6938,
+        "unblock_start": 364.2286,
+        "unblock_end": 379.9005,
+        "validation_start": 420.9028,
+        "validation_end": 516.5847,
+        "python_ready": 521.3332,
+        "spawn_start": 524.7945,
+        "spawn_end": 623.7464,
+        "watch_end": 1829.8769
+      }
+    },
+    {
+      "route": "python",
+      "cached": false,
+      "cached_keys": [],
+      "total_ms": 572.396799998387,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 84.51939999940805
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.0848999991139863
+        },
+        {
+          "name": "build",
+          "ms": 90.28550000221003
+        },
+        {
+          "name": "apply_mode",
+          "ms": 50.25910000040312
+        },
+        {
+          "name": "load_cache",
+          "ms": 0.09380000119563192
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.10739999925135635
+        },
+        {
+          "name": "relayout",
+          "ms": 1.4690999996673781
+        },
+        {
+          "name": "place",
+          "ms": 1.4721000006829854
+        }
+      ],
+      "events_ms": {
+        "python_entry": 20.8159,
+        "import_start": 45.9482,
+        "import_end": 300.4134,
+        "constructor_start": 314.9607,
+        "constructor_end": 568.488,
+        "ready": 572.3968,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "exe",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1517.4603999985266,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 69.92320000063046
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.219199999468401
+        },
+        {
+          "name": "build",
+          "ms": 70.01989999844227
+        },
+        {
+          "name": "apply_mode",
+          "ms": 27.730999998311745
+        },
+        {
+          "name": "apply_mode",
+          "ms": 36.60459999809973
+        },
+        {
+          "name": "relayout",
+          "ms": 37.71929999857093
+        },
+        {
+          "name": "apply_mode",
+          "ms": 42.255299998942064
+        },
+        {
+          "name": "relayout",
+          "ms": 42.63130000254023
+        },
+        {
+          "name": "apply_mode",
+          "ms": 47.99550000097952
+        },
+        {
+          "name": "relayout",
+          "ms": 48.51540000163368
+        },
+        {
+          "name": "load_cache",
+          "ms": 252.1993999980623
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.081900001532631
+        },
+        {
+          "name": "relayout",
+          "ms": 0.7070999999996275
+        },
+        {
+          "name": "place",
+          "ms": 0.7105000004230533
+        }
+      ],
+      "events_ms": {
+        "python_entry": 752.8642,
+        "import_start": 794.3508,
+        "import_end": 1043.0865,
+        "constructor_start": 1056.4561,
+        "constructor_end": 1507.7205,
+        "ready": 1517.4604,
+        "request": 0.0,
+        "ps_entry": 327.4518,
+        "setup_start": 347.6171,
+        "unblock_start": 418.9688,
+        "unblock_end": 437.316,
+        "validation_start": 490.2695,
+        "validation_end": 589.4336,
+        "python_ready": 593.2811,
+        "spawn_start": 597.5612,
+        "spawn_end": 728.6735,
+        "watch_end": 1946.8033,
+        "exe_entry": 29.5365
+      }
+    },
+    {
+      "route": "vbs",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1642.9475000004459,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 69.05369999731192
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.9697999994386919
+        },
+        {
+          "name": "build",
+          "ms": 79.74810000087018
+        },
+        {
+          "name": "apply_mode",
+          "ms": 67.7317999980005
+        },
+        {
+          "name": "apply_mode",
+          "ms": 145.30479999666568
+        },
+        {
+          "name": "relayout",
+          "ms": 146.11169999989215
+        },
+        {
+          "name": "apply_mode",
+          "ms": 80.5977999989409
+        },
+        {
+          "name": "relayout",
+          "ms": 80.97690000067814
+        },
+        {
+          "name": "apply_mode",
+          "ms": 81.07149999705143
+        },
+        {
+          "name": "relayout",
+          "ms": 81.58929999990505
+        },
+        {
+          "name": "load_cache",
+          "ms": 433.6110000003828
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03529999958118424
+        },
+        {
+          "name": "relayout",
+          "ms": 0.55669999710517
+        },
+        {
+          "name": "place",
+          "ms": 0.559599997359328
+        }
+      ],
+      "events_ms": {
+        "python_entry": 738.1074,
+        "import_start": 758.8426,
+        "import_end": 954.4356,
+        "constructor_start": 965.137,
+        "constructor_end": 1639.6322,
+        "ready": 1642.9475,
+        "request": 0.0,
+        "ps_entry": 410.7881,
+        "setup_start": 427.2366,
+        "unblock_start": 488.066,
+        "unblock_end": 500.9715,
+        "validation_start": 542.1303,
+        "validation_end": 627.3488,
+        "python_ready": 631.1893,
+        "spawn_start": 635.6143,
+        "spawn_end": 725.8064,
+        "watch_end": 1940.869
+      }
+    },
+    {
+      "route": "powershell",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1253.0923999984225,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 59.43439999828115
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.022600001306273
+        },
+        {
+          "name": "build",
+          "ms": 65.08670000039274
+        },
+        {
+          "name": "apply_mode",
+          "ms": 25.59819999805768
+        },
+        {
+          "name": "apply_mode",
+          "ms": 37.73599999840371
+        },
+        {
+          "name": "relayout",
+          "ms": 38.54479999790783
+        },
+        {
+          "name": "apply_mode",
+          "ms": 28.79209999809973
+        },
+        {
+          "name": "relayout",
+          "ms": 29.034600000159116
+        },
+        {
+          "name": "apply_mode",
+          "ms": 25.824299998930655
+        },
+        {
+          "name": "relayout",
+          "ms": 26.01939999658498
+        },
+        {
+          "name": "load_cache",
+          "ms": 212.61130000129924
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.033799999073380604
+        },
+        {
+          "name": "relayout",
+          "ms": 0.2886000002035871
+        },
+        {
+          "name": "place",
+          "ms": 0.29129999893484637
+        }
+      ],
+      "events_ms": {
+        "python_entry": 616.6476,
+        "import_start": 638.7909,
+        "import_end": 854.2628,
+        "constructor_start": 866.3011,
+        "constructor_end": 1247.804,
+        "ready": 1253.0924,
+        "request": 0.0,
+        "ps_entry": 272.4541,
+        "setup_start": 288.6183,
+        "unblock_start": 358.2073,
+        "unblock_end": 374.9977,
+        "validation_start": 422.0043,
+        "validation_end": 504.1782,
+        "python_ready": 508.2814,
+        "spawn_start": 511.9454,
+        "spawn_end": 603.0904,
+        "watch_end": 1815.7937
+      }
+    },
+    {
+      "route": "python",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 840.661000002001,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 68.73439999981201
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.2822999997297302
+        },
+        {
+          "name": "build",
+          "ms": 64.54959999973653
+        },
+        {
+          "name": "apply_mode",
+          "ms": 26.4136999976472
+        },
+        {
+          "name": "apply_mode",
+          "ms": 106.9616999993741
+        },
+        {
+          "name": "relayout",
+          "ms": 108.14150000078371
+        },
+        {
+          "name": "apply_mode",
+          "ms": 51.20370000076946
+        },
+        {
+          "name": "relayout",
+          "ms": 51.4818000010564
+        },
+        {
+          "name": "apply_mode",
+          "ms": 60.95290000303066
+        },
+        {
+          "name": "relayout",
+          "ms": 61.45819999801461
+        },
+        {
+          "name": "load_cache",
+          "ms": 351.66299999764306
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03569999898900278
+        },
+        {
+          "name": "relayout",
+          "ms": 0.576299997192109
+        },
+        {
+          "name": "place",
+          "ms": 0.5794000026071444
+        }
+      ],
+      "events_ms": {
+        "python_entry": 17.364,
+        "import_start": 39.3532,
+        "import_end": 273.2826,
+        "constructor_start": 287.5162,
+        "constructor_end": 829.1283,
+        "ready": 840.661,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "python",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 826.6282000004139,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 72.59350000094855
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.2556000001495704
+        },
+        {
+          "name": "build",
+          "ms": 79.24939999793423
+        },
+        {
+          "name": "apply_mode",
+          "ms": 35.75509999791393
+        },
+        {
+          "name": "apply_mode",
+          "ms": 99.85320000123465
+        },
+        {
+          "name": "relayout",
+          "ms": 100.80970000126399
+        },
+        {
+          "name": "apply_mode",
+          "ms": 58.44550000256277
+        },
+        {
+          "name": "relayout",
+          "ms": 58.71769999794196
+        },
+        {
+          "name": "apply_mode",
+          "ms": 52.65049999798066
+        },
+        {
+          "name": "relayout",
+          "ms": 53.03959999946528
+        },
+        {
+          "name": "load_cache",
+          "ms": 334.94149999751244
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.08900000102585182
+        },
+        {
+          "name": "relayout",
+          "ms": 1.19510000149603
+        },
+        {
+          "name": "place",
+          "ms": 1.1982000032730866
+        }
+      ],
+      "events_ms": {
+        "python_entry": 17.8053,
+        "import_start": 39.9539,
+        "import_end": 247.6159,
+        "constructor_start": 259.5547,
+        "constructor_end": 814.6535,
+        "ready": 826.6282,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "powershell",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1372.6190000015777,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 73.066299999482
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.0707999972510152
+        },
+        {
+          "name": "build",
+          "ms": 84.93670000098064
+        },
+        {
+          "name": "apply_mode",
+          "ms": 32.103199999255594
+        },
+        {
+          "name": "apply_mode",
+          "ms": 57.804800002486445
+        },
+        {
+          "name": "relayout",
+          "ms": 59.07920000026934
+        },
+        {
+          "name": "apply_mode",
+          "ms": 26.43990000069607
+        },
+        {
+          "name": "relayout",
+          "ms": 26.68210000047111
+        },
+        {
+          "name": "apply_mode",
+          "ms": 51.011100000323495
+        },
+        {
+          "name": "relayout",
+          "ms": 51.68899999989662
+        },
+        {
+          "name": "load_cache",
+          "ms": 255.52830000015092
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03610000203480013
+        },
+        {
+          "name": "relayout",
+          "ms": 0.4683999977714848
+        },
+        {
+          "name": "place",
+          "ms": 0.4712999980256427
+        }
+      ],
+      "events_ms": {
+        "python_entry": 629.5627,
+        "import_start": 651.3772,
+        "import_end": 874.9651,
+        "constructor_start": 886.2895,
+        "constructor_end": 1361.9544,
+        "ready": 1372.619,
+        "request": 0.0,
+        "ps_entry": 281.2021,
+        "setup_start": 298.5911,
+        "unblock_start": 370.2102,
+        "unblock_end": 386.5467,
+        "validation_start": 430.3938,
+        "validation_end": 520.1166,
+        "python_ready": 524.2911,
+        "spawn_start": 528.8304,
+        "spawn_end": 617.5692,
+        "watch_end": 1834.8074
+      }
+    },
+    {
+      "route": "vbs",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1436.2187999977323,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 60.637999999016756
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.9836000026552938
+        },
+        {
+          "name": "build",
+          "ms": 68.79180000032648
+        },
+        {
+          "name": "apply_mode",
+          "ms": 58.06469999879482
+        },
+        {
+          "name": "apply_mode",
+          "ms": 40.38669999863487
+        },
+        {
+          "name": "relayout",
+          "ms": 40.74150000087684
+        },
+        {
+          "name": "apply_mode",
+          "ms": 28.76539999851957
+        },
+        {
+          "name": "relayout",
+          "ms": 29.008299999986775
+        },
+        {
+          "name": "apply_mode",
+          "ms": 28.93009999752394
+        },
+        {
+          "name": "relayout",
+          "ms": 29.262899999594083
+        },
+        {
+          "name": "load_cache",
+          "ms": 218.07880000051227
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.08010000237845816
+        },
+        {
+          "name": "relayout",
+          "ms": 0.5288000029395334
+        },
+        {
+          "name": "place",
+          "ms": 0.5321999997249804
+        }
+      ],
+      "events_ms": {
+        "python_entry": 777.1335,
+        "import_start": 798.5543,
+        "import_end": 999.6198,
+        "constructor_start": 1010.306,
+        "constructor_end": 1433.2668,
+        "ready": 1436.2188,
+        "request": 0.0,
+        "ps_entry": 450.0969,
+        "setup_start": 468.6433,
+        "unblock_start": 535.6785,
+        "unblock_end": 548.7333,
+        "validation_start": 591.3967,
+        "validation_end": 671.7512,
+        "python_ready": 675.7207,
+        "spawn_start": 679.8988,
+        "spawn_end": 765.2978,
+        "watch_end": 1977.7534
+      }
+    },
+    {
+      "route": "exe",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1282.749000001786,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 65.09559999904013
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.8492000015394296
+        },
+        {
+          "name": "build",
+          "ms": 67.58170000102837
+        },
+        {
+          "name": "apply_mode",
+          "ms": 54.2888000018138
+        },
+        {
+          "name": "apply_mode",
+          "ms": 38.31249999711872
+        },
+        {
+          "name": "relayout",
+          "ms": 38.870299998961855
+        },
+        {
+          "name": "apply_mode",
+          "ms": 30.249100000219187
+        },
+        {
+          "name": "relayout",
+          "ms": 30.57500000068103
+        },
+        {
+          "name": "apply_mode",
+          "ms": 31.493300000875024
+        },
+        {
+          "name": "relayout",
+          "ms": 31.897499997285195
+        },
+        {
+          "name": "load_cache",
+          "ms": 223.04490000169608
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.05410000085248612
+        },
+        {
+          "name": "relayout",
+          "ms": 0.3631999970821198
+        },
+        {
+          "name": "place",
+          "ms": 0.36529999852064066
+        }
+      ],
+      "events_ms": {
+        "python_entry": 616.2839,
+        "import_start": 637.5131,
+        "import_end": 839.8162,
+        "constructor_start": 851.5918,
+        "constructor_end": 1279.5719,
+        "ready": 1282.749,
+        "request": 0.0,
+        "ps_entry": 296.3871,
+        "setup_start": 314.6709,
+        "unblock_start": 375.8043,
+        "unblock_end": 387.8155,
+        "validation_start": 425.6388,
+        "validation_end": 507.5477,
+        "python_ready": 511.8005,
+        "spawn_start": 515.3059,
+        "spawn_end": 603.4256,
+        "watch_end": 1820.559,
+        "exe_entry": 25.4923
+      }
+    },
+    {
+      "route": "exe",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1338.5521000018343,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 69.39450000209035
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.0165999992750585
+        },
+        {
+          "name": "build",
+          "ms": 63.37610000264249
+        },
+        {
+          "name": "apply_mode",
+          "ms": 46.1302000003343
+        },
+        {
+          "name": "apply_mode",
+          "ms": 35.219400000642054
+        },
+        {
+          "name": "relayout",
+          "ms": 35.46929999720305
+        },
+        {
+          "name": "apply_mode",
+          "ms": 28.865899999800604
+        },
+        {
+          "name": "relayout",
+          "ms": 29.08729999762727
+        },
+        {
+          "name": "apply_mode",
+          "ms": 29.14470000177971
+        },
+        {
+          "name": "relayout",
+          "ms": 29.34129999994184
+        },
+        {
+          "name": "load_cache",
+          "ms": 206.48870000150055
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.12239999705343507
+        },
+        {
+          "name": "relayout",
+          "ms": 0.8861000023898669
+        },
+        {
+          "name": "place",
+          "ms": 0.8891000034054741
+        }
+      ],
+      "events_ms": {
+        "python_entry": 605.431,
+        "import_start": 633.1127,
+        "import_end": 917.0496,
+        "constructor_start": 931.1695,
+        "constructor_end": 1334.5615,
+        "ready": 1338.5521,
+        "request": 0.0,
+        "ps_entry": 290.6819,
+        "setup_start": 309.8602,
+        "unblock_start": 372.7653,
+        "unblock_end": 386.5982,
+        "validation_start": 424.7195,
+        "validation_end": 502.6397,
+        "python_ready": 506.1989,
+        "spawn_start": 509.3881,
+        "spawn_end": 591.1715,
+        "watch_end": 1802.012,
+        "exe_entry": 25.146
+      }
+    },
+    {
+      "route": "vbs",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1634.7241000003123,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 68.0437000009988
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.9659999996074475
+        },
+        {
+          "name": "build",
+          "ms": 70.86110000091139
+        },
+        {
+          "name": "apply_mode",
+          "ms": 91.94969999953173
+        },
+        {
+          "name": "apply_mode",
+          "ms": 56.85450000237324
+        },
+        {
+          "name": "relayout",
+          "ms": 57.32720000014524
+        },
+        {
+          "name": "apply_mode",
+          "ms": 58.90219999855617
+        },
+        {
+          "name": "relayout",
+          "ms": 59.18220000239671
+        },
+        {
+          "name": "apply_mode",
+          "ms": 25.70969999942463
+        },
+        {
+          "name": "relayout",
+          "ms": 25.964600001316285
+        },
+        {
+          "name": "load_cache",
+          "ms": 278.4069000008458
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.05830000009154901
+        },
+        {
+          "name": "relayout",
+          "ms": 0.328799997078022
+        },
+        {
+          "name": "place",
+          "ms": 0.33089999851654284
+        }
+      ],
+      "events_ms": {
+        "python_entry": 859.0058,
+        "import_start": 880.3249,
+        "import_end": 1095.1917,
+        "constructor_start": 1105.4377,
+        "constructor_end": 1631.648,
+        "ready": 1634.7241,
+        "request": 0.0,
+        "ps_entry": 420.0717,
+        "setup_start": 439.6568,
+        "unblock_start": 514.0146,
+        "unblock_end": 540.1337,
+        "validation_start": 610.3672,
+        "validation_end": 735.7565,
+        "python_ready": 741.662,
+        "spawn_start": 749.161,
+        "spawn_end": 843.7999,
+        "watch_end": 2051.3141
+      }
+    },
+    {
+      "route": "powershell",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1315.3027000007569,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 66.66469999981928
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.4429000002564862
+        },
+        {
+          "name": "build",
+          "ms": 64.07860000035726
+        },
+        {
+          "name": "apply_mode",
+          "ms": 29.41380000265781
+        },
+        {
+          "name": "apply_mode",
+          "ms": 38.94889999719453
+        },
+        {
+          "name": "relayout",
+          "ms": 39.820699999836506
+        },
+        {
+          "name": "apply_mode",
+          "ms": 23.16399999835994
+        },
+        {
+          "name": "relayout",
+          "ms": 23.37170000100741
+        },
+        {
+          "name": "apply_mode",
+          "ms": 28.045699997164775
+        },
+        {
+          "name": "relayout",
+          "ms": 28.312000002188142
+        },
+        {
+          "name": "load_cache",
+          "ms": 215.3699999980745
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.0351999988197349
+        },
+        {
+          "name": "relayout",
+          "ms": 0.24750000011408702
+        },
+        {
+          "name": "place",
+          "ms": 0.24929999926825985
+        }
+      ],
+      "events_ms": {
+        "python_entry": 661.5913,
+        "import_start": 685.0692,
+        "import_end": 899.6173,
+        "constructor_start": 912.37,
+        "constructor_end": 1308.9271,
+        "ready": 1315.3027,
+        "request": 0.0,
+        "ps_entry": 302.9027,
+        "setup_start": 319.6185,
+        "unblock_start": 383.2957,
+        "unblock_end": 397.4891,
+        "validation_start": 445.034,
+        "validation_end": 534.5994,
+        "python_ready": 538.7916,
+        "spawn_start": 542.1013,
+        "spawn_end": 649.4665,
+        "watch_end": 1861.6055
+      }
+    },
+    {
+      "route": "python",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 739.6693000009691,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 65.55070000104024
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.2221999968460295
+        },
+        {
+          "name": "build",
+          "ms": 66.26780000078725
+        },
+        {
+          "name": "apply_mode",
+          "ms": 29.211900000518654
+        },
+        {
+          "name": "apply_mode",
+          "ms": 43.60690000248724
+        },
+        {
+          "name": "relayout",
+          "ms": 44.2853999993531
+        },
+        {
+          "name": "apply_mode",
+          "ms": 35.34819999913452
+        },
+        {
+          "name": "relayout",
+          "ms": 35.74859999935143
+        },
+        {
+          "name": "apply_mode",
+          "ms": 69.61609999780194
+        },
+        {
+          "name": "relayout",
+          "ms": 70.55749999926775
+        },
+        {
+          "name": "load_cache",
+          "ms": 268.83340000131284
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03719999949680641
+        },
+        {
+          "name": "relayout",
+          "ms": 0.7378000009339303
+        },
+        {
+          "name": "place",
+          "ms": 0.7407000011880882
+        }
+      ],
+      "events_ms": {
+        "python_entry": 19.616,
+        "import_start": 44.9001,
+        "import_end": 255.5255,
+        "constructor_start": 266.5221,
+        "constructor_end": 728.7428,
+        "ready": 739.6693,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "python",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 725.8450000008452,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 66.56400000065332
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.8353999985265546
+        },
+        {
+          "name": "build",
+          "ms": 70.18510000125389
+        },
+        {
+          "name": "apply_mode",
+          "ms": 46.36749999917811
+        },
+        {
+          "name": "apply_mode",
+          "ms": 42.22279999885359
+        },
+        {
+          "name": "relayout",
+          "ms": 42.97650000080466
+        },
+        {
+          "name": "apply_mode",
+          "ms": 36.06620000209659
+        },
+        {
+          "name": "relayout",
+          "ms": 36.576100003003376
+        },
+        {
+          "name": "apply_mode",
+          "ms": 34.08279999712249
+        },
+        {
+          "name": "relayout",
+          "ms": 34.43640000114101
+        },
+        {
+          "name": "load_cache",
+          "ms": 238.36069999742904
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.11249999806750566
+        },
+        {
+          "name": "relayout",
+          "ms": 0.5291999987093732
+        },
+        {
+          "name": "place",
+          "ms": 0.5350999999791384
+        }
+      ],
+      "events_ms": {
+        "python_entry": 23.1237,
+        "import_start": 47.332,
+        "import_end": 261.3737,
+        "constructor_start": 272.6754,
+        "constructor_end": 718.1939,
+        "ready": 725.845,
+        "request": 0.0
+      }
+    },
+    {
+      "route": "powershell",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1386.842500000057,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 66.5056000034383
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.9582999991835095
+        },
+        {
+          "name": "build",
+          "ms": 85.91439999872819
+        },
+        {
+          "name": "apply_mode",
+          "ms": 58.12060000243946
+        },
+        {
+          "name": "apply_mode",
+          "ms": 116.69189999884111
+        },
+        {
+          "name": "relayout",
+          "ms": 117.66239999997197
+        },
+        {
+          "name": "apply_mode",
+          "ms": 63.3254999993369
+        },
+        {
+          "name": "relayout",
+          "ms": 64.37279999954626
+        },
+        {
+          "name": "apply_mode",
+          "ms": 39.83359999983804
+        },
+        {
+          "name": "relayout",
+          "ms": 40.27639999912935
+        },
+        {
+          "name": "load_cache",
+          "ms": 350.1979000029678
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03429999924264848
+        },
+        {
+          "name": "relayout",
+          "ms": 0.22739999985788018
+        },
+        {
+          "name": "place",
+          "ms": 0.2289000003656838
+        }
+      ],
+      "events_ms": {
+        "python_entry": 582.7641,
+        "import_start": 602.2487,
+        "import_end": 787.1284,
+        "constructor_start": 798.1589,
+        "constructor_end": 1381.9782,
+        "ready": 1386.8425,
+        "request": 0.0,
+        "ps_entry": 268.7945,
+        "setup_start": 286.5873,
+        "unblock_start": 358.0547,
+        "unblock_end": 371.2244,
+        "validation_start": 410.3353,
+        "validation_end": 487.4419,
+        "python_ready": 491.1217,
+        "spawn_start": 494.9082,
+        "spawn_end": 571.5225,
+        "watch_end": 1781.2331
+      }
+    },
+    {
+      "route": "vbs",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1636.9447000033688,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 80.91229999990901
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.119799999287352
+        },
+        {
+          "name": "build",
+          "ms": 65.62490000214893
+        },
+        {
+          "name": "apply_mode",
+          "ms": 30.443299998296425
+        },
+        {
+          "name": "apply_mode",
+          "ms": 83.24879999781842
+        },
+        {
+          "name": "relayout",
+          "ms": 84.12999999927706
+        },
+        {
+          "name": "apply_mode",
+          "ms": 72.71739999850979
+        },
+        {
+          "name": "relayout",
+          "ms": 73.8653999978851
+        },
+        {
+          "name": "apply_mode",
+          "ms": 55.627199999435106
+        },
+        {
+          "name": "relayout",
+          "ms": 56.208099998912076
+        },
+        {
+          "name": "load_cache",
+          "ms": 338.00740000151563
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03680000008898787
+        },
+        {
+          "name": "relayout",
+          "ms": 0.6513999978778884
+        },
+        {
+          "name": "place",
+          "ms": 0.6543000017700251
+        }
+      ],
+      "events_ms": {
+        "python_entry": 817.0844,
+        "import_start": 844.7381,
+        "import_end": 1071.8931,
+        "constructor_start": 1082.5558,
+        "constructor_end": 1627.1023,
+        "ready": 1636.9447,
+        "request": 0.0,
+        "ps_entry": 448.232,
+        "setup_start": 467.4828,
+        "unblock_start": 538.4843,
+        "unblock_end": 552.2673,
+        "validation_start": 598.3267,
+        "validation_end": 698.0331,
+        "python_ready": 703.2862,
+        "spawn_start": 708.6857,
+        "spawn_end": 802.483,
+        "watch_end": 2021.4673
+      }
+    },
+    {
+      "route": "exe",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1390.864100001636,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 60.526500001287786
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.2043999995512422
+        },
+        {
+          "name": "build",
+          "ms": 76.07980000102543
+        },
+        {
+          "name": "apply_mode",
+          "ms": 60.875300001498545
+        },
+        {
+          "name": "apply_mode",
+          "ms": 101.02290000213543
+        },
+        {
+          "name": "relayout",
+          "ms": 103.73640000034356
+        },
+        {
+          "name": "apply_mode",
+          "ms": 38.28250000151456
+        },
+        {
+          "name": "relayout",
+          "ms": 38.504600001033396
+        },
+        {
+          "name": "apply_mode",
+          "ms": 48.57059999994817
+        },
+        {
+          "name": "relayout",
+          "ms": 49.230599997827085
+        },
+        {
+          "name": "load_cache",
+          "ms": 314.41760000234353
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03769999966607429
+        },
+        {
+          "name": "relayout",
+          "ms": 0.5524999978661072
+        },
+        {
+          "name": "place",
+          "ms": 0.5560999998124316
+        }
+      ],
+      "events_ms": {
+        "python_entry": 628.652,
+        "import_start": 648.221,
+        "import_end": 834.6384,
+        "constructor_start": 846.1735,
+        "constructor_end": 1382.429,
+        "ready": 1390.8641,
+        "request": 0.0,
+        "ps_entry": 309.2868,
+        "setup_start": 326.708,
+        "unblock_start": 390.0568,
+        "unblock_end": 405.4628,
+        "validation_start": 445.2303,
+        "validation_end": 528.0383,
+        "python_ready": 531.3006,
+        "spawn_start": 535.2704,
+        "spawn_end": 615.6491,
+        "watch_end": 1834.8661,
+        "exe_entry": 28.6187
+      }
+    },
+    {
+      "route": "exe",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1418.0387999986124,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 58.24419999771635
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.2528000006568618
+        },
+        {
+          "name": "build",
+          "ms": 82.6508999998623
+        },
+        {
+          "name": "apply_mode",
+          "ms": 56.5165000007255
+        },
+        {
+          "name": "apply_mode",
+          "ms": 56.32470000273315
+        },
+        {
+          "name": "relayout",
+          "ms": 56.90210000102525
+        },
+        {
+          "name": "apply_mode",
+          "ms": 36.571200002072146
+        },
+        {
+          "name": "relayout",
+          "ms": 36.78790000049048
+        },
+        {
+          "name": "apply_mode",
+          "ms": 32.19289999833563
+        },
+        {
+          "name": "relayout",
+          "ms": 32.85320000213687
+        },
+        {
+          "name": "load_cache",
+          "ms": 255.81339999916963
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03279999873484485
+        },
+        {
+          "name": "relayout",
+          "ms": 0.21529999867198057
+        },
+        {
+          "name": "place",
+          "ms": 0.21669999841833487
+        }
+      ],
+      "events_ms": {
+        "python_entry": 715.599,
+        "import_start": 738.99,
+        "import_end": 934.8115,
+        "constructor_start": 944.3166,
+        "constructor_end": 1415.2282,
+        "ready": 1418.0388,
+        "request": 0.0,
+        "ps_entry": 353.5908,
+        "setup_start": 372.4772,
+        "unblock_start": 447.0964,
+        "unblock_end": 462.4666,
+        "validation_start": 505.1122,
+        "validation_end": 590.2962,
+        "python_ready": 593.9905,
+        "spawn_start": 597.9823,
+        "spawn_end": 703.3039,
+        "watch_end": 1911.7999,
+        "exe_entry": 33.106
+      }
+    },
+    {
+      "route": "vbs",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1351.2284999997064,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 59.293099999194965
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.2989000024390407
+        },
+        {
+          "name": "build",
+          "ms": 62.106699999276316
+        },
+        {
+          "name": "apply_mode",
+          "ms": 44.73829999915324
+        },
+        {
+          "name": "apply_mode",
+          "ms": 38.688500000716886
+        },
+        {
+          "name": "relayout",
+          "ms": 39.30140000011306
+        },
+        {
+          "name": "apply_mode",
+          "ms": 30.954000001656823
+        },
+        {
+          "name": "relayout",
+          "ms": 31.25250000084634
+        },
+        {
+          "name": "apply_mode",
+          "ms": 30.235499998525484
+        },
+        {
+          "name": "relayout",
+          "ms": 30.65470000001369
+        },
+        {
+          "name": "load_cache",
+          "ms": 225.53370000241557
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.045500000851461664
+        },
+        {
+          "name": "relayout",
+          "ms": 0.2722999997786246
+        },
+        {
+          "name": "place",
+          "ms": 0.2741999996942468
+        }
+      ],
+      "events_ms": {
+        "python_entry": 724.4907,
+        "import_start": 744.2543,
+        "import_end": 928.0589,
+        "constructor_start": 937.8638,
+        "constructor_end": 1347.9002,
+        "ready": 1351.2285,
+        "request": 0.0,
+        "ps_entry": 409.0364,
+        "setup_start": 426.4058,
+        "unblock_start": 488.9412,
+        "unblock_end": 502.5409,
+        "validation_start": 543.0573,
+        "validation_end": 621.7529,
+        "python_ready": 625.4425,
+        "spawn_start": 629.3713,
+        "spawn_end": 713.4154,
+        "watch_end": 1918.7515
+      }
+    },
+    {
+      "route": "powershell",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 1318.879200000083,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 58.32879999798024
+        },
+        {
+          "name": "_load_icons",
+          "ms": 1.0843999989447184
+        },
+        {
+          "name": "build",
+          "ms": 64.23390000054496
+        },
+        {
+          "name": "apply_mode",
+          "ms": 23.940399998537032
+        },
+        {
+          "name": "apply_mode",
+          "ms": 44.0256000001682
+        },
+        {
+          "name": "relayout",
+          "ms": 44.676900000922615
+        },
+        {
+          "name": "apply_mode",
+          "ms": 29.464800001733238
+        },
+        {
+          "name": "relayout",
+          "ms": 29.67029999854276
+        },
+        {
+          "name": "apply_mode",
+          "ms": 25.74809999714489
+        },
+        {
+          "name": "relayout",
+          "ms": 25.99010000267299
+        },
+        {
+          "name": "load_cache",
+          "ms": 216.26829999877373
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.03479999941191636
+        },
+        {
+          "name": "relayout",
+          "ms": 0.2164999968954362
+        },
+        {
+          "name": "place",
+          "ms": 0.21810000180266798
+        }
+      ],
+      "events_ms": {
+        "python_entry": 677.1908,
+        "import_start": 701.1945,
+        "import_end": 923.2529,
+        "constructor_start": 934.7331,
+        "constructor_end": 1314.8565,
+        "ready": 1318.8792,
+        "request": 0.0,
+        "ps_entry": 356.5164,
+        "setup_start": 376.5493,
+        "unblock_start": 447.4773,
+        "unblock_end": 461.3796,
+        "validation_start": 503.546,
+        "validation_end": 580.7465,
+        "python_ready": 584.2963,
+        "spawn_start": 587.47,
+        "spawn_end": 664.7752,
+        "watch_end": 1882.1817
+      }
+    },
+    {
+      "route": "python",
+      "cached": true,
+      "cached_keys": [
+        "chatgpt",
+        "claude",
+        "cursor"
+      ],
+      "total_ms": 621.9243999985338,
+      "spans": [
+        {
+          "name": "Tk.__init__",
+          "ms": 57.507799996528774
+        },
+        {
+          "name": "_load_icons",
+          "ms": 0.9360000003653113
+        },
+        {
+          "name": "build",
+          "ms": 60.37970000033965
+        },
+        {
+          "name": "apply_mode",
+          "ms": 24.220800001785392
+        },
+        {
+          "name": "apply_mode",
+          "ms": 31.555300000036368
+        },
+        {
+          "name": "relayout",
+          "ms": 32.255099999019876
+        },
+        {
+          "name": "apply_mode",
+          "ms": 27.36649999860674
+        },
+        {
+          "name": "relayout",
+          "ms": 27.570800000830786
+        },
+        {
+          "name": "apply_mode",
+          "ms": 26.093299999047304
+        },
+        {
+          "name": "relayout",
+          "ms": 26.27829999983078
+        },
+        {
+          "name": "load_cache",
+          "ms": 205.82070000091335
+        },
+        {
+          "name": "apply_mode",
+          "ms": 0.034199998481199145
+        },
+        {
+          "name": "relayout",
+          "ms": 0.2114000017172657
+        },
+        {
+          "name": "place",
+          "ms": 0.21299999934853986
+        }
+      ],
+      "events_ms": {
+        "python_entry": 17.5484,
+        "import_start": 39.1771,
+        "import_end": 237.3798,
+        "constructor_start": 248.6553,
+        "constructor_end": 616.787,
+        "ready": 621.9244,
+        "request": 0.0
+      }
+    }
+  ]
+}
