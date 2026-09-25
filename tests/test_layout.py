@@ -110,6 +110,11 @@ class LayoutTests(unittest.TestCase):
                        for item in card.rows.find_all() if card.rows.type(item) == 'text'],
                       app.mini_values[key].cget('text')) for key, card in app.cards.items()])
 
+        # Countdowns read the wall clock; a minute turning between the two
+        # windows would change their text, so both see the same instant.
+        clock = patch.object(u.time, 'time', return_value=u.time.time())
+        clock.start()
+        self.addCleanup(clock.stop)
         for scale, compact, collapsed in ((.75, False, {}),
                                           (1, False, {'cursor': True}),
                                           (1.5, True, {'chatgpt': True})):
