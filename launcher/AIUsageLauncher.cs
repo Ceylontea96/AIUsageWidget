@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
@@ -15,7 +16,7 @@ internal static class Program
     const string ShortcutPs1 = "create_shortcut.ps1";
 
     [STAThread]
-    static int Main()
+    static int Main(string[] args)
     {
         try
         {
@@ -27,13 +28,14 @@ internal static class Program
             Directory.CreateDirectory(appDir);
             string installFile = Path.Combine(appDir, "install.json");
             string root;
+            bool startup = args.Length == 1 && args[0] == "--startup";
             bool shortcutFailed = false;
             if (IsWidgetRoot(exeDir))
             {
                 root = Path.GetFullPath(exeDir);
                 bool asked = ReadShortcutAsked(installFile);
                 SaveInstall(installFile, root, asked);
-                if (!asked)
+                if (!asked && !startup)
                 {
                     DialogResult choice = MessageBox.Show(
                         "바탕화면에 바로가기를 만들까요?\n나중에 위젯에서 우클릭으로도 만들 수 있습니다.",
@@ -62,15 +64,7 @@ internal static class Program
             }
 
             AppendLog(appDir, "exe start " + exePath + " root " + root);
-            string setup = Path.Combine(root, SetupPs1);
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell\\v1.0\\powershell.exe"),
-                Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + setup + "\"",
-                WorkingDirectory = root,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            });
+            StartWidget(root, appDir);
             if (shortcutFailed)
                 MessageBox.Show(
                     "바탕화면 바로가기를 만들지 못했습니다.\n위젯에서 우클릭으로 다시 시도하세요.",
@@ -125,6 +119,92 @@ internal static class Program
             AppendLog(appDir, "shortcut failed: " + ex.Message);
             return false;
         }
+    }
+
+    static void StartWidget(string root, string appDir)
+    {
+        if (TryStartCached(root, appDir))
+            return;
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell\\v1.0\\powershell.exe"),
+            Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + Path.Combine(root, SetupPs1) + "\"",
+            WorkingDirectory = root,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        });
+    }
+
+    static string FileStamp(string path)
+    {
+        FileInfo file = new FileInfo(path);
+        return file.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" +
+            file.LastWriteTimeUtc.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    static bool TryStartCached(string root, string appDir)
+    {
+        string cache = Path.Combine(appDir, "runtime-v1.txt");
+        try
+        {
+            if (!File.Exists(cache))
+                return false;
+            // UTF-8 lines written by setup only after validation and startup.
+            // Windows paths cannot contain newlines, so no JSON escaping is needed.
+            string[] fields = File.ReadAllLines(cache, Encoding.UTF8);
+            if (fields.Length != 8 || fields[0] != "AIUsageRuntime1" ||
+                !string.Equals(fields[1], Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase) ||
+                !Path.IsPathRooted(fields[2]) || !Path.IsPathRooted(fields[3]) ||
+                !string.Equals(Path.GetFileName(fields[3]), "pythonw.exe", StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(Path.GetDirectoryName(fields[2]), Path.GetDirectoryName(fields[3]), StringComparison.OrdinalIgnoreCase) ||
+                fields[4] != FileStamp(fields[2]) || fields[5] != FileStamp(fields[3]) ||
+                fields[6] != FileStamp(Path.Combine(root, WidgetPy)) ||
+                fields[7] != FileStamp(Path.Combine(root, SetupPs1)))
+                return false;
+            ProcessStartInfo info = new ProcessStartInfo
+            {
+                FileName = fields[3],
+                Arguments = "-B \"" + Path.Combine(root, WidgetPy) + "\"",
+                WorkingDirectory = root,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            // Keep setup's PATH refresh: newly installed provider CLIs must
+            // remain visible even when Explorer still has an older environment.
+            List<string> paths = new List<string>();
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (EnvironmentVariableTarget target in new[] {
+                EnvironmentVariableTarget.User, EnvironmentVariableTarget.Machine, EnvironmentVariableTarget.Process })
+            {
+                foreach (string part in (Environment.GetEnvironmentVariable("PATH", target) ?? "").Split(';'))
+                    if (part.Length > 0 && seen.Add(part))
+                        paths.Add(part);
+            }
+            // Normalize inherited Path/PATH duplicates before spawning. Some
+            // hosts supply both; .NET's EnvironmentVariables dictionary rejects them.
+            foreach (System.Collections.DictionaryEntry variable in Environment.GetEnvironmentVariables())
+                if (string.Equals((string)variable.Key, "PATH", StringComparison.OrdinalIgnoreCase))
+                    Environment.SetEnvironmentVariable((string)variable.Key, null);
+            Environment.SetEnvironmentVariable("Path", string.Join(";", paths.ToArray()));
+            using (Process process = Process.Start(info))
+            {
+                if (process == null)
+                    return false;
+                AppendLog(appDir, "cached widget start " + fields[3] + " pid " + process.Id);
+                // This watches for a broken runtime without delaying the child UI.
+                // Exit 0 also covers activating an already running widget.
+                if (!process.WaitForExit(1200) || process.ExitCode == 0)
+                    return true;
+                AppendLog(appDir, "cached widget exited " + process.ExitCode + "; retry setup");
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog(appDir, "cached launch unavailable: " + ex.Message);
+        }
+        try { File.Delete(cache); }
+        catch (Exception) { }
+        return false;
     }
 
     static void CreateShortcut(string root)

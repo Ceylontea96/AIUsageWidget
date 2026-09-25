@@ -386,9 +386,15 @@ function Start-Widget([string]$PythonExe) {
     }
     Write-LaunchLog "widget start $pythonw pid $($p.Id)"
     Start-Sleep -Milliseconds 1200
-    if (-not $p.HasExited) { return }
+    if (-not $p.HasExited) {
+        Save-RuntimeCache $PythonExe $pythonw $p.Id
+        return
+    }
     Write-LaunchLog "widget exited $($p.ExitCode)"
-    if ($p.ExitCode -eq 0) { return }
+    if ($p.ExitCode -eq 0) {
+        Save-RuntimeCache $PythonExe $pythonw $p.Id
+        return
+    }
     $log = Join-Path $env:APPDATA 'AiUsageWidget\error.log'
     $extra = ''
     if (Test-Path -LiteralPath $log) {
@@ -399,6 +405,35 @@ function Start-Widget([string]$PythonExe) {
     }
     Show-LaunchError "위젯이 바로 종료되었습니다 (코드 $($p.ExitCode)).`nzip을 폴더로 푼 뒤 AI Usage.exe 를 실행하세요.$extra"
     exit 1
+}
+
+function Save-RuntimeCache([string]$PythonExe, [string]$Pythonw, [int]$StartedPid) {
+    try {
+        # pyw.exe is a version selector, not a stable interpreter to cache.
+        if ((Split-Path -Leaf $Pythonw) -ine 'pythonw.exe') { return }
+        $dir = Join-Path $env:APPDATA 'AiUsageWidget'
+        # A live process may still be showing an initialization error dialog.
+        # Cache only after this child registered its successfully created window.
+        $instance = Join-Path $dir 'widget.instance'
+        if (-not (Test-Path -LiteralPath $instance)) { return }
+        $identity = [IO.File]::ReadAllLines($instance)
+        $hwnd = [long]0
+        if ($StartedPid -le 0 -or $identity.Length -ne 2 -or
+                $identity[0] -ne [string]$StartedPid -or
+                -not [long]::TryParse($identity[1], [ref]$hwnd) -or $hwnd -eq 0) { return }
+        $lines = @('AIUsageRuntime1', [IO.Path]::GetFullPath($Here),
+                   [IO.Path]::GetFullPath($PythonExe), [IO.Path]::GetFullPath($Pythonw))
+        foreach ($path in @($PythonExe, $Pythonw, $Widget, (Join-Path $Here 'setup_and_run.ps1'))) {
+            $file = Get-Item -LiteralPath $path -ErrorAction Stop
+            $lines += $file.Length.ToString([Globalization.CultureInfo]::InvariantCulture) + ':' +
+                      $file.LastWriteTimeUtc.Ticks.ToString([Globalization.CultureInfo]::InvariantCulture)
+        }
+        $utf8 = New-Object System.Text.UTF8Encoding $false
+        [IO.File]::WriteAllLines((Join-Path $dir 'runtime-v1.txt'), [string[]]$lines, $utf8)
+    } catch {
+        # Caching is optional; an unwritable cache must not fail a running widget.
+        Write-LaunchLog "runtime cache unavailable: $_"
+    }
 }
 
 try {
