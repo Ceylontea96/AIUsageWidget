@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [3.11.0] - 2026-09-25
+
 ### Changed
 - 위젯이 더 빨리 뜹니다. 설치 스크립트가 위젯을 한 번 정상으로 띄우면 그 Python을 기억해 두고, 다음부터 `AI Usage.exe`와 Windows 로그온 자동 실행이 PowerShell을 거치지 않고 바로 위젯을 시작합니다. 측정에서 첫 화면까지 걸리는 시간이 exe는 약 1.46초에서 0.84초로, 로그온 실행은 약 1.56초에서 0.99초로 줄었습니다.
 - Python을 지우거나 업데이트했을 때, 위젯 파일이 바뀌었을 때, 설치 폴더를 옮겼을 때는 기억한 내용을 버리고 전처럼 Python을 찾아 실행합니다. 바로 시작한 위젯이 곧바로 비정상 종료해도 한 번 전처럼 다시 실행합니다.
@@ -497,7 +499,8 @@
 - 로그인·설정은 `%APPDATA%\AiUsageWidget`에만 저장됨
 - ChatGPT Plus 계정은 API에 주간 창이 없으면 주간 값이 `—`로 보일 수 있음
 
-[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.10.3...HEAD
+[Unreleased]: https://github.com/Ceylontea96/AIUsageWidget/compare/v3.11.0...HEAD
+[3.11.0]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.11.0
 [3.10.3]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.10.3
 [3.10.2]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.10.2
 [3.10.1]: https://github.com/Ceylontea96/AIUsageWidget/releases/tag/v3.10.1
