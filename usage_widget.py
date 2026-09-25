@@ -367,7 +367,11 @@ def create_desktop_shortcut(root=None, desktop=None):
     )
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or '').strip()
-        raise RuntimeError(detail or '바탕화면 바로가기를 만들지 못했습니다.')
+        try:
+            log_launch('shortcut failed: ' + detail)
+        except OSError:
+            pass
+        raise RuntimeError('바탕화면 바로가기를 만들지 못했습니다. 바탕화면 폴더의 위치와 쓰기 권한을 확인하세요.')
     save_install_root(root, shortcut_asked=True)
     return desktop / SHORTCUT_NAME
 
@@ -3393,17 +3397,7 @@ class UsageWidget:
                 messagebox.showinfo('서비스·로그인 관리', '하나 이상 선택하세요.', parent=dialog)
                 return
             for key in FETCHERS:
-                was = self.enabled[key].get()
-                now = chosen[key].get()
-                self.enabled[key].set(now)
-                if now and not was:
-                    self.due[key] = 0
-                    self.failures[key] = 0
-                if not now:
-                    self.runner.cancel(key)
-                    # A service that is off keeps no reader process running.
-                    self.runner.reset(key)
-                    self.due[key] = 0
+                self.set_provider_enabled(key, chosen[key].get())
             self.persist()
             self.apply_mode()
             alive['on'] = False
@@ -3851,17 +3845,22 @@ class UsageWidget:
         started = self.request_started.get(key, float('-inf'))
         self.due[key] = min(self.due[key], next_fast_due(started, now, policy_for(key).active_interval))
 
-    def toggle_provider(self, key):
-        self.runner.cancel(key)
+    def set_provider_enabled(self, key, enabled):
+        was = self.enabled[key].get()
+        self.enabled[key].set(enabled)
+        if enabled and was:
+            return
+        if not enabled:
+            self.runner.cancel(key)
+            # Stop persistent readers as well as any request in flight.
+            self.runner.reset(key)
         self.due[key] = 0
         self.failures[key] = 0
         if key == 'claude':
             self.claude_cli_due = 0.0
-        if self.enabled[key].get() and key in self.snapshots:
+        if enabled and key in self.snapshots:
             self.snapshots[key] = replace(self.snapshots[key], stale=True)
             self.render(key)
-        self.apply_mode()
-        self.persist()
 
     def retry_provider(self, key):
         if key not in FETCHERS or not self.enabled[key].get() or self.closing:

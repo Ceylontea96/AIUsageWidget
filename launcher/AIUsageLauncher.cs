@@ -27,6 +27,7 @@ internal static class Program
             Directory.CreateDirectory(appDir);
             string installFile = Path.Combine(appDir, "install.json");
             string root;
+            bool shortcutFailed = false;
             if (IsWidgetRoot(exeDir))
             {
                 root = Path.GetFullPath(exeDir);
@@ -41,7 +42,7 @@ internal static class Program
                         MessageBoxIcon.Question);
                     SaveInstall(installFile, root, true);
                     if (choice == DialogResult.Yes)
-                        CreateShortcut(root);
+                        shortcutFailed = !TryCreateShortcut(root, appDir);
                 }
             }
             else
@@ -70,6 +71,10 @@ internal static class Program
                 UseShellExecute = false,
                 CreateNoWindow = true
             });
+            if (shortcutFailed)
+                MessageBox.Show(
+                    "바탕화면 바로가기를 만들지 못했습니다.\n위젯에서 우클릭으로 다시 시도하세요.",
+                    AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return 0;
         }
         catch (Exception ex)
@@ -108,6 +113,20 @@ internal static class Program
         File.WriteAllText(path, json, new UTF8Encoding(false));
     }
 
+    static bool TryCreateShortcut(string root, string appDir)
+    {
+        try
+        {
+            CreateShortcut(root);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppendLog(appDir, "shortcut failed: " + ex.Message);
+            return false;
+        }
+    }
+
     static void CreateShortcut(string root)
     {
         string script = Path.Combine(root, ShortcutPs1);
@@ -125,7 +144,12 @@ internal static class Program
         {
             if (process == null)
                 throw new InvalidOperationException("바로가기를 만들지 못했습니다.");
-            process.WaitForExit(15000);
+            if (!process.WaitForExit(15000))
+            {
+                try { process.Kill(); }
+                catch (InvalidOperationException) { }
+                throw new TimeoutException("바로가기 생성 시간이 초과되었습니다.");
+            }
             if (process.ExitCode != 0)
                 throw new InvalidOperationException("바로가기를 만들지 못했습니다.");
         }

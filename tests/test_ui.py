@@ -64,11 +64,81 @@ class UiTests(unittest.TestCase):
 
     def test_provider_disable_prevents_poll(self):
         w=self.prepare()
-        w.enabled['cursor'].set(False);w.toggle_provider('cursor')
+        self.choose_services({'cursor': False})
+        w.runner.cancel.assert_any_call('cursor')
+        w.runner.reset.assert_any_call('cursor')
         with patch.object(u,'session_locked',return_value=False):w.tick()
         self.assertEqual(w.runner.start.call_count,1)
         self.assertEqual(w.runner.start.call_args.args[0],'chatgpt')
         self.assertEqual(w.cards['cursor'].winfo_manager(),'')
+
+    def choose_services(self, choices, confirm=True):
+        def visit(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from visit(child)
+
+        def interact(dialog):
+            controls = list(visit(dialog))
+            for key, enabled in choices.items():
+                check = next(child for child in controls if isinstance(child, u.tk.Checkbutton)
+                             and child.cget('text') == u.TITLES[key])
+                current = bool(dialog.getvar(check.cget('variable')))
+                if current != enabled:
+                    check.invoke()
+            button = next(child for child in controls if isinstance(child, u.tk.Button)
+                          and child.cget('text') == ('확인' if confirm else '취소'))
+            button.invoke()
+            self.assertFalse(dialog.winfo_exists())
+
+        with patch.object(u.tk.Toplevel, 'wait_window', autospec=True, side_effect=interact), \
+             patch.object(u, 'login_status', return_value='로그인됨'), \
+             patch.object(u, 'prepare_action', return_value=('준비', 'prepare')), \
+             patch.object(u, 'login_present', return_value=True), \
+             patch.object(u, 'should_setup', return_value=False):
+            self.w.pick_services()
+
+    def test_service_confirm_reenables_with_stale_cache_and_immediate_refresh(self):
+        w = self.prepare()
+        w.enabled['claude'].set(False)
+        w.snapshots['claude'] = ProviderSnapshot('claude', 'Claude', 'Pro', True, 80, '')
+        w.due['claude'] = w.claude_cli_due = 999999
+        w.failures['claude'] = 5
+        w.due['chatgpt'] = 1234
+        with patch.object(w, 'render', wraps=w.render) as render:
+            self.choose_services({'claude': True})
+        self.assertTrue(w.enabled['claude'].get())
+        self.assertTrue(w.snapshots['claude'].stale)
+        self.assertEqual(w.due['claude'], 0)
+        self.assertEqual(w.claude_cli_due, 0)
+        self.assertEqual(w.failures['claude'], 0)
+        self.assertEqual(w.due['chatgpt'], 1234)
+        render.assert_called_once_with('claude')
+        self.assertTrue(u.read_json(u.SETTINGS_PATH)['enabled']['claude'])
+        w.runner.reset.assert_not_called()
+
+    def test_service_cancel_does_not_change_enabled_or_stop_readers(self):
+        w = self.prepare()
+        before = {key: value.get() for key, value in w.enabled.items()}
+        with patch.object(w, 'persist') as persist:
+            self.choose_services({'cursor': False, 'claude': True}, confirm=False)
+        self.assertEqual({key: value.get() for key, value in w.enabled.items()}, before)
+        w.runner.cancel.assert_not_called()
+        w.runner.reset.assert_not_called()
+        persist.assert_not_called()
+
+    def test_service_confirm_stops_an_idle_persistent_worker(self):
+        w = self.w
+        worker = Path(self.directory.name) / 'worker.py'
+        worker.write_text("import sys\nfor line in sys.stdin:\n    print('{}', flush=True)\n")
+        w.runner.close()
+        job = u.WorkerJob('cursor', worker=worker, timeout=5)
+        w.runner = u.PollRunner(inprocess={'cursor': job})
+        job.run()
+        self.assertTrue(job.running)
+        self.assertFalse(w.runner.slots)
+        self.choose_services({'cursor': False})
+        self.assertFalse(job.running)
 
     def test_disabled_provider_cache_stays_disabled(self):
         w=self.w

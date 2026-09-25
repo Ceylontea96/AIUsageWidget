@@ -250,7 +250,7 @@ function Get-PyLauncherPython {
         if (-not $exe) { $exe = $cmd.FullName }
         if (-not $exe) { continue }
         $text = Invoke-PythonText -Exe $exe -Arguments @('-3', '-B', '-c', 'import sys,tkinter; print(sys.executable)')
-        if ($text -and (Test-Path -LiteralPath $text)) { return $text }
+        if ($text -and (Test-Path -LiteralPath $text) -and (Test-ReadyPython $text)) { return $text }
     }
     return $null
 }
