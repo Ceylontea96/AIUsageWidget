@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -358,7 +359,6 @@ def uninstall_statusline() -> str:
 
 
 def _cleanup_files() -> None:
-    import re
     folder = claude_dir()
     owned = [wrapper_script_path(), integration_path(), folder / "session.salt", folder / "bridge.log"]
     owned.extend(path for path in folder.glob(".*.tmp")
@@ -383,12 +383,56 @@ def _cleanup_files() -> None:
             pass
 
 
+def _command_python(command: Any) -> Path | None:
+    """The interpreter a wrapper command starts: its first, quoted token."""
+    if not isinstance(command, str):
+        return None
+    match = re.match(r'\s*"([^"]+)"', command)
+    return Path(match.group(1)) if match else None
+
+
+def repair_statusline_command() -> bool:
+    """Move our statusLine to this Python once the one it names is gone.
+
+    A Python upgrade removes the old interpreter, and Claude Code would then
+    run a command that no longer exists on every status line. Only a
+    statusLine that is still exactly what the widget wrote is touched.
+    """
+    meta = load_integration()
+    if not meta.get("installed"):
+        return False
+    python = _command_python(meta.get("command"))
+    if python is None or python.is_file():
+        return False
+    if conflict_state() != "installed":
+        return False
+    wanted = installed_statusline_object()
+    if wanted["command"] == meta.get("command") or not _python_executable().is_file():
+        return False
+    settings = read_user_settings()
+    settings["statusLine"] = wanted
+    repaired = dict(meta, command=wanted["command"], fingerprint=statusline_fingerprint(wanted))
+    # Same order as installing: the record first, then settings, and the old
+    # record back if settings cannot be written, so neither side disagrees.
+    atomic_write_json(integration_path(), repaired)
+    try:
+        _write_user_settings(settings)
+    except OSError:
+        atomic_write_json(integration_path(), meta)
+        raise
+    return True
+
+
 def ensure_bridge_copy() -> None:
     if not is_installed():
         return
     try:
         _copy_bridge_script()
     except OSError:
+        pass
+    try:
+        repair_statusline_command()
+    except (OSError, RuntimeError):
         pass
 
 

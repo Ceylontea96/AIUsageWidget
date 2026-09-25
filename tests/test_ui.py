@@ -361,6 +361,42 @@ class UiTests(unittest.TestCase):
         self.assertEqual(scheduled,[(u.ACTIVITY_TICK_MS, w._activity_tick)])
         self.assertEqual(u.ACTIVITY_TICK_MS,250)
 
+    def test_tick_is_rescheduled_after_an_error(self):
+        w=self.w
+        scheduled=[]
+        with patch.object(w,'_tick_once',side_effect=RuntimeError('bad snapshot')), \
+             patch.object(w.root,'after',side_effect=lambda ms, fn: scheduled.append((ms, fn)) or 'id'):
+            with self.assertRaises(RuntimeError):
+                w.tick()
+        self.assertEqual(scheduled,[(1000, w.tick)])
+
+    def test_activity_beat_survives_an_error(self):
+        w=self.w
+        w.preview=False
+        scheduled=[]
+        with patch.object(w,'_poll_activity',side_effect=OSError('gone')), \
+             patch.object(w.root,'after',side_effect=lambda ms, fn: scheduled.append((ms, fn)) or 'id'):
+            with self.assertRaises(OSError):
+                w._activity_tick()
+        w.preview=True
+        self.assertEqual(scheduled,[(u.ACTIVITY_TICK_MS, w._activity_tick)])
+
+    def test_update_that_cannot_start_keeps_the_widget_running(self):
+        w=self.w
+        w._update_busy=True
+        with patch.object(u,'start_apply',side_effect=OSError('no helper')), patch.object(w,'notify') as notify:
+            w._finish_update(Path('staged'))
+        self.assertFalse(w.closing)
+        self.assertFalse(w._update_busy)
+        self.assertIn('적용하지 못했습니다', notify.call_args.args[2])
+
+    def test_installing_an_update_ends_the_clock_without_errors(self):
+        w=self.w
+        w.update_queue.put(('downloaded', Path('staged')))
+        with patch.object(u,'start_apply',return_value=True):
+            w.tick()
+        self.assertTrue(w.closing)
+
     def test_claude_activity_reaches_its_card_and_chip(self):
         w=self.w
         w.enabled['claude'].set(True)

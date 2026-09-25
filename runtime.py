@@ -9,7 +9,6 @@ import shutil
 import subprocess
 import sys
 import threading
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -232,12 +231,131 @@ class CodexJob:
         self.server.close()
 
 
+def worker_python():
+    exe = Path(sys.executable)
+    if exe.name.lower() == 'pythonw.exe':
+        exe = exe.with_name('python.exe')
+    return exe
+
+
+class WorkerJob:
+    """One provider read through a poll_worker that stays up between polls.
+
+    The provider's login is loaded and kept inside that worker process, never
+    in the widget. A fast poll every two seconds then costs one request, not
+    a new Python process, a database open and a TLS handshake each time. A
+    cancelled, stuck or dead worker is replaced on the next read.
+    """
+
+    LINE_LIMIT = 1024 * 1024
+
+    def __init__(self, key, worker=None, timeout=20.0, popen=subprocess.Popen):
+        self.key = key
+        self.worker = Path(worker or Path(__file__).with_name('poll_worker.py'))
+        self.timeout = timeout
+        self._popen = popen
+        self._lock = threading.Lock()
+        self._state = threading.Lock()
+        self._process = None
+        self._lines = None
+        self.starts = 0
+
+    def run(self):
+        with self._lock:
+            process, lines = self._ensure_started()
+            try:
+                process.stdin.write((self.key + '\n').encode('ascii'))
+                process.stdin.flush()
+            except (OSError, ValueError):
+                self._stop(process)
+                return None
+            try:
+                line = lines.get(timeout=self.timeout)
+            except queue.Empty:
+                line = None
+            if line is None:
+                # Ended, killed by a cancel, or silent too long: start afresh.
+                self._stop(process)
+                return None
+        payload = json.loads(line.decode('utf-8'))
+        return payload if isinstance(payload, dict) and payload else None
+
+    def interrupt(self):
+        self._stop()
+
+    def reset(self):
+        self._stop()
+
+    def close(self):
+        self._stop(graceful=True)
+
+    @property
+    def running(self):
+        process = self._process
+        return process is not None and process.poll() is None
+
+    def _ensure_started(self):
+        with self._state:
+            process, lines = self._process, self._lines
+        if process is not None and process.poll() is None:
+            return process, lines
+        self._stop(process)
+        process = self._popen(
+            [str(worker_python()), '-B', str(self.worker), '--serve'],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+        )
+        lines = queue.Queue()
+        with self._state:
+            self._process, self._lines = process, lines
+        self.starts += 1
+        threading.Thread(target=self._read, args=(process, lines), daemon=True,
+                         name='quota-worker-' + self.key).start()
+        return process, lines
+
+    def _read(self, process, lines):
+        try:
+            for raw in iter(lambda: process.stdout.readline(self.LINE_LIMIT + 1), b''):
+                if len(raw) > self.LINE_LIMIT:
+                    break
+                lines.put(raw)
+        except (OSError, ValueError):
+            pass
+        finally:
+            lines.put(None)
+
+    def _stop(self, process=None, graceful=False):
+        with self._state:
+            if process is None or process is self._process:
+                process, self._process, self._lines = self._process, None, None
+        if process is None:
+            return
+        if graceful and process.poll() is None:
+            try:
+                process.stdin.close()   # the worker exits at end of input
+                process.wait(timeout=2)
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                pass
+        if process.poll() is None:
+            try:
+                process.kill()
+                process.wait(timeout=2)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        for stream in (process.stdin, process.stdout):
+            try:
+                if stream is not None:
+                    stream.close()
+            except (OSError, ValueError):
+                pass
+
+
 class PollRunner:
     """At most one job per provider. UI deadlines reject late results.
 
-    Most providers run in a short-lived worker process. A provider listed in
-    `inprocess` runs on a thread here instead, with the same slot, deadline
-    and result rules.
+    Providers run in a short-lived worker process by default. A provider
+    listed in `inprocess` runs on a thread here instead (Codex's app-server,
+    or a long-lived worker), with the same slot, deadline and result rules.
     """
     def __init__(self, timeout=15, worker=None, inprocess=None):
         self.timeout = timeout
@@ -246,7 +364,6 @@ class PollRunner:
         self.slots = {}
         self.results = queue.Queue()
         self.generation = 0
-        self.plan_cache = None
 
     def start(self, key, now):
         if key in self.slots:
@@ -254,14 +371,7 @@ class PollRunner:
         job = self.inprocess.get(key)
         if job is not None:
             return self._start_inprocess(key, job, now)
-        if self.plan_cache and now >= self.plan_cache[1]:
-            self.plan_cache = None
-        exe = Path(sys.executable)
-        if exe.name.lower() == 'pythonw.exe':
-            exe = exe.with_name('python.exe')
-        args = [str(exe), '-B', str(self.worker), key]
-        if key == 'cursor' and self.plan_cache:
-            args.append(self.plan_cache[0])
+        args = [str(worker_python()), '-B', str(self.worker), key]
         process = subprocess.Popen(
             args,
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -329,7 +439,7 @@ class PollRunner:
         for key, slot in self.slots.items():
             if not slot.expired and now - slot.started >= self.timeout:
                 self.cancel(key)
-                events.append((key, None, '조회 시간이 15초를 초과했습니다. 자동 재시도합니다.'))
+                events.append((key, None, f'조회 시간이 {self.timeout:g}초를 초과했습니다. 자동 재시도합니다.'))
         while True:
             try:
                 key, generation, payload = self.results.get_nowait()
@@ -350,8 +460,6 @@ class PollRunner:
                     raise ValueError('invalid worker response')
                 snap = snapshot_from_dict(payload)
                 snap.stale = False
-                if key == 'cursor' and snap.ok and not self.plan_cache:
-                    self.plan_cache = (snap.plan, now + 1800)
                 events.append((key, snap, ''))
             except (ValueError, TypeError, AttributeError):
                 events.append((key, None, '조회에 실패했습니다. 자동 재시도합니다.'))

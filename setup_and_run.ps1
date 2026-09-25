@@ -55,23 +55,45 @@ function Test-NeedsResolve([string]$Path) {
 }
 
 function Invoke-PythonText {
+    # Not $Args: that name is PowerShell's automatic variable, and splatting a
+    # parameter called $Args silently passes nothing, which started a bare
+    # Python prompt instead of the check.
     param(
         [string]$Exe,
-        [string[]]$Args,
+        [string[]]$Arguments,
         [int]$TimeoutMs = 8000
     )
+    $p = $null
     try {
-        $prev = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
-        $out = & $Exe @Args 2>&1 | Out-String
-        $code = $LASTEXITCODE
-        $ErrorActionPreference = $prev
-        if ($null -ne $code -and $code -ne 0) { return $null }
-        $line = (($out -split "`r?`n") | Where-Object { $_.Trim() } | Select-Object -Last 1)
+        $info = New-Object System.Diagnostics.ProcessStartInfo
+        $info.FileName = $Exe
+        # Quote only what needs it: py.exe reads its own command line and does
+        # not treat a quoted "-3" as its version switch.
+        $info.Arguments = (@($Arguments | ForEach-Object {
+            if ($_ -eq '' -or $_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
+        }) -join ' ')
+        $info.UseShellExecute = $false
+        $info.CreateNoWindow = $true
+        $info.RedirectStandardInput = $true
+        $info.RedirectStandardOutput = $true
+        $info.RedirectStandardError = $true
+        $p = [System.Diagnostics.Process]::Start($info)
+        # Closed input: nothing started here can sit waiting for a keyboard.
+        $p.StandardInput.Close()
+        $stdout = $p.StandardOutput.ReadToEndAsync()
+        $null = $p.StandardError.ReadToEndAsync()
+        if (-not $p.WaitForExit($TimeoutMs)) {
+            try { $p.Kill() } catch {}
+            return $null
+        }
+        if ($p.ExitCode -ne 0) { return $null }
+        $line = (($stdout.Result -split "`r?`n") | Where-Object { $_.Trim() } | Select-Object -Last 1)
         if (-not $line) { return $null }
         return $line.Trim()
     } catch {
         return $null
+    } finally {
+        if ($p) { $p.Dispose() }
     }
 }
 
@@ -85,7 +107,7 @@ function Get-PythonArgs([string]$Exe, [string]$Code) {
 function Resolve-PythonExe([string]$Path) {
     if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return $null }
     if (-not (Test-NeedsResolve $Path)) { return $Path }
-    $text = Invoke-PythonText -Exe $Path -Args (Get-PythonArgs $Path 'import sys; print(sys.executable)')
+    $text = Invoke-PythonText -Exe $Path -Arguments (Get-PythonArgs $Path 'import sys; print(sys.executable)')
     if ($text -and (Test-Path -LiteralPath $text)) { return $text }
     return $null
 }
@@ -172,7 +194,7 @@ function Get-RawPythonHits {
 
 function Test-ReadyPython([string]$PythonExe) {
     $code = "import sys,tkinter; sys.exit(3) if sys.version_info<($($MinPython.Major),$($MinPython.Minor)) else print(sys.executable)"
-    $text = Invoke-PythonText -Exe $PythonExe -Args (Get-PythonArgs $PythonExe $code)
+    $text = Invoke-PythonText -Exe $PythonExe -Arguments (Get-PythonArgs $PythonExe $code)
     return ($null -ne $text -and $text -ne '')
 }
 
@@ -189,12 +211,20 @@ function Get-InstalledPython {
             $dirs.Add($_.FullName) | Out-Null
         }
     }
+    $tried = @{}
     foreach ($dir in $dirs) {
         $exe = Join-Path $dir 'python.exe'
         $win = Join-Path $dir 'pythonw.exe'
+        if ($tried.ContainsKey($exe.ToLowerInvariant())) { continue }
+        $tried[$exe.ToLowerInvariant()] = $true
         if ((Test-Path -LiteralPath $exe) -and (Test-Path -LiteralPath $win)) {
-            Write-LaunchLog "found $exe"
-            return $exe
+            # A folder name is not a version: an old Python or one installed
+            # without tcl/tk would start the widget only to exit at once.
+            if (Test-ReadyPython $exe) {
+                Write-LaunchLog "found $exe"
+                return $exe
+            }
+            Write-LaunchLog "skipped $exe (older than $MinPython or no tkinter)"
         }
     }
     return $null
@@ -219,7 +249,7 @@ function Get-PyLauncherPython {
         $exe = $cmd.Source
         if (-not $exe) { $exe = $cmd.FullName }
         if (-not $exe) { continue }
-        $text = Invoke-PythonText -Exe $exe -Args @('-3', '-B', '-c', 'import sys,tkinter; print(sys.executable)')
+        $text = Invoke-PythonText -Exe $exe -Arguments @('-3', '-B', '-c', 'import sys,tkinter; print(sys.executable)')
         if ($text -and (Test-Path -LiteralPath $text)) { return $text }
     }
     return $null
@@ -273,6 +303,13 @@ function Install-FromPythonOrg {
     $tmp = Join-Path $env:TEMP "python-$ver-$arch.exe"
     Write-Host "Python $ver 설치 파일을 받는 중..."
     Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing
+    # Run only what the Python Software Foundation signed.
+    $signature = Get-AuthenticodeSignature -LiteralPath $tmp
+    if ($signature.Status -ne 'Valid' -or -not $signature.SignerCertificate -or
+            $signature.SignerCertificate.Subject -notmatch '(^|, )O=Python Software Foundation(,|$)') {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        throw "Python 설치 파일의 서명을 확인하지 못해 실행하지 않았습니다. ($($signature.Status))"
+    }
     Write-Host 'Python 설치 중... (1~2분)'
     $installArgs = '/quiet InstallAllUsers=0 PrependPath=0 Include_tcltk=1 Include_pip=1 Include_test=0 Include_doc=0 Include_launcher=1 SimpleInstall=1'
     $p = Start-Process -FilePath $tmp -ArgumentList $installArgs -Wait -PassThru

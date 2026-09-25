@@ -52,7 +52,7 @@ class WidgetTests(unittest.TestCase):
         self.assertEqual(s.hero_percent,90)
         self.assertTrue(s.blocked)
         self.assertEqual(s.hero_caption,'주간 소진')
-        self.assertEqual(u.color_for(s),u.RED)
+        self.assertEqual(u.color_for(s),u.DANGER)
 
     def test_short_exhaustion(self):
         self.assertEqual(codex(100,20).hero_caption,'5시간 소진')
@@ -61,7 +61,7 @@ class WidgetTests(unittest.TestCase):
         s=codex(10,20,True)
         self.assertTrue(s.blocked)
         self.assertIn('상세 확인',s.hero_caption)
-        self.assertEqual(u.color_for(s),u.RED)
+        self.assertEqual(u.color_for(s),u.DANGER)
 
     def test_five_hour_window_is_preferred_for_hero(self):
         self.assertEqual(codex(10,80).hero_percent,90)
@@ -219,6 +219,8 @@ class WidgetTests(unittest.TestCase):
     def test_failed_provider_keeps_last_good(self):
         w=u.UsageWidget.__new__(u.UsageWidget)
         w.failures={'chatgpt':0};w.snapshots={'chatgpt':codex()};w.due={};w.preview=True;w.render=lambda k:None
+        w.usage_until={};w.request_started={};w.cards={};w.mini_values={}
+        w.codex_activity=u.CodexActivityMonitor()
         w.accept('chatgpt',p.error_snapshot('chatgpt','Codex','offline',''))
         self.assertTrue(w.snapshots['chatgpt'].stale)
         self.assertEqual(w.failures['chatgpt'],1)
@@ -294,6 +296,68 @@ class WidgetTests(unittest.TestCase):
                 self.assertTrue(u.clear_stale_lock())
                 self.assertFalse((root / 'widget.lock').exists())
                 self.assertFalse((root / 'widget.instance').exists())
+
+    def test_launch_log_keeps_one_previous_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'launch.log').write_text('x' * (u.LOG_LIMIT + 1), encoding='utf-8')
+            with patch.object(u, 'APP_DIR', root):
+                u.log_launch('fresh')
+            self.assertEqual((root / 'launch.log.1').stat().st_size, u.LOG_LIMIT + 1)
+            self.assertIn('fresh', (root / 'launch.log').read_text(encoding='utf-8'))
+            self.assertLess((root / 'launch.log').stat().st_size, 100)
+
+    def test_callback_errors_are_written_once_a_minute_with_a_repeat_count(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'runtime-error.log'
+            now = [0.0]
+            errors = u.CallbackErrors(path, clock=lambda: now[0])
+
+            def fail():
+                try:
+                    raise ValueError('bad value')
+                except ValueError as exc:
+                    return errors.report(type(exc), exc, exc.__traceback__)
+
+            self.assertTrue(fail())
+            self.assertFalse(fail())
+            self.assertFalse(fail())
+            now[0] = u.CALLBACK_ERROR_REPEAT + 1
+            self.assertTrue(fail())
+            text = path.read_text(encoding='utf-8')
+            self.assertEqual(text.count('ValueError: bad value'), 2)
+            self.assertIn('(+2 repeats)', text)
+
+    def test_startup_entry_starts_the_launcher_not_a_fixed_python(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'widget'
+            root.mkdir()
+            (root / 'start_usage_widget.vbs').write_text("' launcher", encoding='utf-8')
+            entry = Path(directory) / 'Startup' / 'AIUsageWidget.vbs'
+            with patch.object(u, 'startup_path', return_value=entry):
+                u.set_startup(True, root)
+                text = entry.read_text(encoding='utf-16')
+                self.assertIn(f'wscript.exe ""{root.resolve()}\\start_usage_widget.vbs""', text)
+                self.assertNotIn('pythonw', text)
+                self.assertNotIn('\r\r', entry.read_bytes().decode('utf-16'))
+                self.assertFalse(u.sync_startup(root))
+                u.set_startup(False)
+                self.assertFalse(entry.exists())
+
+    def test_old_startup_entry_is_moved_to_the_launcher(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'widget'
+            root.mkdir()
+            (root / 'start_usage_widget.vbs').write_text("' launcher", encoding='utf-8')
+            entry = Path(directory) / 'AIUsageWidget.vbs'
+            entry.write_text('sh.Run """C:\\Python312\\pythonw.exe"" ""usage_widget.py""", 0, False\n', encoding='utf-16')
+            with patch.object(u, 'startup_path', return_value=entry):
+                self.assertTrue(u.sync_startup(root))
+                self.assertIn('start_usage_widget.vbs', entry.read_text(encoding='utf-16'))
+                # No entry means the user never asked for one: none is made.
+                entry.unlink()
+                self.assertFalse(u.sync_startup(root))
+                self.assertFalse(entry.exists())
 
     def test_activate_existing_uses_instance_file(self):
         with tempfile.TemporaryDirectory() as directory:

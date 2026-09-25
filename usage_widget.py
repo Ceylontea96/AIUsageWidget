@@ -1,7 +1,6 @@
 """Small, read-only quota monitor. All Tk calls stay on the main thread."""
 from __future__ import annotations
 
-from datetime import datetime
 from functools import lru_cache
 import ctypes
 import json
@@ -54,7 +53,7 @@ from quota_policy import (
     window_matches,
 )
 from codex_app_server import CodexAppServer
-from runtime import AlertGate, AuthWatcher, CodexJob, PollRunner, ToastSender, limiting_quota, login_present, login_status, prepare_action, session_locked, start_tool_setup
+from runtime import AlertGate, AuthWatcher, CodexJob, PollRunner, ToastSender, WorkerJob, limiting_quota, login_present, login_status, prepare_action, session_locked, start_tool_setup
 from updater import APP_VERSION, CHECK_EVERY, LAUNCHER_EXE, download_and_stage, fetch_latest, load_feed_url, start_apply, update_confirm_text
 
 APP_DIR = Path(os.environ.get('APPDATA', str(Path.home()))) / 'AiUsageWidget'
@@ -112,38 +111,17 @@ def lock_path():
 def instance_path():
     return APP_DIR / 'widget.instance'
 
-# The live layout. Editing these values is what changes the window.
+# Colours and base sizes the window is drawn from, all read just below. Font
+# faces and sizes are the FONT_* values after them.
 TOKENS = {'width': 380,
- 'radius': {'window': 14, 'card': 12, 'pill': 999, 'bar': 5},
- 'strip': {'width': 3, 'inset_top': 12, 'inset_bottom': 12},
+ 'radius': {'card': 12},
+ 'strip': {'width': 3},
  'header_h': 38,
  'compact_h': 44,
  'footer_h': 36,
- 'gap': {'cards': 0, 'rows': 12, 'label_bar': 6, 'window_pad_x': 12, 'window_pad_y': 10},
- 'card': {'pad_x': 16, 'pad_y': 14, 'hairline': 1},
- 'bar': {'height': 10, 'track_radius': 5},
- 'chip': {'height': 24,
-          'radius': 999,
-          'pad_x': 10,
-          'gap_between': 6,
-          'font_size': 12,
-          'font_weight': 'semibold',
-          'fg_on_fill': '#F2FFFB',
-          'fg_on_fill_stale': '#8B8F99'},
- 'fonts': {'family_latin': 'Pretendard SemiBold',
-           'family_hangul': 'Pretendard',
-           'css_stack': '"Pretendard SemiBold", "Pretendard Medium", "Pretendard", "Malgun Gothic", sans-serif',
-           'size': {'title': 13,
-                    'hero_num': 44,
-                    'hero_sub': 12,
-                    'row_label': 12,
-                    'row_value': 12,
-                    'caption': 11,
-                    'plan': 11,
-                    'pill': 11,
-                    'footer': 11,
-                    'chip': 12},
-           'weight_note': 'Bundled Pretendard for hangul and latin; Malgun Gothic / Segoe UI if files missing'},
+ 'gap': {'cards': 0},
+ 'bar': {'height': 10},
+ 'chip': {'height': 24},
  'color': {'bg_window': '#0F1013',
            'bg_card': '#101316',
            'hairline': '#202327',
@@ -159,44 +137,13 @@ TOKENS = {'width': 380,
            'stale_strip': '#4A5060',
            'stale_hero': '#8B8F99',
            'icon': '#B4BAC8',
-           'icon_hover': '#E7E8EC',
            'close_hover_bg': '#3A2020',
            'chip_codex_fill': '#1F6B5A',
            'chip_cursor_fill': '#5B4A9E',
            'chip_claude_fill': '#6B3A2A',
            'chip_warn_fill': '#C48A22',
            'chip_danger_fill': '#B44545',
-           'chip_stale_fill': '#3A4252'},
- 'thresholds': {'warn_below_pct': 50, 'danger_below_pct': 20, 'critical_below_pct': 5},
- 'rules': {'hero_shows': 'remaining_percent',
-           'bar_color_is_per_row': True,
-           'stale_grays_strip_and_hero_only': True,
-           'reset_caption_on_gpt_bars': True,
-           'reset_caption_format': {'5시간': 'HH:MM 재설정', '주간': 'M월 D일 HH:MM 재설정'},
-           'compact_pill_format': '{service} {pct}%',
-           'chip_fills_are_own_palette': 'do not reuse detail bar hex (#10A37F/#A78BFA) on chip '
-                                         'fills; white text needs darker fill',
-           'card_dot_no_halo': True,
-           'title_is_one_line': True,
-           'no_badges': ['이전', '제한']},
- 'labels': {'title': 'AI Usage',
-            'codex': 'GPT',
-            'cursor': 'Cursor',
-            'claude': 'Claude',
-            'codex_hero_sub': '5시간 기준 잔여',
-            'cursor_hero_sub': 'Cursor Models 기준 잔여',
-            'claude_hero_sub': '5시간 기준 잔여',
-            'codex_row_5h': '5시간',
-            'codex_row_weekly': '주간',
-            'codex_row_extra': '추가',
-            'codex_extra_value': '리셋권 1',
-            'cursor_row_own': 'Cursor Models',
-            'cursor_row_api': 'Other Models',
-            'cursor_footer_line': '기본 포함량',
-            'footer_ok': '자동 감지',
-            'footer_empty': '사용량 소진',
-            'footer_stale': '일부 데이터 이전 기준',
-            'refresh_hint': 'F5 새로고침'}}
+           'chip_stale_fill': '#3A4252'}}
 BG, CARD, HAIR, TRACK = (TOKENS['color'][k] for k in ('bg_window','bg_card','hairline','track'))
 TEXT, MUTED, DIM = (TOKENS['color'][k] for k in ('fg','fg_muted','fg_dim'))
 CODEX, CURSOR, CLAUDE = TOKENS['color']['codex'], TOKENS['color']['cursor'], TOKENS['color']['claude']
@@ -210,7 +157,6 @@ CHIP_CODEX, CHIP_CURSOR, CHIP_CLAUDE = (
 )
 CHIP_WARN, CHIP_DANGER, CHIP_STALE = (TOKENS['color'][k] for k in ('chip_warn_fill','chip_danger_fill','chip_stale_fill'))
 CHIP_FG, CHIP_TRACK = '#F2FFFB', '#2A3142'
-GREEN, AMBER, RED, LINE = CODEX, WARN, DANGER, HAIR
 ACCENTS = {'chatgpt': CODEX, 'cursor': CURSOR, 'claude': CLAUDE}
 CHIP_OK = {'chatgpt': CHIP_CODEX, 'cursor': CHIP_CURSOR, 'claude': CHIP_CLAUDE}
 TITLES = {'chatgpt': 'GPT', 'cursor': 'Cursor', 'claude': 'Claude'}
@@ -220,7 +166,6 @@ ICON_HINTS = {
     'expand': '상세로 펼치기',
     'close': '종료',
 }
-HERO_SUB = {'chatgpt': '5시간 기준 잔여', 'cursor': 'Cursor Models 기준 잔여', 'claude': '5시간 기준 잔여'}
 URLS = {
     'chatgpt': 'https://chatgpt.com/codex/settings/usage',
     'cursor': 'https://cursor.com/dashboard/usage',
@@ -651,10 +596,6 @@ def bar_display_percent(value):
     return number if math.isfinite(number) else 0.0
 
 
-def should_tween(shown, target):
-    return abs(bar_display_percent(target) - bar_display_percent(shown)) > 1e-9
-
-
 def follow_bar(current, target, dt):
     """Frame-rate-independent exponential following, in percentage points."""
     alpha = -math.expm1(-BAR_ANIM_SPEED * max(0.0, dt))
@@ -820,6 +761,8 @@ def compact_row_layout(*, count, chip_width, controls_left, scale_px,
 
 ACTIVE_HOLD = 60
 ACTIVITY_TICK_MS = 250
+LOG_LIMIT = 256 * 1024
+CALLBACK_ERROR_REPEAT = 60.0
 # statusLine only runs in terminal Claude Code. When it is silent the widget
 # asks the CLI itself; that costs a process, not tokens, so keep it infrequent.
 CLAUDE_CLI_INTERVAL = 60.0
@@ -957,10 +900,6 @@ def keep_topmost_style(hwnd, on=True):
         pass
 
 
-def raise_over_taskbar(root):
-    set_over_taskbar(root, True)
-
-
 def lift_owned_popups(owner_hwnd=0):
     """Raise this process's dialogs/menus above the widget without dropping the widget."""
     try:
@@ -1093,20 +1032,49 @@ def startup_path():
     return Path(os.environ.get('APPDATA', '')) / 'Microsoft/Windows/Start Menu/Programs/Startup/AIUsageWidget.vbs'
 
 
-def set_startup(enabled):
+def startup_script(root=None):
+    """The logon entry: the widget's own launcher, which finds Python each time.
+
+    Naming pythonw.exe here broke Windows startup silently whenever Python was
+    upgraded or reinstalled somewhere else.
+    """
+    root = Path(root or widget_root()).resolve()
+    launcher = root / 'start_usage_widget.vbs'
+    if not launcher.is_file():
+        raise RuntimeError('start_usage_widget.vbs를 찾을 수 없습니다.')
+    # Plain \n: writing in text mode turns each into \r\n on Windows.
+    return ('Set sh = CreateObject("Wscript.Shell")\n'
+            f'sh.CurrentDirectory = "{root}"\n'
+            f'sh.Run "wscript.exe ""{launcher}""", 0, False\n')
+
+
+def set_startup(enabled, root=None):
     path = startup_path()
     if not enabled:
         path.unlink(missing_ok=True)
         return
-    exe = Path(sys.executable).with_name('pythonw.exe')
-    if not exe.is_file():
-        raise RuntimeError('pythonw.exe를 찾을 수 없습니다.')
-    script = Path(__file__).resolve()
-    value = ('Set sh = CreateObject("Wscript.Shell")\r\n'
-             f'sh.CurrentDirectory = "{script.parent}"\r\n'
-             f'sh.Run """{exe}"" ""{script}""", 0, False\r\n')
+    value = startup_script(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(value, encoding='utf-16')
+
+
+def sync_startup(root=None):
+    """Rewrite an existing logon entry that points somewhere else, such as an
+    older pythonw.exe or a folder the widget has moved out of."""
+    path = startup_path()
+    if not path.is_file():
+        return False
+    try:
+        wanted = startup_script(root)
+        if path.read_text(encoding='utf-16') == wanted:
+            return False
+    except (OSError, UnicodeError, RuntimeError):
+        return False
+    try:
+        path.write_text(wanted, encoding='utf-16')
+    except OSError:
+        return False
+    return True
 
 
 def load_icon(name, scale):
@@ -1386,11 +1354,6 @@ def progress_photo(width, height, radius, fill_width, track, fill, background, s
     return tk.PhotoImage(data=_png_rgba(w, h, rows, level=1), format='png')
 
 
-def round_photo(width, height, radius, fill, background, pad=1):
-    w, h, rows = padded_stadium_rgba(width, height, radius, fill, background, pad=pad, samples=4)
-    return tk.PhotoImage(data=_png_rgba(w, h, rows), format='png'), pad
-
-
 def padded_stadium_rgba(width, height, radius, fill, background, pad=1, samples=4):
     """Stadium with 1px AA padding so 3px caps can round without looking square-cut."""
     width = max(1, int(round(width)))
@@ -1420,16 +1383,6 @@ def padded_stadium_rgba(width, height, radius, fill, background, pad=1, samples=
     return _box_downsample(src, samples, img_w, img_h)
 
 
-def baseline_text(canvas, x, y, text, font, fill, right=False, tags=()):
-    if not hasattr(canvas, '_font_cache'):
-        canvas._font_cache = {}
-    if font not in canvas._font_cache:
-        canvas._font_cache[font] = tkfont.Font(root=canvas, font=font)
-    face = canvas._font_cache[font]
-    return canvas.create_text(x, y+face.metrics('descent'), text=text, font=face,
-                              fill=fill, anchor='se' if right else 'sw', tags=tags)
-
-
 def notify_user(title, text, icon=0x10):
     try:
         ctypes.windll.user32.MessageBoxW(None, text, title, 0x00040000 | icon)
@@ -1437,11 +1390,67 @@ def notify_user(title, text, icon=0x10):
         pass
 
 
+def rotate_log(path, limit=LOG_LIMIT):
+    """Keep one previous file, so a log that is only ever appended to stays small."""
+    try:
+        if path.stat().st_size > limit:
+            os.replace(path, path.with_name(path.name + '.1'))
+    except OSError:
+        pass
+
+
 def log_launch(message):
     APP_DIR.mkdir(parents=True, exist_ok=True)
+    path = APP_DIR / 'launch.log'
+    rotate_log(path)
     line = time.strftime('%Y-%m-%d %H:%M:%S') + ' ' + message + '\n'
-    with (APP_DIR / 'launch.log').open('a', encoding='utf-8') as log:
+    with path.open('a', encoding='utf-8') as log:
         log.write(line)
+
+
+class CallbackErrors:
+    """Tk callback exceptions, which pythonw would otherwise drop unseen.
+
+    The same failure is written at most once a minute, with the number of
+    repeats skipped in between, so an error on every tick cannot fill the disk.
+    """
+
+    def __init__(self, path=None, repeat=CALLBACK_ERROR_REPEAT, clock=time.monotonic):
+        self.path = path
+        self.repeat = repeat
+        self.clock = clock
+        self.seen = {}
+
+    @staticmethod
+    def signature(exc, tb):
+        frames = traceback.extract_tb(tb)
+        where = (frames[-1].filename, frames[-1].lineno) if frames else ('', 0)
+        return getattr(exc, '__name__', str(exc)), where
+
+    def report(self, exc, value, tb):
+        key = self.signature(exc, tb)
+        now = self.clock()
+        entry = self.seen.get(key)
+        if entry is not None and now - entry[0] < self.repeat:
+            entry[1] += 1
+            return False
+        skipped = entry[1] if entry is not None else 0
+        if len(self.seen) >= 64:
+            self.seen.clear()
+        self.seen[key] = [now, 0]
+        header = time.strftime('%Y-%m-%d %H:%M:%S')
+        if skipped:
+            header += f' (+{skipped} repeats)'
+        text = ''.join(traceback.format_exception(exc, value, tb))
+        path = self.path or APP_DIR / 'runtime-error.log'
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            rotate_log(path)
+            with path.open('a', encoding='utf-8') as log:
+                log.write(header + '\n' + text + '\n')
+        except OSError:
+            pass
+        return True
 
 
 def record_crash():
@@ -2782,6 +2791,9 @@ class UsageWidget:
         self.scale = clamp_scale(self.settings.get('scale', DEFAULT_SCALE))
         self.metrics = Metrics(self.scale)
         self.root = tk.Tk()
+        if not preview:
+            self.callback_errors = CallbackErrors()
+            self.root.report_callback_exception = self.callback_errors.report
         self.root.title('AI Usage' if not preview else 'AI Usage — Preview')
         self.root.configure(bg=BG)
         app_icon = ICON_DIR / 'app.ico'
@@ -2798,12 +2810,13 @@ class UsageWidget:
         # GPT asks the widget's own Codex app-server; no token is read here.
         self.runner = PollRunner(inprocess={
             'chatgpt': CodexJob(CodexAppServer(client_version=APP_VERSION)),
+            # Cursor's login stays inside this worker, which lives across polls.
+            'cursor': WorkerJob('cursor'),
         })
         self.watcher = AuthWatcher()
         self.codex_activity = CodexActivityMonitor()
         self.cursor_activity = CursorActivityMonitor()
         self.claude_activity = ClaudeActivityMonitor()
-        self.codex_last_request = float('-inf')
         self.request_started = dict.fromkeys(FETCHERS, float('-inf'))
         self.poll_pending = dict.fromkeys(FETCHERS, False)
         self._ui_active = dict.fromkeys(FETCHERS, False)
@@ -2858,6 +2871,7 @@ class UsageWidget:
                 save_install_root()
             except (OSError, RuntimeError):
                 pass
+            sync_startup()
         if should_setup(self.settings, self.preview):
             self.pick_services()
         try:
@@ -3217,7 +3231,7 @@ class UsageWidget:
         start_tool_setup(action)
 
     def _claude_integration_action(self, action):
-        from claude_integration import conflict_state, install_statusline, uninstall_statusline
+        from claude_integration import install_statusline, uninstall_statusline
         try:
             if action == 'claude-login':
                 from claude_integration import start_claude_login
@@ -3377,6 +3391,8 @@ class UsageWidget:
                     self.failures[key] = 0
                 if not now:
                     self.runner.cancel(key)
+                    # A service that is off keeps no reader process running.
+                    self.runner.reset(key)
                     self.due[key] = 0
             self.persist()
             self.apply_mode()
@@ -3582,7 +3598,6 @@ class UsageWidget:
         for key,card in self.cards.items():
             card.pack_forget()
             if key in visible:
-                index = visible.index(key)
                 card.pack(fill='x',pady=(0,0))
         shown = 0
         mini_h = max(1, m.compact_h - 2)
@@ -3752,8 +3767,6 @@ class UsageWidget:
             if self.runner.start(key, now):
                 self.request_started[key] = now
                 self.poll_pending[key] = False
-                if key == 'chatgpt':
-                    self.codex_last_request = now
                 LOG.debug('[Usage] %s request started', TITLES[key])
                 if math.isfinite(previous):
                     LOG.debug('[Usage] %s request interval=%.2fs', TITLES[key], now - previous)
@@ -3808,7 +3821,7 @@ class UsageWidget:
                 observed = 0.0
             return (not snap.stale, observed, meta.get('source') == 'claude_statusline')
 
-        chosen = max(candidates, key=rank) if candidates else (getattr(self, 'claude_cli_error', None) or statusline)
+        chosen = max(candidates, key=rank) if candidates else (self.claude_cli_error or statusline)
         if chosen is None:
             return statusline
         label = ""
@@ -3900,10 +3913,8 @@ class UsageWidget:
             self.last_auth_scan = now
             for key in self.watcher.changed(now):
                 if self.enabled[key].get():
-                    if key == 'cursor':
-                        self.runner.plan_cache = None
                     self.runner.cancel(key)
-                    # A new Codex login needs a fresh app-server to pick it up.
+                    # A new login needs a fresh Codex app-server or Cursor worker.
                     self.runner.reset(key)
                     self.due[key] = 0
 
@@ -3933,10 +3944,7 @@ class UsageWidget:
                 error=snap.error,
                 retry_after=getattr(snap, 'retry_after', ''),
             )
-        until = getattr(self, 'usage_until', None)
-        if until is None:
-            until = {}
-            self.usage_until = until
+        until = self.usage_until
         if key not in ('chatgpt', 'claude') and snap.ok and usage_dropped(previous, snap):
             until[key] = now + ACTIVE_HOLD
         self.snapshots[key] = snap
@@ -3944,13 +3952,11 @@ class UsageWidget:
             from claude_bridge import CACHE_READ_INTERVAL
             self.due[key] = now + CACHE_READ_INTERVAL
         elif key == 'chatgpt':
-            monitor = getattr(self, 'codex_activity', None)
-            fast = monitor is not None and monitor.fast(now) and not self.failures[key]
+            fast = self.codex_activity.fast(now) and not self.failures[key]
             self._schedule_poll(key, snap, now, active=fast)
             LOG.debug('[Usage] quota raw/display remaining: %s', [(item.quota_id, item.used_percent, item.remaining_percent, round(item.remaining_percent) if item.remaining_percent is not None else None) for item in global_main_limits(snap)])
         else:
-            monitor = getattr(self, 'cursor_activity', None)
-            fast = ((monitor is not None and monitor.fast(now)) or until.get(key, 0) > now) and not self.failures[key]
+            fast = (self.cursor_activity.fast(now) or until.get(key, 0) > now) and not self.failures[key]
             self._schedule_poll(key, snap, now, active=fast)
         self.render(key)
         self._sync_activity_ui(now)
@@ -3975,31 +3981,22 @@ class UsageWidget:
             return
         if active:
             from polling import policy_for
-            started = getattr(self, 'request_started', {}).get(key, float('-inf'))
+            started = self.request_started.get(key, float('-inf'))
             self.due[key] = next_fast_due(started, now, policy_for(key).active_interval)
             return
         self.due[key] = now + next_interval(snap, 0, False)
 
     def _sync_activity_ui(self, now=None):
-        cards = getattr(self, 'cards', None)
-        chips = getattr(self, 'mini_values', None)
+        cards, chips = self.cards, self.mini_values
         if not cards:
             return
         now = time.monotonic() if now is None else now
         gpt_active = (not self.preview and self.enabled['chatgpt'].get()
-                      and getattr(self, 'codex_activity', None) is not None
                       and self.codex_activity.visual_active(now))
-        cursor_active = (self.enabled['cursor'].get()
-                         and getattr(self, 'cursor_activity', None) is not None
-                         and self.cursor_activity.visual_active(now))
-        claude_active = (self.enabled['claude'].get()
-                         and getattr(self, 'claude_activity', None) is not None
-                         and self.claude_activity.visual_active(now))
+        cursor_active = self.enabled['cursor'].get() and self.cursor_activity.visual_active(now)
+        claude_active = self.enabled['claude'].get() and self.claude_activity.visual_active(now)
         states = {'chatgpt': gpt_active, 'cursor': cursor_active, 'claude': claude_active}
-        ui_active = getattr(self, '_ui_active', None)
-        if ui_active is None:
-            ui_active = {}
-            self._ui_active = ui_active
+        ui_active = self._ui_active
         for key, active in states.items():
             if ui_active.get(key) != active:
                 ui_active[key] = active
@@ -4060,7 +4057,6 @@ class UsageWidget:
         self.live_dot.create_oval(0,0,d,d,fill=color,outline='')
 
     def set_footer(self, text, fg, dot):
-        snaps = [self.snapshots[k] for k in FETCHERS if self.enabled[k].get() and k in self.snapshots]
         if not text or text == '자동 감지':
             text,dot = '자동 감지 중','#22C55E'
         state = (text, dot)
@@ -4069,7 +4065,6 @@ class UsageWidget:
         self._footer_state = state
         self.footer_text.configure(text=text,fg=MUTED)
         m = self.metrics
-        width = tkfont.Font(root=self.root,font=m.font(FONT_FOOT)).measure(text)
         self.footer_sep.place_forget()
         self.footer_dot.delete('all')
         d = m.p(6)
@@ -4081,9 +4076,13 @@ class UsageWidget:
         # monitor keeps its own interval: Claude and Codex 0.25 s, Cursor 0.75 s.
         if self.closing:
             return
-        if not self.preview:
-            self._poll_activity(time.monotonic())
-        self.activity_timer = self.root.after(ACTIVITY_TICK_MS, self._activity_tick)
+        try:
+            if not self.preview:
+                self._poll_activity(time.monotonic())
+        finally:
+            # One failed beat must not end activity tracking for the session.
+            if not self.closing:
+                self.activity_timer = self.root.after(ACTIVITY_TICK_MS, self._activity_tick)
 
     def _poll_activity(self, now):
         """Read the activity monitors, then move quota polling and the bars."""
@@ -4100,7 +4099,7 @@ class UsageWidget:
             if was_fast and not fast and not self.failures['chatgpt']:
                 self.due['chatgpt'] = now + next_interval(self.snapshots.get('chatgpt'), active=False)
         if not self.locked and self.enabled['cursor'].get() and not self.failures['cursor']:
-            cursor_fast = self.cursor_activity.fast(now) or getattr(self, 'usage_until', {}).get('cursor', 0) > now
+            cursor_fast = self.cursor_activity.fast(now) or self.usage_until.get('cursor', 0) > now
             if cursor_hit:
                 self._request_fast_poll('cursor', now)
             elif cursor_fast:
@@ -4113,7 +4112,21 @@ class UsageWidget:
     def tick(self):
         if self.closing:
             return
+        delay = 1000
+        try:
+            delay = self._tick_once()
+        finally:
+            # Scheduled even when this pass raised: a single bad snapshot or
+            # Tk error must not freeze polling, the clock and the footer.
+            if not self.closing:
+                self.timer = self.root.after(delay or 1000, self.tick)
+
+    def _tick_once(self):
+        """One pass of the widget clock. Returns the delay to the next pass."""
         self.drain_update_queue()
+        if self.closing:
+            # Installing an update closed the widget from inside the queue.
+            return None
         for card in self.cards.values():
             card.refresh_clock()
         self.refresh_design_status()
@@ -4164,12 +4177,9 @@ class UsageWidget:
             self.set_footer('일부 데이터 이전 기준', MUTED, STALE_STRIP)
         else:
             self.set_footer('자동 감지', MUTED, CODEX)
-        heat = any(until > now for until in getattr(self, 'usage_until', {}).values())
-        if getattr(self, 'codex_activity', None) is not None and self.codex_activity.fast(now):
-            heat = True
-        if getattr(self, 'cursor_activity', None) is not None and self.cursor_activity.fast(now):
-            heat = True
-        self.timer = self.root.after(200 if active or heat else 1000, self.tick)
+        heat = (any(until > now for until in self.usage_until.values())
+                or self.codex_activity.fast(now) or self.cursor_activity.fast(now))
+        return 200 if active or heat else 1000
 
     def set_update_chrome(self):
         m = self.metrics
@@ -4255,6 +4265,8 @@ class UsageWidget:
                             self.notify(messagebox.showinfo, '업데이트', f'이미 최신입니다. ({APP_VERSION})', parent=self.root)
                 elif kind == 'downloaded':
                     self._finish_update(item[1])
+                    if self.closing:
+                        return
                 elif kind == 'failed':
                     self._update_busy = False
                     self.set_update_chrome()
@@ -4270,18 +4282,29 @@ class UsageWidget:
         self._update_busy = True
         self.set_update_chrome()
         url = self.update_info['zip']
+        digest = self.update_info.get('sha256', '')
 
         def work():
             try:
-                source = download_and_stage(url)
+                source = download_and_stage(url, sha256=digest)
                 self.update_queue.put(('downloaded', source))
+            except RuntimeError as exc:
+                # Our own checks explain themselves: size, checksum, contents.
+                self.update_queue.put(('failed', str(exc)))
             except Exception:
                 self.update_queue.put(('failed', '업데이트를 받지 못했습니다. 인터넷 연결을 확인하세요.'))
 
         threading.Thread(target=work, daemon=True, name='update-download').start()
 
     def _finish_update(self, source):
-        start_apply(source)
+        try:
+            start_apply(source)
+        except (OSError, RuntimeError):
+            # Nothing was replaced yet, so the running version simply stays.
+            self._update_busy = False
+            self.set_update_chrome()
+            self.notify(messagebox.showinfo, '업데이트', '업데이트를 적용하지 못했습니다. 잠시 뒤 다시 시도하세요.', parent=self.root)
+            return
         self.close()
 
     def close(self):
@@ -4298,7 +4321,7 @@ class UsageWidget:
         self.runner.close()
         if self.timer:
             self.root.after_cancel(self.timer)
-        if getattr(self, 'activity_timer', None):
+        if self.activity_timer:
             self.root.after_cancel(self.activity_timer)
         # All callbacks belong to this application's Tk interpreter, including
         # short-lived menu/tooltip callbacks that do not retain their IDs.

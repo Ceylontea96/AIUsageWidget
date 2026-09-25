@@ -128,19 +128,25 @@ if ($GitHub) {
 }
 # Check remote releases before building or writing local artifacts.
 & (Join-Path $project 'build_launcher.ps1')
+if ($GitHub) {
+    # The launcher is rebuilt only when its source changes. A rebuild here
+    # would ship an exe the release tag does not contain, so it has to be
+    # committed and pushed first.
+    $launcherChanged = @(& git -C $project -c safe.directory=* status --porcelain -- 'AI Usage.exe' 'launcher')
+    if ($launcherChanged.Count -gt 0) {
+        throw ("The launcher was rebuilt; commit and push it, then publish again:`n" + ($launcherChanged -join "`n"))
+    }
+}
 $zipUrl = ''
-if ($feed.EndsWith('latest.json')) {
+if ($repository) {
+    # Pinned to this version, so the checksum always describes the file served.
+    $zipUrl = "https://github.com/$repository/releases/download/v$version/AIUsageWidget.zip"
+} elseif ($feed.EndsWith('latest.json')) {
     $zipUrl = $feed.Substring(0, $feed.Length - 'latest.json'.Length) + 'AIUsageWidget.zip'
 }
 $changelogPath = Join-Path $project 'CHANGELOG.md'
 $releaseNotes = Get-ChangelogSection -Path $changelogPath -Version $version
 $shortNotes = Get-LatestNotes -Section $releaseNotes -Version $version
-$latest = [ordered]@{
-    version = $version
-    zip     = $zipUrl
-    notes   = $shortNotes
-} | ConvertTo-Json -Compress
-[System.IO.File]::WriteAllText((Join-Path $project 'latest.json'), $latest + "`n", $utf8)
 
 $stage = Join-Path $project ('dist\stage-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path (Join-Path $stage 'assets\icons') -Force | Out-Null
@@ -168,6 +174,15 @@ if (-not (Test-Path -LiteralPath $readme) -or -not (Test-Path -LiteralPath $manu
 [System.IO.File]::WriteAllText((Join-Path $stage 'README.txt'), [System.IO.File]::ReadAllText($readme), $utf8)
 [System.IO.File]::WriteAllText((Join-Path $stage 'MANUAL.txt'), [System.IO.File]::ReadAllText($manual), $utf8)
 
+# The files this version ships. The updater removes what the previous list
+# had and this one lacks, and never touches anything else in the folder.
+$stageRoot = (Get-Item -LiteralPath $stage).FullName.TrimEnd('\') + '\'
+$shipped = @(Get-ChildItem -LiteralPath $stage -Recurse -File | ForEach-Object {
+    $_.FullName.Substring($stageRoot.Length).Replace('\', '/')
+}) + @('package_files.json') | Sort-Object
+$manifest = [ordered]@{ version = $version; files = @($shipped) } | ConvertTo-Json -Compress
+[System.IO.File]::WriteAllText((Join-Path $stage 'package_files.json'), $manifest + "`n", $utf8)
+
 $release = Join-Path $project ('dist\release-' + $version + '-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $release | Out-Null
 $z1 = Join-Path $release 'AIUsageWidget.zip'
@@ -176,7 +191,16 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory($stage, $z1, [System.IO.Compression.CompressionLevel]::Optimal, $false)
 # The zip holds everything staged; the copy would only pile up in dist.
 Remove-Item -LiteralPath $stage -Recurse -Force
-Copy-Item -LiteralPath (Join-Path $project 'latest.json') -Destination (Join-Path $release 'latest.json') -Force
+# The feed is written only for the release: it names the zip's checksum, and
+# the copy the widget reads is the one attached to the GitHub release.
+$sha256 = (Get-FileHash -LiteralPath $z1 -Algorithm SHA256).Hash.ToLowerInvariant()
+$latest = [ordered]@{
+    version = $version
+    zip     = $zipUrl
+    sha256  = $sha256
+    notes   = $shortNotes
+} | ConvertTo-Json -Compress
+[System.IO.File]::WriteAllText((Join-Path $release 'latest.json'), $latest + "`n", $utf8)
 $notesFile = Join-Path $release 'RELEASE_NOTES.md'
 [System.IO.File]::WriteAllText($notesFile, $releaseNotes, $utf8)
 Copy-Item -LiteralPath $changelogPath -Destination (Join-Path $release 'CHANGELOG.md') -Force

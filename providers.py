@@ -199,7 +199,7 @@ def http_json(
             retry_after = str(headers.get("Retry-After") or "")
         exc.close()
         return status, JsonPayload({}, retry_after)
-    except Exception as exc:
+    except Exception:
         raise RuntimeError("서버 연결을 확인한 뒤 다시 시도하세요.") from None
 
 
@@ -241,22 +241,6 @@ def fmt_local(ts: float | int | None, fmt: str = "%m/%d %H:%M") -> str:
     if fmt == "reset":
         return f"{moment.month}월 {moment.day}일 {moment.hour:02d}:{moment.minute:02d}"
     return moment.strftime(fmt)
-
-
-def translate_cursor_message(message: str) -> str:
-    text = (message or "").strip()
-    mapping = {
-        "You've hit your usage limit": "포함 한도 도달",
-        "You've used 100% of your included total usage": "포함 사용량 소진",
-        "You've used 100% of your included API usage": "포함 API 소진",
-    }
-    if text in mapping:
-        return mapping[text]
-    return (
-        text.replace("You've used", "사용")
-        .replace("of your included total usage", "(포함)")
-        .replace("of your included API usage", "(API)")
-    )
 
 
 def remaining_from_used(used_percent: float | None) -> float | None:
@@ -730,7 +714,6 @@ def _cursor_plan_name(headers: dict[str, str], fallback: str) -> str:
 
 
 def fetch_cursor() -> ProviderSnapshot:
-    now = time.time()
     auth = CursorAuth()
     auth.load()
     auth.ensure_fresh()

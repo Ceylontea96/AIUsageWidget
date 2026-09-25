@@ -51,6 +51,40 @@ class IntegrationStabilityTests(unittest.TestCase):
         self.assertEqual(integration.uninstall_statusline(), 'removed')
         self.assertEqual(integration.read_user_settings(), {'theme': 'dark'})
 
+    def install_with_python(self, python):
+        with patch.object(integration, '_python_executable', return_value=python):
+            return integration.install_statusline()
+
+    def test_statusline_moves_to_this_python_after_the_old_one_is_removed(self):
+        self.settings()
+        self.install_with_python(self.root / 'Python312' / 'python.exe')
+        self.assertTrue(integration.repair_statusline_command())
+        statusline = integration.current_statusline()
+        self.assertEqual(statusline['command'], integration.wrapper_command())
+        self.assertEqual(integration.conflict_state(), 'installed')
+        # The original backup survives, so uninstalling still restores it.
+        self.assertEqual(integration.uninstall_statusline(), 'restored')
+        self.assertEqual(integration.current_statusline(), self.original)
+
+    def test_statusline_with_a_working_python_is_left_alone(self):
+        self.settings()
+        python = self.root / 'Python312' / 'python.exe'
+        python.parent.mkdir()
+        python.write_bytes(b'MZ')
+        meta = self.install_with_python(python)
+        self.assertFalse(integration.repair_statusline_command())
+        self.assertEqual(integration.current_statusline()['command'], meta['command'])
+
+    def test_statusline_the_user_changed_is_never_repaired(self):
+        self.settings()
+        self.install_with_python(self.root / 'Python312' / 'python.exe')
+        edited = dict(integration.current_statusline(), refreshInterval=9)
+        data = integration.read_user_settings()
+        data['statusLine'] = edited
+        integration._write_user_settings(data)
+        self.assertFalse(integration.repair_statusline_command())
+        self.assertEqual(integration.current_statusline(), edited)
+
     def test_repeated_install_preserves_first_original(self):
         self.settings()
         first = integration.install_statusline()

@@ -1,13 +1,14 @@
 import json
 import tempfile
+import threading
 import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from providers import ProviderSnapshot, QuotaItem
-from runtime import AlertGate, AuthWatcher, PollRunner, login_present, login_status, prepare_action, tool_setup_command
+from providers import ProviderSnapshot, QuotaItem, error_snapshot, snapshot_to_dict
+from runtime import AlertGate, AuthWatcher, PollRunner, WorkerJob, login_present, login_status, prepare_action, tool_setup_command
 
 
 def quota(raw_id, remaining, window=18000.0, name='5시간'):
@@ -135,6 +136,91 @@ class RuntimeTests(unittest.TestCase):
                 self.assertEqual(runner.poll(time.monotonic()),[])
                 if not runner.slots:break
             self.assertFalse(runner.slots)
+
+
+SERVE = '''
+import sys
+count = 0
+for raw in iter(sys.stdin.buffer.readline, b''):
+    count += 1
+    key = raw.decode().strip()
+    if key == 'hang':
+        import time; time.sleep(30)
+    sys.stdout.buffer.write(PAYLOAD.replace(b'"N"', str(count).encode()) + b'\\n')
+    sys.stdout.buffer.flush()
+'''
+
+
+class WorkerJobTests(unittest.TestCase):
+    def worker(self, directory, payload):
+        path = Path(directory) / 'worker.py'
+        path.write_text('PAYLOAD = ' + repr(payload) + '\n' + SERVE, encoding='utf-8')
+        return path
+
+    def test_one_worker_answers_every_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            job = WorkerJob('cursor', worker=self.worker(directory, b'{"key": "cursor", "count": "N"}'), timeout=10)
+            try:
+                self.assertEqual(job.run(), {'key': 'cursor', 'count': 1})
+                self.assertEqual(job.run(), {'key': 'cursor', 'count': 2})
+                self.assertEqual(job.starts, 1)
+            finally:
+                job.close()
+            self.assertFalse(job.running)
+
+    def test_interrupt_ends_a_stuck_read_and_the_next_read_starts_fresh(self):
+        with tempfile.TemporaryDirectory() as directory:
+            job = WorkerJob('hang', worker=self.worker(directory, b'{"key": "hang"}'), timeout=20)
+            results = []
+            thread = threading.Thread(target=lambda: results.append(job.run()))
+            try:
+                thread.start()
+                for _ in range(100):
+                    if job.running:
+                        break
+                    time.sleep(.02)
+                started = time.monotonic()
+                job.interrupt()
+                thread.join(5)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(results, [None])
+                self.assertLess(time.monotonic() - started, 5)
+                job.key = 'cursor'
+                self.assertEqual(job.run(), {'key': 'hang'})
+                self.assertEqual(job.starts, 2)
+            finally:
+                job.close()
+
+    def test_runner_delivers_worker_snapshots(self):
+        payload = json.dumps(snapshot_to_dict(error_snapshot('cursor', 'Cursor', 'offline', ''))).encode()
+        with tempfile.TemporaryDirectory() as directory:
+            job = WorkerJob('cursor', worker=self.worker(directory, payload), timeout=10)
+            runner = PollRunner(timeout=10, inprocess={'cursor': job})
+            try:
+                self.assertTrue(runner.start('cursor', time.monotonic()))
+                events = []
+                for _ in range(250):
+                    events += runner.poll(time.monotonic())
+                    if events:
+                        break
+                    time.sleep(.02)
+                self.assertEqual(len(events), 1)
+                self.assertEqual(events[0][1].error, 'offline')
+                self.assertFalse(runner.slots)
+            finally:
+                runner.close()
+            self.assertFalse(job.running)
+
+    def test_serve_answers_one_line_per_key(self):
+        import io
+        import poll_worker
+        stdout = io.BytesIO()
+        with patch.dict(poll_worker.FETCHERS, {'cursor': lambda: error_snapshot('cursor', 'Cursor', 'x', '')}):
+            poll_worker.serve(io.BytesIO(b'cursor\nnope\ncursor\n'), stdout)
+        lines = stdout.getvalue().splitlines()
+        self.assertEqual(len(lines), 3)
+        self.assertEqual(json.loads(lines[0])['key'], 'cursor')
+        self.assertEqual(json.loads(lines[1]), {})
 
 
 if __name__=='__main__':unittest.main(verbosity=2)
