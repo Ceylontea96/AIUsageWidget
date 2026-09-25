@@ -9,3 +9,5 @@ error.log
 dist/
 # Local design mockups, not part of the widget
 design_reference/
+# Written by the widget's own updater when this folder is also the install
+package_files.json
