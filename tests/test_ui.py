@@ -445,6 +445,50 @@ class UiTests(unittest.TestCase):
         self.assertEqual(scheduled,[(u.ACTIVITY_TICK_MS, w._activity_tick)])
         self.assertEqual(u.ACTIVITY_TICK_MS,250)
 
+    def test_disabled_gpt_stops_activity_io_and_reenabling_rediscovers(self):
+        from datetime import datetime
+        from tests.test_codex_activity import TurnTests
+        w = self.w
+        w.codex_activity = u.CodexActivityMonitor(self.directory.name)
+        day = Path(self.directory.name) / 'sessions' / datetime.now().strftime('%Y/%m/%d')
+        day.mkdir(parents=True)
+        (day / 'first.jsonl').write_bytes(TurnTests.line('task_started'))
+        w.enabled['chatgpt'].set(True)
+        w.enabled['cursor'].set(False)
+        w.enabled['claude'].set(False)
+        w._poll_activity(0)
+        self.assertTrue(w.codex_activity.visual_active(0))
+        w.set_provider_enabled('chatgpt', False)
+        self.assertFalse(w.codex_activity.visual_active(0))
+        with patch.object(w.codex_activity, 'poll', side_effect=AssertionError('disabled monitor polled')):
+            w._poll_activity(.25)
+            w._poll_activity(1)
+        fresh = day / 'fresh.jsonl'
+        fresh.write_bytes(TurnTests.line('task_started'))
+        w.set_provider_enabled('chatgpt', True)
+        w._poll_activity(1.1)
+        self.assertIn(fresh, w.codex_activity.files)
+        self.assertTrue(w.codex_activity.visual_active(1.1))
+        self.assertFalse(w.codex_activity.fast(1.1))
+
+    def test_disabled_services_do_not_keep_the_main_tick_fast(self):
+        w = self.w
+        for key in u.FETCHERS:
+            w.enabled[key].set(False)
+            w.usage_until[key] = float('inf')
+        with patch.object(w.codex_activity, 'fast', return_value=True), \
+             patch.object(w.cursor_activity, 'fast', return_value=True):
+            self.assertEqual(w._tick_once(), 1000)
+
+    def test_cursor_worker_pauses_with_service_and_closes_with_widget(self):
+        w = self.w
+        with patch.object(w.cursor_activity, 'pause', wraps=w.cursor_activity.pause) as pause:
+            w.set_provider_enabled('cursor', False)
+            pause.assert_called_once_with()
+        with patch.object(w.cursor_activity, 'close', wraps=w.cursor_activity.close) as close:
+            w.close()
+            close.assert_called_once_with()
+
     def test_tick_is_rescheduled_after_an_error(self):
         w=self.w
         scheduled=[]
@@ -944,6 +988,58 @@ class UiTests(unittest.TestCase):
                                   if gpt.rows.type(item)=='text'])
         self.assertTrue(gpt._actions)
         self.assertNotIn('조회 실패', cursor.rows.itemcget('service_status','text'))
+
+    def test_unchanged_header_does_not_repeat_tk_updates(self):
+        w = self.w
+        with patch.object(u.time, 'time', return_value=1_700_000_000):
+            w.refresh_design_status()
+            before = w.updated_label.cget('text'), w.live_dot.find_all()
+            with patch.object(w.updated_label, 'configure', wraps=w.updated_label.configure) as label, \
+                 patch.object(w.live_dot, 'delete', wraps=w.live_dot.delete) as delete, \
+                 patch.object(w.live_dot, 'create_oval', wraps=w.live_dot.create_oval) as draw:
+                for _ in range(100):
+                    w.refresh_design_status()
+                label.assert_not_called()
+                delete.assert_not_called()
+                draw.assert_not_called()
+            self.assertEqual((w.updated_label.cget('text'), w.live_dot.find_all()), before)
+
+    def test_header_text_color_update_visibility_and_scale_still_change(self):
+        from dataclasses import replace
+        w = self.w
+        stamp = 1_700_000_000
+        snap = ProviderSnapshot('chatgpt', 'GPT', 'Plus', True, 80, '', fetched_at=stamp)
+        w.snapshots = {'chatgpt': snap}
+        w.enabled['chatgpt'].set(True)
+        def show(age):
+            with patch.object(u.time, 'time', return_value=stamp + age):
+                w.refresh_design_status()
+            items = w.live_dot.find_all()
+            self.assertEqual(len(items), 1)
+            return items[0], w.live_dot.itemcget(items[0], 'fill')
+        first, color = show(20)
+        self.assertEqual(color, '#22C55E')
+        self.assertIn('20초 전 확인', w.updated_label.cget('text'))
+        self.assertEqual(show(21)[0], first, 'a clock change must not redraw the dot')
+        self.assertIn('21초 전 확인', w.updated_label.cget('text'))
+        self.assertEqual(show(61)[1], u.MUTED)
+        w.snapshots['chatgpt'] = replace(snap, stale=True)
+        self.assertEqual(show(20)[1], u.MUTED)
+        w.snapshots['chatgpt'] = error_snapshot('chatgpt', 'GPT', 'failed', '')
+        self.assertEqual(show(20)[1], u.DANGER)
+        for update_info, busy in (({'version': 'test'}, False), (None, True)):
+            w.update_info, w._update_busy = update_info, busy
+            show(20)
+            self.assertEqual(w.updated_label.cget('text'), '')
+        w.update_info, w._update_busy = None, False
+        show(20)
+        self.assertIn('확인 실패', w.updated_label.cget('text'))
+        w.enabled['chatgpt'].set(False)
+        self.assertEqual(show(20)[1], u.MUTED)
+        self.assertIn('갱신 대기', w.updated_label.cget('text'))
+        w.set_scale(1.5)
+        item, _ = show(20)
+        self.assertEqual(w.live_dot.coords(item), [0., 0., float(w.metrics.p(6)), float(w.metrics.p(6))])
 
     def test_failed_refresh_keeps_the_cause_on_the_cached_card(self):
         w=self.w

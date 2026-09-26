@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -202,3 +203,72 @@ class CadenceTests(unittest.TestCase):
         self.assertNotIn(fresh, self.monitor.files, 'listing folders waits for the one-second beat')
         self.monitor.poll(1.0)
         self.assertIn(fresh, self.monitor.files)
+
+    def test_unchanged_files_are_not_opened_and_turn_timeout_still_expires(self):
+        path = self.day / 'idle.jsonl'
+        path.write_bytes(TurnTests.line('task_started'))
+        self.monitor.poll(0)
+        with patch.object(Path, 'open', side_effect=AssertionError('unchanged file opened')):
+            for now in (.25, .5, 1, 12, 601):
+                self.assertEqual(self.monitor.poll(now), (False, False))
+        self.assertFalse(self.monitor.was_visual)
+        self.assertFalse(self.monitor.was_fast)
+
+    def test_same_size_rewrite_and_same_size_replacement_are_read(self):
+        path = self.day / 'rewrite.jsonl'
+        active = TurnTests.line('task_started')
+        ended = active.replace(b'task_started', b'turn_aborted')
+        path.write_bytes(active)
+        self.monitor.poll(0)
+        previous = path.stat()
+        path.write_bytes(ended)
+        os.utime(path, ns=(previous.st_atime_ns, previous.st_mtime_ns + 1_000_000_000))
+        self.monitor.poll(.25)
+        self.assertFalse(self.monitor.visual_active(.25))
+        previous = path.stat()
+        replacement = self.day / 'replacement.tmp'
+        replacement.write_bytes(active)
+        os.utime(replacement, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+        replacement.replace(path)
+        self.monitor.poll(.5)
+        self.assertTrue(self.monitor.visual_active(.5))
+
+    def test_unread_backlog_is_drained_even_without_a_new_write(self):
+        path = self.day / 'backlog.jsonl'
+        path.write_bytes(TurnTests.line('item_completed'))
+        self.monitor.poll(0)
+        with path.open('ab') as stream:
+            stream.write(TurnTests.line('item_completed', text='x' * 2000) * 40)
+            stream.write(TurnTests.line('task_started'))
+        self.monitor.poll(.25)
+        self.assertFalse(self.monitor.visual_active(.25))
+        self.monitor.poll(.5)
+        self.assertTrue(self.monitor.visual_active(.5))
+
+    def test_failed_read_is_retried_when_metadata_is_unchanged(self):
+        path = self.day / 'retry.jsonl'
+        path.write_bytes(TurnTests.line('task_started'))
+        with patch.object(Path, 'open', side_effect=PermissionError):
+            self.monitor.poll(0)
+        self.monitor.poll(.25)
+        self.assertTrue(self.monitor.visual_active(.25))
+
+    def test_pause_rediscovers_immediately_without_replaying_disabled_activity(self):
+        path = self.day / 'paused.jsonl'
+        path.write_bytes(TurnTests.line('task_started'))
+        self.monitor.poll(0)
+        with patch.object(Path, 'open', side_effect=AssertionError('pause performed I/O')):
+            self.monitor.pause()
+        with path.open('ab') as stream:
+            stream.write(TurnTests.line('task_complete'))
+        fresh = self.day / 'new.jsonl'
+        fresh.write_bytes(TurnTests.line('task_started'))
+        # Less than both discovery and scan intervals since the last poll.
+        self.assertEqual(self.monitor.poll(.1), (False, False))
+        self.assertIn(fresh, self.monitor.files)
+        self.assertTrue(self.monitor.visual_active(.1))
+        with fresh.open('ab') as stream:
+            stream.write(TurnTests.line('task_complete'))
+        self.assertTrue(self.monitor.poll(.5)[0])
+        self.monitor.poll(1.25)
+        self.assertFalse(self.monitor.visual_active(1.25))

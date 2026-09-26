@@ -28,7 +28,7 @@ import widget_raster as raster
 from frame_clock import FAST as FRAME_FAST, SLOW as FRAME_SLOW, clock_for
 from codex_activity import CodexActivityMonitor, FAST_INTERVAL, LOG
 from claude_activity import ClaudeActivityMonitor
-from cursor_activity import CursorActivityMonitor
+from cursor_activity import BackgroundCursorActivityMonitor
 from providers import (
     claude_plan_label,
     dollars,
@@ -2479,7 +2479,7 @@ class UsageWidget:
         })
         self.watcher = AuthWatcher()
         self.codex_activity = CodexActivityMonitor()
-        self.cursor_activity = CursorActivityMonitor()
+        self.cursor_activity = BackgroundCursorActivityMonitor()
         self.claude_activity = ClaudeActivityMonitor()
         self.request_started = dict.fromkeys(FETCHERS, float('-inf'))
         self.poll_pending = dict.fromkeys(FETCHERS, False)
@@ -2599,6 +2599,8 @@ class UsageWidget:
         self.title = tk.Label(self.header,text='AI Usage',bg=BG,fg=TEXT,font=m.font(FONT_TITLE),bd=0,padx=0,pady=0)
         self.updated_label = tk.Label(self.header,text='',bg=BG,fg=DIM,bd=0)
         self.live_dot = tk.Canvas(self.header,width=6,height=6,bg=BG,bd=0,highlightthickness=0)
+        self._header_text = None
+        self._header_dot = None
         self.update_pill = UpdatePill(self.header, self.install_update, m, tip=self.tip)
         self.header_buttons = []
         for name,callback in (('refresh',self.refresh),('minus',self.toggle),('close',self.close)):
@@ -3510,6 +3512,10 @@ class UsageWidget:
             self.runner.cancel(key)
             # Stop persistent readers as well as any request in flight.
             self.runner.reset(key)
+            if key == 'chatgpt':
+                self.codex_activity.pause()
+            elif key == 'cursor':
+                self.cursor_activity.pause()
         self.due[key] = 0
         self.failures[key] = 0
         if key == 'claude':
@@ -3716,12 +3722,17 @@ class UsageWidget:
     def refresh_design_status(self):
         snaps=[s for k,s in self.snapshots.items() if self.enabled[k].get()]
         text, age = header_freshness(snaps)
-        self.updated_label.configure(text='' if self.update_info or self._update_busy else '· '+text)
+        label = '' if self.update_info or self._update_busy else '· '+text
+        if label != self._header_text:
+            self.updated_label.configure(text=label)
+            self._header_text = label
         color=MUTED if age is None or age>60 or any(s.stale for s in snaps) else '#22C55E'
         if any(not s.ok for s in snaps): color=DANGER
-        self.live_dot.delete('all')
         d=self.metrics.p(6)
-        self.live_dot.create_oval(0,0,d,d,fill=color,outline='')
+        if (color, d) != self._header_dot:
+            self.live_dot.delete('all')
+            self.live_dot.create_oval(0,0,d,d,fill=color,outline='')
+            self._header_dot = (color, d)
 
     def set_footer(self, text, fg, dot):
         if not text or text == '자동 감지':
@@ -3755,7 +3766,11 @@ class UsageWidget:
         """Read the activity monitors, then move quota polling and the bars."""
         was_fast = self.codex_activity.was_fast
         was_cursor = self.cursor_activity.was_fast
-        activity, quota_event = self.codex_activity.poll(now)
+        if self.enabled['chatgpt'].get():
+            activity, quota_event = self.codex_activity.poll(now)
+        else:
+            self.codex_activity.pause()
+            activity = quota_event = False
         cursor_hit = self.cursor_activity.poll(now) if self.enabled['cursor'].get() else False
         if self.enabled['claude'].get():
             self.claude_activity.poll(now)
@@ -3844,8 +3859,9 @@ class UsageWidget:
             self.set_footer('일부 데이터 이전 기준', MUTED, STALE_STRIP)
         else:
             self.set_footer('자동 감지', MUTED, CODEX)
-        heat = (any(until > now for until in self.usage_until.values())
-                or self.codex_activity.fast(now) or self.cursor_activity.fast(now))
+        heat = (any(until > now for key, until in self.usage_until.items() if self.enabled[key].get())
+                or self.enabled['chatgpt'].get() and self.codex_activity.fast(now)
+                or self.enabled['cursor'].get() and self.cursor_activity.fast(now))
         return 200 if active or heat else 1000
 
     def set_update_chrome(self):
@@ -3986,6 +4002,7 @@ class UsageWidget:
         except tk.TclError:
             pass
         self.runner.close()
+        self.cursor_activity.close()
         if self.timer:
             self.root.after_cancel(self.timer)
         if self.activity_timer:

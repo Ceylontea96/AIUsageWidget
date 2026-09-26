@@ -1,5 +1,7 @@
 """Detect Cursor Agent turns without reading transcript content for quota values."""
 import json
+import queue
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -352,4 +354,95 @@ class CursorActivityMonitor:
         self._folders = folders
         self.initialized = True
         self._log_transitions(now)
+        return refresh
+
+
+class BackgroundCursorActivityMonitor:
+    """Run filesystem work on one worker; the UI only consumes timed snapshots.
+
+    The worker owns the synchronous monitor and never touches Tk. Deadlines,
+    rather than cached booleans, let the UI expire activity during a slow scan.
+    """
+    def __init__(self, home=None, *, monitor_factory=None):
+        self._factory = monitor_factory or (lambda: CursorActivityMonitor(home))
+        self._requests = queue.Queue(maxsize=1)
+        self._results = queue.SimpleQueue()
+        self._stop = threading.Event()
+        self._thread = None
+        self._busy = False
+        self._generation = 0
+        self._reset_next = False
+        self._last_submit = float('-inf')
+        self._visual_until = self._fast_until = float('-inf')
+        self.was_fast = self.was_visual = False
+
+    def visual_active(self, now):
+        return now < self._visual_until
+
+    def fast(self, now):
+        return now < self._fast_until
+
+    def pause(self):
+        # An in-flight scan may finish, but its old generation cannot reach UI.
+        self._generation += 1
+        self._reset_next = True
+        self._last_submit = float('-inf')
+        self._visual_until = self._fast_until = float('-inf')
+        self.was_fast = self.was_visual = False
+
+    def close(self):
+        self._stop.set()
+        self.pause()
+        try:
+            self._requests.put_nowait(None)
+        except queue.Full:
+            pass
+        # Do not block window shutdown on a slow filesystem. The daemon stops
+        # when its current scan returns; at most one scan can be in flight.
+
+    def _run(self):
+        monitor = None
+        while not self._stop.is_set():
+            request = self._requests.get()
+            if request is None or self._stop.is_set():
+                return
+            generation, now, reset = request
+            try:
+                if monitor is None or reset:
+                    monitor = self._factory()
+                refresh = monitor.poll(now)
+                deadlines = [
+                    state.last_meaningful_at + STALE_TIMEOUT if state.status == ACTIVE else state.grace_until
+                    for state in monitor.files.values() if state.status in (ACTIVE, GRACE)
+                ]
+                visual_until = max(deadlines, default=float('-inf'))
+                fast_until = max(visual_until, monitor.last_activity_time + INACTIVITY_TIMEOUT)
+                self._results.put((generation, refresh, visual_until, fast_until))
+            except Exception:
+                LOG.exception('[CursorActivity] background scan failed')
+                self._results.put((generation, False, None, None))
+
+    def poll(self, now):
+        if self._stop.is_set():
+            return False
+        refresh = False
+        try:
+            while True:
+                generation, hit, visual_until, fast_until = self._results.get_nowait()
+                self._busy = False
+                if generation == self._generation and visual_until is not None:
+                    refresh |= hit
+                    self._visual_until, self._fast_until = visual_until, fast_until
+        except queue.Empty:
+            pass
+        if not self._busy and now - self._last_submit >= SCAN_INTERVAL:
+            if self._thread is None:
+                worker = threading.Thread(target=self._run, daemon=True, name='cursor-activity')
+                worker.start()
+                self._thread = worker
+            self._requests.put_nowait((self._generation, now, self._reset_next))
+            self._busy = True
+            self._reset_next = False
+            self._last_submit = now
+        self.was_visual, self.was_fast = self.visual_active(now), self.fast(now)
         return refresh

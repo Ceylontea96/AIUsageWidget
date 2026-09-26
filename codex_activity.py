@@ -25,8 +25,9 @@ _LIFECYCLE = {
 # a real event, never a message that happens to mention one.
 _MARKERS = tuple(f'"payload":{{"type":"{kind}"'.encode() for kind in _LIFECYCLE)
 
-# Per-file state: [offset, partial line, token total, inode, turn, grace until, last append]
-OFFSET, PARTIAL, TOTAL, INODE, TURN, GRACE_UNTIL, LAST_APPEND = range(7)
+# Per-file state: offset, partial line, token total, inode, turn, grace until,
+# last append, modification time from the last successful read.
+OFFSET, PARTIAL, TOTAL, INODE, TURN, GRACE_UNTIL, LAST_APPEND, MTIME = range(8)
 ACTIVE, GRACE = 'active', 'grace'
 
 
@@ -49,6 +50,11 @@ class CodexActivityMonitor:
     def __init__(self, home=None):
         self.root = Path(home or os.environ.get('CODEX_HOME') or Path.home() / '.codex') / 'sessions'
         self.files = {}
+        self.pause()
+
+    def pause(self):
+        """Forget activity without I/O; the next poll rediscovers current turns."""
+        self.files.clear()
         self.last_activity_time = float('-inf')
         self.last_scan = float('-inf')
         self.last_discovery = float('-inf')
@@ -104,7 +110,7 @@ class CodexActivityMonitor:
         activity = quota = False
         try:
             paths = set(self.files)
-            # Tracked files are read every scan; looking for new ones costs two
+            # Tracked files are checked every scan; looking for new ones costs two
             # directory listings, so that happens once a second.
             if now - self.last_discovery >= DISCOVERY_INTERVAL:
                 self.last_discovery = now
@@ -124,14 +130,23 @@ class CodexActivityMonitor:
                 try:
                     stat = path.stat()
                     state = self.files.get(path)
-                    seed = state is None or stat.st_size < state[0] or stat.st_ino != state[3]
+                    seed = (state is None or state[MTIME] is None or
+                            stat.st_size < state[OFFSET] or stat.st_ino != state[INODE])
+                    if not seed and stat.st_size == state[OFFSET]:
+                        if stat.st_mtime_ns == state[MTIME]:
+                            continue
+                        # A same-size rewrite is not an append. Restore its
+                        # lifecycle afresh instead of seeking past its contents.
+                        seed = True
                     if seed:
-                        state = [max(0, stat.st_size - 65536), b'', None, stat.st_ino, None, float('-inf'), now]
+                        state = [max(0, stat.st_size - 65536), b'', None, stat.st_ino,
+                                 None, float('-inf'), now, None]
                         self.files[path] = state
                     with path.open('rb') as stream:
                         stream.seek(state[0])
                         data = stream.read(65536)
                     state[0] += len(data)
+                    state[MTIME] = stat.st_mtime_ns
                     if data and not seed:
                         state[LAST_APPEND] = now
                     seen = None

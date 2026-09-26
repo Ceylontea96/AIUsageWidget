@@ -1,0 +1,89 @@
+{
+  "python": "3.10.6 (tags/v3.10.6:9c7b4bd, Aug  1 2022, 21:53:49) [MSC v.1932 64 bit (AMD64)]",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "projects": 20,
+  "files": 1000,
+  "source_sha256": "c6a6fd2b35f68a11d383912d6973aa125356136948bc4f030083b4688fac8c48",
+  "samples": [
+    {
+      "background": false,
+      "pair": 0,
+      "first_call_ms": 279.8590999991575,
+      "max_call_ms": 279.8590999991575,
+      "caller_total_ms": 279.8590999991575,
+      "ready_ms": 279.8613999984809
+    },
+    {
+      "background": true,
+      "pair": 0,
+      "first_call_ms": 0.561500000912929,
+      "max_call_ms": 0.561500000912929,
+      "caller_total_ms": 0.615400007518474,
+      "ready_ms": 111.01989999951911
+    },
+    {
+      "background": true,
+      "pair": 1,
+      "first_call_ms": 0.1723000023048371,
+      "max_call_ms": 0.1723000023048371,
+      "caller_total_ms": 0.2089000045089051,
+      "ready_ms": 108.28269999910844
+    },
+    {
+      "background": false,
+      "pair": 1,
+      "first_call_ms": 100.99189999891678,
+      "max_call_ms": 100.99189999891678,
+      "caller_total_ms": 100.99189999891678,
+      "ready_ms": 100.99540000010165
+    },
+    {
+      "background": false,
+      "pair": 2,
+      "first_call_ms": 112.6096999978472,
+      "max_call_ms": 112.6096999978472,
+      "caller_total_ms": 112.6096999978472,
+      "ready_ms": 112.62120000174036
+    },
+    {
+      "background": true,
+      "pair": 2,
+      "first_call_ms": 0.2629999980854336,
+      "max_call_ms": 0.2629999980854336,
+      "caller_total_ms": 0.3329999963170849,
+      "ready_ms": 142.36139999775332
+    },
+    {
+      "background": true,
+      "pair": 3,
+      "first_call_ms": 0.15100000018719584,
+      "max_call_ms": 0.15100000018719584,
+      "caller_total_ms": 0.19500000053085387,
+      "ready_ms": 123.77969999943161
+    },
+    {
+      "background": false,
+      "pair": 3,
+      "first_call_ms": 129.81009999930393,
+      "max_call_ms": 129.81009999930393,
+      "caller_total_ms": 129.81009999930393,
+      "ready_ms": 129.81249999938882
+    },
+    {
+      "background": false,
+      "pair": 4,
+      "first_call_ms": 145.12910000121337,
+      "max_call_ms": 145.12910000121337,
+      "caller_total_ms": 145.12910000121337,
+      "ready_ms": 145.1323000001139
+    },
+    {
+      "background": true,
+      "pair": 4,
+      "first_call_ms": 0.33379999877070077,
+      "max_call_ms": 0.33379999877070077,
+      "caller_total_ms": 0.3880000003846362,
+      "ready_ms": 127.50779999987572
+    }
+  ]
+}

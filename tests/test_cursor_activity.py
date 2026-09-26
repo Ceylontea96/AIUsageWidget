@@ -1,5 +1,7 @@
 import json
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -187,6 +189,143 @@ class CursorActivityTests(unittest.TestCase):
         self.append(path, {'role': 'user'})
         self.assertTrue(monitor.poll(41.6))
         self.assertTrue(monitor.visual_active(41.6))
+
+
+class BackgroundActivityTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.path = self.root / 'project/agent-transcripts/main/events.jsonl'
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text('{"role":"user"}\n', encoding='utf-8')
+
+    def monitor(self, factory=None):
+        monitor = ca.BackgroundCursorActivityMonitor(self.root, monitor_factory=factory)
+        def stop():
+            monitor.close()
+            if monitor._thread:
+                monitor._thread.join(3)
+                self.assertFalse(monitor._thread.is_alive())
+        self.addCleanup(stop)
+        return monitor
+
+    def drain(self, monitor, now):
+        hit = monitor.poll(now)
+        deadline = time.monotonic() + 3
+        while monitor._busy and time.monotonic() < deadline:
+            time.sleep(.001)
+            hit |= monitor.poll(now)
+        self.assertFalse(monitor._busy, 'background scan did not finish')
+        return hit
+
+    def test_real_transcript_start_end_and_subagent_reach_the_ui(self):
+        monitor = self.monitor()
+        self.assertFalse(self.drain(monitor, 0))
+        self.assertTrue(monitor.visual_active(0))
+        CursorActivityTests.append(self.path, {'type': 'turn_ended'})
+        self.assertTrue(self.drain(monitor, 1))
+        self.assertTrue(monitor.visual_active(1))
+        self.assertFalse(monitor.visual_active(2))
+        subagent = self.path.parent / 'subagents/helper.jsonl'
+        subagent.parent.mkdir()
+        subagent.write_text('{"role":"user"}\n', encoding='utf-8')
+        self.assertTrue(self.drain(monitor, 2))
+        self.assertTrue(monitor.visual_active(2))
+        subagent.write_text('', encoding='utf-8')
+        self.drain(monitor, 3)
+        self.assertFalse(monitor.visual_active(3))
+
+    def test_slow_scan_does_not_block_poll_or_overlap_another_scan(self):
+        started, release = threading.Event(), threading.Event()
+        worker_ids = []
+        owner = self
+        class Slow(ca.CursorActivityMonitor):
+            def _candidate_files(self):
+                worker_ids.append(threading.get_ident())
+                started.set()
+                if not release.wait(3):
+                    raise RuntimeError('test worker was not released')
+                return super()._candidate_files()
+        monitor = self.monitor(lambda: Slow(owner.root))
+        self.addCleanup(release.set)
+        monitor.poll(0)
+        self.assertTrue(started.wait(1))
+        for now in (1, 2, 3):
+            self.assertFalse(monitor.poll(now))
+            self.assertTrue(monitor._busy)
+        self.assertEqual(len(worker_ids), 1)
+        self.assertNotEqual(worker_ids[0], threading.get_ident())
+        release.set()
+        self.drain(monitor, 0)
+        self.assertTrue(monitor.visual_active(0))
+
+    def test_pause_discards_in_flight_results_and_reseeds_on_resume(self):
+        started, release = threading.Event(), threading.Event()
+        owner = self
+        class Delayed(ca.CursorActivityMonitor):
+            def poll(self, now):
+                result = super().poll(now)
+                started.set()
+                if not release.wait(3):
+                    raise RuntimeError('test worker was not released')
+                return result
+        monitor = self.monitor(lambda: Delayed(owner.root))
+        self.addCleanup(release.set)
+        monitor.poll(0)
+        self.assertTrue(started.wait(1))
+        monitor.pause()
+        CursorActivityTests.append(self.path, {'type': 'turn_ended'})
+        release.set()
+        self.assertFalse(self.drain(monitor, 1))
+        self.assertFalse(monitor.visual_active(1))
+        CursorActivityTests.append(self.path, {'role': 'user'})
+        self.assertTrue(self.drain(monitor, 2))
+        self.assertTrue(monitor.visual_active(2))
+
+    def test_deadlines_expire_even_without_another_completed_scan(self):
+        monitor = self.monitor()
+        self.drain(monitor, 0)
+        self.assertTrue(monitor.visual_active(0))
+        self.assertFalse(monitor.visual_active(ca.STALE_TIMEOUT + 1))
+        self.assertFalse(monitor.fast(ca.STALE_TIMEOUT + 1))
+
+    def test_failed_worker_scan_is_retried(self):
+        inner = ca.CursorActivityMonitor(self.root)
+        monitor = self.monitor(lambda: inner)
+        with patch.object(inner, 'poll', side_effect=OSError('temporarily unavailable')), \
+             self.assertLogs(ca.LOG, level='ERROR'):
+            self.assertFalse(self.drain(monitor, 0))
+        self.drain(monitor, 1)
+        self.assertTrue(monitor.visual_active(1))
+
+    def test_thread_start_failure_can_be_retried(self):
+        monitor = self.monitor()
+        with patch.object(threading.Thread, 'start', side_effect=RuntimeError('no thread available')):
+            with self.assertRaises(RuntimeError):
+                monitor.poll(0)
+        self.drain(monitor, 1)
+        self.assertTrue(monitor.visual_active(1))
+
+    def test_close_returns_while_scan_is_blocked_and_worker_exits_afterwards(self):
+        started, release = threading.Event(), threading.Event()
+        owner = self
+        class Slow(ca.CursorActivityMonitor):
+            def poll(self, now):
+                started.set()
+                if not release.wait(3):
+                    raise RuntimeError('test worker was not released')
+                return super().poll(now)
+        monitor = self.monitor(lambda: Slow(owner.root))
+        self.addCleanup(release.set)
+        monitor.poll(0)
+        self.assertTrue(started.wait(1))
+        monitor.close()
+        self.assertTrue(monitor._thread.is_alive())
+        self.assertFalse(monitor.poll(1))
+        release.set()
+        monitor._thread.join(2)
+        self.assertFalse(monitor._thread.is_alive())
 
 
 if __name__ == '__main__':

@@ -1,0 +1,67 @@
+{
+  "baseline_ref": "56acc95",
+  "python": "3.10.6 (tags/v3.10.6:9c7b4bd, Aug  1 2022, 21:53:49) [MSC v.1932 64 bit (AMD64)]",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "files": 64,
+  "polls": 100,
+  "source_sha256": {
+    "before": "377a9faa2508316d27037350b006760b8e456198a61980a57515ece5669fc6dd",
+    "after": "f50661f6b65198f44b66194be6950bbc408018b20a1eac3acfdec9c1d87a7b50"
+  },
+  "file_opens": {
+    "before": 6400,
+    "after": 0
+  },
+  "samples": [
+    {
+      "variant": "before",
+      "pair": 0,
+      "ms": 779.1561999983969
+    },
+    {
+      "variant": "after",
+      "pair": 0,
+      "ms": 351.6235000024608
+    },
+    {
+      "variant": "after",
+      "pair": 1,
+      "ms": 396.6504999989411
+    },
+    {
+      "variant": "before",
+      "pair": 1,
+      "ms": 612.5434000023233
+    },
+    {
+      "variant": "before",
+      "pair": 2,
+      "ms": 614.7991999969236
+    },
+    {
+      "variant": "after",
+      "pair": 2,
+      "ms": 330.0205999985337
+    },
+    {
+      "variant": "after",
+      "pair": 3,
+      "ms": 343.0493999985629
+    },
+    {
+      "variant": "before",
+      "pair": 3,
+      "ms": 622.8532999994059
+    },
+    {
+      "variant": "before",
+      "pair": 4,
+      "ms": 650.2620999999635
+    },
+    {
+      "variant": "after",
+      "pair": 4,
+      "ms": 369.1295999997237
+    }
+  ]
+}
