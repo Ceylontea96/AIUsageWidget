@@ -127,7 +127,10 @@ class CursorResetTests(unittest.TestCase):
 
 class CursorCacheMigrationTests(unittest.TestCase):
     def setUp(self):
-        self.now = time.time()
+        # Whole seconds: target * 1000 / 1000 can land a hair under the
+        # target, and the floor-divided countdown then read '7일 후' about
+        # once in a hundred runs.
+        self.now = float(int(time.time()))
         self.target = self.now + 8 * 86400
 
     def pre_352_cache(self):
