@@ -1729,7 +1729,16 @@ class BarShimmer:
     def set_activity(self, active):
         if not self.animate:
             return
-        self._desired_active = bool(active)
+        active = bool(active)
+        if active == self._desired_active:
+            # Idle widgets need no Tk checks; an existing frame handles motion.
+            # If motion lost its scheduled frame, fall through and re-arm it.
+            if not self._fx_needed() and not self._tweening():
+                self._emphasis_t0 = None
+                return
+            if self._frame_scheduled:
+                return
+        self._desired_active = active
         self._active = self._desired_active
         try:
             if not self.winfo_ismapped():

@@ -1,0 +1,37 @@
+{
+  "baseline": "62b3ec4",
+  "scenario": "One real Tk card and chip, 100 repeated identical activity assignments each after initial state setup. Visibility return is controlled per scenario, monotonic time frozen and no scheduled frames executed during counting. This measures activity dispatch only, excluding ongoing animation rendering.",
+  "counts": {
+    "visible_idle": {
+      "before": {
+        "visibility_checks": 400,
+        "frame_sync_requests": 200
+      },
+      "after": {
+        "visibility_checks": 0,
+        "frame_sync_requests": 0
+      }
+    },
+    "visible_active": {
+      "before": {
+        "visibility_checks": 600,
+        "frame_sync_requests": 200
+      },
+      "after": {
+        "visibility_checks": 0,
+        "frame_sync_requests": 0
+      }
+    },
+    "hidden_idle": {
+      "before": {
+        "visibility_checks": 200,
+        "frame_sync_requests": 0
+      },
+      "after": {
+        "visibility_checks": 0,
+        "frame_sync_requests": 0
+      }
+    }
+  },
+  "source_sha256": "6948c128a12c2b694d737a62e2ecbca5b0371ff0ee7bcc67e951b86ada153e3a"
+}

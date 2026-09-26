@@ -126,6 +126,78 @@ class ShimmerUiTests(unittest.TestCase):
         card.render(snapshot())
         return card
 
+    def test_repeated_activity_skips_tk_checks_without_stopping_frames(self):
+        chip = u.Chip(self.root)
+        chip.configure(percent=60, bg=u.CHIP_CODEX)
+        for control in (self.weekly_card(), chip):
+            with self.subTest(control=type(control).__name__):
+                with patch.object(control, 'winfo_ismapped') as mapped, \
+                     patch.object(control, '_start_shimmer') as schedule:
+                    for _ in range(100):
+                        control.set_activity(False)
+                    mapped.assert_not_called()
+                    schedule.assert_not_called()
+                self.pump(control, 10, True)
+                with patch.object(control, 'winfo_ismapped') as mapped, \
+                     patch.object(control, '_start_shimmer') as schedule:
+                    for _ in range(100):
+                        control.set_activity(True)
+                    mapped.assert_not_called()
+                    schedule.assert_not_called()
+                self.pump(control, 10.4)
+                self.assertGreater(control._emphasis, 0)
+                self.assertTrue(control._frame_scheduled)
+                self.pump(control, 10.5, False)
+                self.pump(control, 12)
+                self.assertEqual(control._emphasis, 0)
+                self.assertFalse(control._frame_scheduled)
+
+    def test_idle_dispatch_resets_elapsed_time_after_last_scheduled_frame(self):
+        card = self.weekly_card()
+        self.pump(card, 10, True)
+        self.pump(card, 10.4)
+        self.pump(card, 10.5, False)
+        clock = u.clock_for(card)
+        with patch.object(card, 'winfo_ismapped', return_value=True), \
+             patch.object(u.time, 'monotonic', return_value=12):
+            clock._run_due(12)
+            self.assertFalse(card._frame_scheduled)
+            self.assertEqual(card._emphasis, 0)
+            card.set_activity(False)
+            self.assertIsNone(card._emphasis_t0)
+        self.pump(card, 20, True)
+        self.pump(card, 20.016)
+        self.assertLess(card._emphasis, 0.2, 'idle time must not become animation time')
+
+    def test_repeated_activity_rearms_lost_frames_and_resumes_after_show(self):
+        chip = u.Chip(self.root)
+        chip.configure(percent=60, bg=u.CHIP_CODEX)
+        for control in (self.weekly_card(), chip):
+            with self.subTest(control=type(control).__name__):
+                self.pump(control, 10, True)
+                clock = u.clock_for(control)
+                clock.release(control)
+                self.assertFalse(control._frame_scheduled)
+                with patch.object(control, 'winfo_ismapped', return_value=True):
+                    control.set_activity(True)
+                self.assertTrue(control._frame_scheduled)
+                with patch.object(control, 'winfo_ismapped', return_value=False):
+                    control._pause_shimmer()
+                    control.set_activity(True)
+                self.assertFalse(control._frame_scheduled)
+                with patch.object(control, 'winfo_ismapped', return_value=True):
+                    control._resume_shimmer()
+                self.assertTrue(control._frame_scheduled)
+                self.assertTrue(control._active)
+                self.pump(control, 12, False)
+                self.pump(control, 14)
+                self.assertFalse(control._frame_scheduled)
+        with patch.object(chip, 'winfo_ismapped', return_value=True):
+            chip.configure(percent=40)
+            u.clock_for(chip).release(chip)
+            chip.set_activity(False)
+            self.assertTrue(chip._frame_scheduled, 'idle activity must recover a lost value animation')
+
     def test_card_updates_only_bar_images_and_stops_timer(self):
         card = u.Card(self.root, 'chatgpt')
         card.render(ProviderSnapshot('chatgpt', 'Codex', 'Plus', True, 60, '',
