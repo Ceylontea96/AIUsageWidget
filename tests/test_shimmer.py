@@ -309,6 +309,42 @@ class ShimmerUiTests(unittest.TestCase):
             card.destroy()
             chip.destroy()
 
+    def test_unchanged_chip_percent_does_not_schedule_or_redraw(self):
+        chip = u.Chip(self.root)
+        chip.configure(text='GPT 60%', percent=60, bg=u.CHIP_CODEX)
+        photo = chip._photo
+        with patch.object(chip, 'winfo_ismapped', return_value=True), \
+             patch.object(chip, '_bar_photo', wraps=chip._bar_photo) as draw:
+            for _ in range(100):
+                chip.configure(text='GPT 60%', percent=60, bg=u.CHIP_CODEX)
+                self.assertFalse(chip._frame_scheduled)
+            draw.assert_not_called()
+        self.assertIs(chip._photo, photo)
+        chip.configure(text='GPT 60% 확인', percent=60, bg=u.CHIP_STALE)
+        self.assertEqual(chip.itemcget('label', 'text'), 'GPT 60% 확인')
+        self.assertEqual(chip.fill, u.CHIP_STALE)
+        self.assertIsNot(chip._photo, photo)
+
+    def test_unchanged_percent_preserves_activity_and_cancels_obsolete_target(self):
+        chip = u.Chip(self.root)
+        chip.configure(percent=60, bg=u.CHIP_CODEX)
+        with patch.object(chip, 'winfo_ismapped', return_value=True), \
+             patch.object(u.time, 'monotonic', return_value=10):
+            chip.configure(percent=40)
+            self.assertTrue(chip._tweening())
+            chip.configure(percent=60)
+            self.assertFalse(chip._tweening())
+            self.assertFalse(chip._frame_scheduled)
+            chip.set_activity(True)
+            chip.configure(percent=60)
+            self.assertFalse(chip._tweening())
+            self.assertTrue(chip._frame_scheduled)
+            self.assertTrue(chip._active)
+        self.pump(chip, 10)
+        self.pump(chip, 10.4)
+        self.assertGreater(chip._emphasis, 0)
+        self.assertTrue(chip._frame_scheduled)
+
     def test_repeated_target_does_not_restart_or_finish_length_early(self):
         card = u.Card(self.root, 'chatgpt')
         chip = u.Chip(self.root)

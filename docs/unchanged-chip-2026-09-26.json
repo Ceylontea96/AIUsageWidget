@@ -1,0 +1,15 @@
+{
+  "baseline": "7c1a291",
+  "scenario": "100 identical updates to an initialized idle Tk chip at 60%. Visibility check returns true; shared FrameClock executes due callbacks with synthetic times 20ms after each update. Initial paint excluded.",
+  "counts": {
+    "before": {
+      "animation_frames": 100,
+      "bar_images_created": 100
+    },
+    "after": {
+      "animation_frames": 0,
+      "bar_images_created": 0
+    }
+  },
+  "source_sha256": "06194eff7f77c4dd5e63eae2aa50484c0562b0e2a3339aacfaa345c48317fc6c"
+}

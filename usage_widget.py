@@ -1909,7 +1909,7 @@ class Chip(BarShimmer, tk.Canvas):
         if percent is not None:
             value = chip_fill_width(100, percent)
             do_anim = self.animate if animate is None else animate
-            if do_anim and self._seeded:
+            if do_anim and self._seeded and value != self.percent:
                 self._anim_to = value
                 if self._anim_t0 is None:
                     self._anim_t0 = time.monotonic()

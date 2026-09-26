@@ -1,4 +1,4 @@
-AI Usage 3.11.4 — GPT + Cursor + Claude
+AI Usage 3.11.5 — GPT + Cursor + Claude
 =====================================
 실행: zip을 폴더로 푼 뒤 `AI Usage.exe` 더블클릭. 없으면 `start_usage_widget.vbs`. 검은 명령 창은 위젯이 아니니 닫지 마세요.
 한 번 폴더에서 실행한 뒤에는 `AI Usage.exe`만 바탕화면 등으로 복사해도 됩니다. 원래 폴더는 지우면 안 됩니다. 우클릭 → 바탕화면 바로가기 만들기로 바로가기를 만들 수 있습니다.
