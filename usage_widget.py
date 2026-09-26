@@ -2263,6 +2263,7 @@ class Card(BarShimmer, tk.Frame):
                 font=m.font(FONT_SUB), fill=color, tags='service_status',
                 width=max(1, m.card_w - m.p(32)),
             )
+            self._clock_text['service_status'] = label
             bbox = canvas.bbox(item)
             y = (bbox[3] / max(m.scale, 0.01) + 6) if bbox else y + 18
         if snap.ok and snap.stale and snap.error and snap.error not in (label or ''):
@@ -2295,26 +2296,34 @@ class Card(BarShimmer, tk.Frame):
             x += width + gap
         return y + 30
 
+    def _set_clock_text(self, item, text):
+        if self._clock_text.get(item) != text:
+            self.rows.itemconfigure(item, text=text)
+            self._clock_text[item] = text
+
     def refresh_clock(self, now=None):
         now = time.time() if now is None else now
         if self._snap is None or int(now) == self._clock_second:
             return
         self._clock_second = int(now)
-        if self.rows.find_withtag('service_status'):
-            self.rows.itemconfigure('service_status', text=service_status_text(self._snap, now))
+        if 'service_status' in self._clock_text:
+            self._set_clock_text('service_status', service_status_text(self._snap, now))
         if self.collapsed:
             return
         # Countdown granularity follows the hero's measured window, not its label.
         hero = select_hero(self._snap) if self._snap.ok else None
         prefer_days = hero is None or not window_matches(hero, FIVE_HOURS, FIVE_HOUR_TOLERANCE)
-        self.rows.itemconfigure('countdown',text=reset_countdown(self._reset_epoch,now,prefer_days))
+        self._set_clock_text('countdown', reset_countdown(self._reset_epoch,now,prefer_days))
         for canvas_id, reset_at in self._secondary_clocks.values():
             days = max(0,int((reset_at-now)//86400))
-            self.rows.itemconfigure(canvas_id,text=f'{days}일 남음' if days else reset_countdown(reset_at,now))
+            self._set_clock_text(canvas_id, f'{days}일 남음' if days else reset_countdown(reset_at,now))
 
     def _paint(self,snap,percents):
         m, c = self.metrics, self.rows
         c.delete('all')
+        # Canvas IDs and displayed text belong to this paint, including collapsed cards.
+        self._clock_text = {}
+        self._clock_second = None
         self._actions = []
         limits = main_limits(snap)
         self._bar_origins = [None] * len(limits)
@@ -2444,7 +2453,6 @@ class Card(BarShimmer, tk.Frame):
         self._sync_additional()
         c.create_line(0,self.hero_height-1,m.card_w,self.hero_height-1,fill=HAIR)
         self._paint_shimmer()
-        self._clock_second=None
         self.refresh_clock()
 
 

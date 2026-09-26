@@ -905,6 +905,58 @@ class UiTests(unittest.TestCase):
             paint.assert_called_once()
         self.assertEqual(card.additional._rows[-1].percent,70)
 
+    def test_card_clocks_skip_unchanged_text_across_seconds(self):
+        now = 1_700_000_000
+        card = self.w.cards['chatgpt']
+        snap = ProviderSnapshot('chatgpt','GPT','Plus',True,80,'',fetched_at=now-10*86400,
+            main_limits=[limit('primary_window','5시간',80,FIVE_H,now+7230),
+                         limit('secondary_window','주간',70,WEEK,now+7*86400+300)])
+        with patch.object(u.time, 'time', return_value=now):
+            card.render(snap)
+        with patch.object(card.rows, 'itemconfigure', wraps=card.rows.itemconfigure) as update, \
+             patch.object(card.rows, 'find_withtag', wraps=card.rows.find_withtag) as find:
+            for second in range(1, 30):
+                card.refresh_clock(now+second)
+            update.assert_not_called()
+            find.assert_not_called()
+        self.assertEqual(card.rows.itemcget('countdown','text'), '2시간 0분')
+        card.refresh_clock(now+31)
+        self.assertEqual(card.rows.itemcget('countdown','text'), '1시간 59분')
+        card.refresh_clock(now+300)
+        self.assertEqual(card.rows.itemcget('week_remaining','text'), '7일 남음')
+        card.refresh_clock(now+301)
+        self.assertEqual(card.rows.itemcget('week_remaining','text'), '6일 남음')
+
+    def test_card_clock_seconds_expiry_and_repaint(self):
+        now = 1_700_000_000
+        card = self.w.cards['chatgpt']
+        snap = ProviderSnapshot('chatgpt','GPT','Plus',True,80,'',fetched_at=now-20,
+            main_limits=[limit('primary_window','5시간',80,FIVE_H,now+2),
+                         limit('secondary_window','주간',70,WEEK,now+2)])
+        with patch.object(u.time, 'time', return_value=now):
+            card.render(snap)
+        for second, expected in ((1,'0분 01초'), (2,'곧'), (3,'곧')):
+            card.refresh_clock(now+second)
+            self.assertEqual(card.rows.itemcget('countdown','text'), expected)
+            self.assertEqual(card.rows.itemcget('week_remaining','text'), expected)
+            self.assertEqual(card.rows.itemcget('service_status','text'), f'{20+second}초 전 확인')
+        with patch.object(u.time, 'time', return_value=now+3):
+            card.set_collapsed(True)
+            self.assertFalse(card.rows.find_withtag('countdown'))
+            card.set_collapsed(False)
+            self.assertEqual(card.rows.itemcget('countdown','text'), '곧')
+            self.assertEqual(card.rows.itemcget('week_remaining','text'), '곧')
+            card.set_metrics(u.Metrics(1.5))
+            card.render(snap)
+            self.assertEqual(card.rows.itemcget('countdown','text'), '곧')
+        # A new check timestamp updates in place even without a card repaint.
+        snap.fetched_at = now+3
+        signature = card.last_signature
+        card.render(snap)
+        card.refresh_clock(now+4)
+        self.assertEqual(card.last_signature, signature)
+        self.assertEqual(card.rows.itemcget('service_status','text'), '방금 확인')
+
     def test_status_copy_names_the_cause_and_keeps_waiting_quiet(self):
         login=ProviderSnapshot('cursor','Cursor','Pro',False,None,'',error='Cursor에 다시 로그인하세요.')
         self.assertEqual(u.failure_cause(login),'재로그인 필요')

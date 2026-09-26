@@ -1,0 +1,15 @@
+{
+  "baseline": "8807999",
+  "scenario": "One weekly-hero card with one secondary clock and an old check timestamp; 100 one-second ticks after painting; all displayed text unchanged. Real Tk widgets, synthetic times, no wall-clock wait.",
+  "counts": {
+    "before": {
+      "itemconfigure": 300,
+      "find_withtag": 100
+    },
+    "after": {
+      "itemconfigure": 0,
+      "find_withtag": 0
+    }
+  },
+  "source_sha256": "13027a341862d8581ff7d1f95f54c18268d259f46eaad165ebe8f0a86940c39e"
+}
