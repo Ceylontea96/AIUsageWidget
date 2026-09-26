@@ -3299,6 +3299,8 @@ class UsageWidget:
                 self.body_scroll.lift()
             self.footer.place(x=1,y=height-m.footer_h-1,width=m.window_w-2,height=m.footer_h,bordermode='outside')
         self.root.geometry(f'{m.window_w}x{height}')
+        # Refresh before the newly visible detail widgets are painted.
+        self._refresh_visible_clocks()
         self.root.update_idletasks()
         if not self.preview and height != self._region_h:
             # Region coordinates include the whole frameless window.
@@ -3811,15 +3813,22 @@ class UsageWidget:
             if not self.closing:
                 self.timer = self.root.after(delay or 1000, self.tick)
 
+    def _refresh_visible_clocks(self):
+        if self.compact:
+            return
+        now = time.time()
+        for key, card in self.cards.items():
+            if self.enabled[key].get():
+                card.refresh_clock(now)
+        self.refresh_design_status()
+
     def _tick_once(self):
         """One pass of the widget clock. Returns the delay to the next pass."""
         self.drain_update_queue()
         if self.closing:
             # Installing an update closed the widget from inside the queue.
             return None
-        for card in self.cards.values():
-            card.refresh_clock()
-        self.refresh_design_status()
+        self._refresh_visible_clocks()
         now = time.monotonic()
         self.environment(now)
         if not self.preview:

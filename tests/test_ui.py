@@ -480,6 +480,58 @@ class UiTests(unittest.TestCase):
              patch.object(w.cursor_activity, 'fast', return_value=True):
             self.assertEqual(w._tick_once(), 1000)
 
+    def test_hidden_card_clocks_stop_while_polling_continues(self):
+        from contextlib import ExitStack
+        w = self.prepare()
+        w.compact = True
+        with ExitStack() as stack:
+            clocks = {key: stack.enter_context(patch.object(card, 'refresh_clock'))
+                      for key, card in w.cards.items()}
+            header = stack.enter_context(patch.object(w, 'refresh_design_status'))
+            activity = stack.enter_context(patch.object(w, '_poll_activity'))
+            stack.enter_context(patch.object(w, 'environment'))
+            stack.enter_context(patch.object(w, 'check_update'))
+            stack.enter_context(patch.object(w, 'start_job'))
+            w._tick_once()
+            for clock in clocks.values():
+                clock.assert_not_called()
+            header.assert_not_called()
+            activity.assert_called_once()
+            w.runner.poll.assert_called_once()
+            w.compact = False
+            for key in w.enabled:
+                w.enabled[key].set(key == 'chatgpt')
+            w._tick_once()
+            clocks['chatgpt'].assert_called_once()
+            clocks['cursor'].assert_not_called()
+            clocks['claude'].assert_not_called()
+            header.assert_called_once()
+
+    def test_reopening_details_refreshes_clocks_before_idle_paint(self):
+        now = 1_700_000_000
+        w = self.w
+        for key in w.enabled:
+            w.enabled[key].set(key == 'chatgpt')
+        snap = ProviderSnapshot('chatgpt','GPT','Plus',True,80,'',fetched_at=now,
+            main_limits=[limit('primary_window','5시간',80,FIVE_H,now+45)])
+        w.snapshots = {'chatgpt': snap}
+        with patch.object(u.time, 'time', return_value=now):
+            w.render('chatgpt')
+            w.compact = True
+            w.apply_mode()
+        card = w.cards['chatgpt']
+        with patch.object(u.time, 'time', return_value=now+20):
+            w._refresh_visible_clocks()
+            self.assertEqual(card.rows.itemcget('countdown','text'), '0분 45초')
+            def assert_current_before_paint():
+                self.assertEqual(card.rows.itemcget('countdown','text'), '0분 25초')
+                self.assertEqual(card.rows.itemcget('service_status','text'), '20초 전 확인')
+                self.assertIn('20초 전 확인', w.updated_label.cget('text'))
+            with patch.object(w.root, 'update_idletasks', side_effect=assert_current_before_paint) as paint:
+                w.compact = False
+                w.apply_mode()
+                paint.assert_called_once()
+
     def test_cursor_worker_pauses_with_service_and_closes_with_widget(self):
         w = self.w
         with patch.object(w.cursor_activity, 'pause', wraps=w.cursor_activity.pause) as pause:

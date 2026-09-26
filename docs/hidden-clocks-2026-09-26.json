@@ -1,0 +1,19 @@
+{
+  "baseline": "bfc897b",
+  "scenario": "Three enabled services, compact mode, 100 synthetic one-second main ticks on actual Tk widgets. Account/network environment checks stubbed. Each hero resets in 10 minutes; check timestamps start at the initial time.",
+  "counts": {
+    "before": {
+      "card_clock_calls": 300,
+      "header_refresh_calls": 100,
+      "card_text_updates": 468,
+      "header_label_updates": 56
+    },
+    "after": {
+      "card_clock_calls": 0,
+      "header_refresh_calls": 0,
+      "card_text_updates": 0,
+      "header_label_updates": 0
+    }
+  },
+  "source_sha256": "5883899d78b21fb6886b073cf8319991ff681fd8c1692b7fdf8a31e88b732b1f"
+}
