@@ -5,9 +5,11 @@ with a `status` of busy, waiting or idle. It is read every 0.25 s. That file is
 not a documented interface, so `claude agents --json`, the supported way to read
 session state from outside Claude Code, checks it: once for each Claude Code
 version, when the first real session of that version shows up, and again if
-the files stop parsing. If the files cannot be trusted the monitor polls
-`claude agents --json` every 5 s instead. If neither works, Claude simply shows
-no activity; quota polling is unaffected.
+a live session's file stays unreadable. If the files cannot be trusted the
+monitor polls `claude agents --json` every 5 s instead, backing off while that
+command fails but never giving up, and it returns to the files once they read
+cleanly again. If neither works, Claude simply shows no activity; quota
+polling is unaffected. Every change of mode is logged.
 
 Only `<digits>.json` files are opened, and only their state fields are read.
 The `.key` files beside them and every conversation transcript stay closed.
@@ -37,7 +39,14 @@ SCAN_INTERVAL = 0.25
 END_GRACE = 0.5
 AGENTS_INTERVAL = 5.0
 AGENTS_TIMEOUT = 5.0
-PARSE_FAILURES_BEFORE_CHECK = 3
+# A failing `claude agents --json` is retried at doubling gaps up to this.
+AGENTS_BACKOFF_MAX = 60.0
+# Claude Code rewrites a session file in milliseconds. A file that stays
+# unreadable this long, for a process that is still running, is a changed
+# format rather than a write in progress or a crashed session's leftover.
+PARSE_BROKEN_S = 5.0
+# How often agents mode looks again at files it stopped trusting.
+FILE_RETRY_S = 30.0
 MAX_SESSION_BYTES = 16384
 MAX_ANCESTRY = 16
 
@@ -153,7 +162,11 @@ class ClaudeActivityMonitor:
         self.last_scan = float('-inf')
         self.last_active = float('-inf')
         self.validated_version = None
+        # file name -> when it was first found unreadable
         self.parse_failures = {}
+        self._agents_reason = None
+        self._files_retry_at = float('-inf')
+        self._agents_failures = 0
         self._own_cache = {}
         self._lock = threading.Lock()
         self._busy = False
@@ -230,19 +243,36 @@ class ClaudeActivityMonitor:
             pid, child_created = parent, parent_created
         return False
 
+    def _broken_live(self, broken):
+        """Unreadable files whose process is still running."""
+        names = []
+        for name in broken:
+            match = _SESSION_FILE.match(name)
+            if match and self.processes.created(int(match.group(1))) is not None:
+                names.append(name)
+        return names
+
+    def _set_mode(self, mode, why):
+        if mode != self.mode:
+            LOG.debug('[Claude] activity mode %s -> %s (%s)', self.mode, mode, why)
+            self.mode = mode
+
     def _scan_files(self, now):
         # Apply a finished check first, or its version still looks unchecked
         # and a second identical check would start.
         self._take_check_result()
+        if self.mode != FAST:
+            return False
         sessions, broken = self._read_sessions()
+        broken = self._broken_live(broken)
         for name in list(self.parse_failures):
             if name not in broken:
                 del self.parse_failures[name]
         for name in broken:
-            # One unreadable read is a file being rewritten; a run of them is a changed format.
-            self.parse_failures[name] = self.parse_failures.get(name, 0) + 1
-        if any(count >= PARSE_FAILURES_BEFORE_CHECK for count in self.parse_failures.values()):
-            LOG.debug('[Claude] session files no longer parse; checking with agents --json')
+            self.parse_failures.setdefault(name, now)
+        if any(now - first >= PARSE_BROKEN_S for first in self.parse_failures.values()):
+            LOG.debug('[Claude] a live session file stayed unreadable %.0fs; checking with agents --json',
+                      PARSE_BROKEN_S)
             self.parse_failures.clear()
             self._start_check(None, reason='parse')
         live = [s for s in sessions if self._alive(s)]
@@ -271,15 +301,20 @@ class ClaudeActivityMonitor:
         version = sessions[0].get('version') if sessions else None
 
         def job():
-            result = self.agents()
-            outcome = self._compare(sessions, result)
-            if outcome == 'retry':
-                time.sleep(1.0)
-                fresh, _ = self._read_sessions()
-                outcome = self._compare(fresh or sessions, self.agents())
-            with self._lock:
-                self._agents_result = (reason, version, outcome)
-                self._busy = False
+            outcome = 'unsupported'
+            try:
+                result = self.agents()
+                outcome = self._compare(sessions, result)
+                if outcome == 'retry':
+                    time.sleep(1.0)
+                    fresh, _ = self._read_sessions()
+                    outcome = self._compare(fresh or sessions, self.agents())
+            except Exception:
+                LOG.exception('[Claude] agents --json check failed')
+            finally:
+                with self._lock:
+                    self._agents_result = (reason, version, outcome)
+                    self._busy = False
 
         self.spawn(job)
 
@@ -313,37 +348,77 @@ class ClaudeActivityMonitor:
         if result is None:
             return
         reason, version, outcome = result
+        if reason == 'poll':
+            # An agents-mode poll that finished after the switch back to files.
+            return
         LOG.debug('[Claude] agents --json check (%s): %s', reason, outcome)
         if reason == 'version' and outcome in ('ok', 'inconclusive', 'unsupported'):
             # Readable files with nothing to compare against are still trusted,
             # and asking again every scan would only spawn more processes.
             self.validated_version = version
+        elif reason == 'parse' and outcome == 'unsupported':
+            # Nothing better to switch to: keep reading whatever files do parse.
+            LOG.debug('[Claude] agents --json unavailable; staying on session files')
         elif outcome in ('mismatch', 'retry') or (reason == 'parse' and outcome != 'ok'):
-            self.mode = UNAVAILABLE if outcome == 'unsupported' else AGENTS
-            LOG.debug('[Claude] session files not trusted; mode %s', self.mode)
+            self._agents_reason = reason
+            self._files_retry_at = self.last_scan
+            self._agents_failures = 0
+            self._set_mode(AGENTS, 'session files not trusted after %s check' % reason)
+
+    def _files_readable_again(self, now):
+        """In agents mode entered for unreadable files, go back once they read."""
+        if self._agents_reason != 'parse' or now - self._files_retry_at < FILE_RETRY_S:
+            return False
+        self._files_retry_at = now
+        _, broken = self._read_sessions()
+        if self._broken_live(broken):
+            return False
+        self.parse_failures.clear()
+        self.validated_version = None
+        self._agents_reason = None
+        self._set_mode(FAST, 'session files read cleanly again')
+        return True
+
+    def _agents_interval(self):
+        if not self._agents_failures:
+            return AGENTS_INTERVAL
+        return min(AGENTS_BACKOFF_MAX, AGENTS_INTERVAL * 2 ** self._agents_failures)
 
     def _poll_agents(self, now):
+        if self._files_readable_again(now):
+            return self._scan_files(now)
         with self._lock:
             result = self._agents_result
             if result is not None and result[0] == 'poll':
                 self._agents_result = None
                 self._agents_active = result[2]
-            due = not self._busy and now - self._agents_at >= AGENTS_INTERVAL
+            due = not self._busy and now - self._agents_at >= self._agents_interval()
             if due:
                 self._busy = True
                 self._agents_at = now
         if due:
             def job():
-                agents = self.agents()
-                active = False
-                if agents is not None and self.processes is not None:
-                    parents = self.processes.parents()
-                    active = any(_active(a) for a in agents if isinstance(a, dict)
-                                 and not (isinstance(a.get('pid'), int) and self._is_own(a['pid'], parents)))
-                with self._lock:
-                    self._agents_result = ('poll', None, active)
-                    self._busy = False
+                agents, active = None, False
+                try:
+                    agents = self.agents()
+                    if agents is not None and self.processes is not None:
+                        parents = self.processes.parents()
+                        active = any(_active(a) for a in agents if isinstance(a, dict)
+                                     and not (isinstance(a.get('pid'), int) and self._is_own(a['pid'], parents)))
+                except Exception:
+                    LOG.exception('[Claude] agents --json poll failed')
+                    agents = None
+                finally:
+                    with self._lock:
+                        self._agents_result = ('poll', None, active)
+                        self._busy = False
+                # A failing command is retried later rather than switched off for good.
                 if agents is None:
-                    self.mode = UNAVAILABLE
+                    if not self._agents_failures:
+                        LOG.debug('[Claude] agents --json failed; retrying with backoff')
+                    self._agents_failures += 1
+                elif self._agents_failures:
+                    LOG.debug('[Claude] agents --json works again after %d failures', self._agents_failures)
+                    self._agents_failures = 0
             self.spawn(job)
         return self._agents_active

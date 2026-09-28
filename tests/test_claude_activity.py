@@ -241,9 +241,31 @@ class ValidationTests(MonitorCase):
         self.procs.add(200, 5000)
         (self.root / '200.json').write_text('{"pid": 200, "status": "busy", "extra": ', encoding='utf-8')
         self.agents_answer = [{'pid': 200, 'status': 'busy'}]
-        for _ in range(ca.PARSE_FAILURES_BEFORE_CHECK + 1):
-            self.tick(m)
+        with self.assertLogs('ai_usage.activity', 'DEBUG') as logs:
+            for _ in range(int(ca.PARSE_BROKEN_S) + 2):
+                self.tick(m)
         self.assertEqual(m.mode, ca.AGENTS)
+        self.assertTrue(any('activity mode fast -> agents' in line for line in logs.output))
+
+    def test_a_file_being_written_at_startup_does_not_switch(self):
+        # Three unreadable reads in under a second used to hand detection over
+        # to agents --json for good; a rewrite takes milliseconds.
+        m = self.monitor()
+        self.procs.add(200, 5000)
+        (self.root / '200.json').write_text('{"pid": 2', encoding='utf-8')
+        for _ in range(4):
+            self.tick(m, 0.25)
+        self.session(200, 'busy')
+        self.agents_answer = [{'pid': 200, 'status': 'busy'}]
+        self.assertTrue(self.tick(m, 0.25))
+        self.assertEqual(m.mode, ca.FAST)
+
+    def test_a_crashed_sessions_leftover_file_never_triggers_a_check(self):
+        m = self.monitor()
+        (self.root / '300.json').write_text('{"pid": 3', encoding='utf-8')
+        for _ in range(int(ca.PARSE_BROKEN_S) * 3):
+            self.tick(m)
+        self.assertEqual((m.mode, self.agent_calls), (ca.FAST, 0))
 
     def test_one_unreadable_read_is_a_file_being_written(self):
         m = self.monitor()
@@ -259,9 +281,12 @@ class ValidationTests(MonitorCase):
         self.procs.add(200, 5000)
         (self.root / '200.json').write_text('not json', encoding='utf-8')
         self.agents_answer = None
-        for _ in range(ca.PARSE_FAILURES_BEFORE_CHECK + 1):
+        for _ in range(int(ca.PARSE_BROKEN_S) + 2):
             self.assertFalse(self.tick(m))
-        self.assertEqual(m.mode, ca.UNAVAILABLE)
+        # Nothing better to switch to, so it keeps reading the files that do parse.
+        self.assertEqual((m.mode, self.agent_calls), (ca.FAST, 1))
+        self.session(201, 'busy', created=5001)
+        self.assertTrue(self.tick(m))
 
 
 class AgentsModeTests(MonitorCase):
@@ -277,6 +302,57 @@ class AgentsModeTests(MonitorCase):
             self.tick(m)
         self.assertTrue(self.tick(m))
         self.assertLessEqual(self.agent_calls, 3, 'about one call per five seconds')
+
+    def test_a_failing_command_backs_off_but_never_stops(self):
+        m = self.monitor()
+        m.mode = ca.AGENTS
+        self.procs.add(200, 5000)
+        self.agents_answer = None
+        for _ in range(40):
+            self.assertFalse(self.tick(m))
+        self.assertEqual(self.agent_calls, 3, 'calls at 5, 10 and 20 s gaps')
+        self.assertEqual(m.mode, ca.AGENTS)
+        self.agents_answer = [{'pid': 200, 'status': 'busy'}]
+        seen = [self.tick(m) for _ in range(int(ca.AGENTS_BACKOFF_MAX))]
+        self.assertTrue(any(seen), 'a working command brings activity back')
+        self.assertEqual(m._agents_failures, 0)
+
+    def test_an_exception_in_the_poll_does_not_stop_polling(self):
+        m = self.monitor()
+        m.mode = ca.AGENTS
+        self.procs.add(200, 5000)
+
+        def broken():
+            raise RuntimeError('boom')
+
+        self.agents_answer = broken
+        with self.assertLogs('ai_usage.activity', 'ERROR'):
+            self.tick(m)
+        self.assertFalse(m._busy)
+        self.agents_answer = [{'pid': 200, 'status': 'busy'}]
+        self.assertTrue(any(self.tick(m) for _ in range(int(ca.AGENTS_BACKOFF_MAX))))
+
+    def test_files_that_read_again_bring_back_the_fast_path(self):
+        m = self.monitor()
+        self.procs.add(200, 5000)
+        (self.root / '200.json').write_text('{"pid": 2', encoding='utf-8')
+        self.agents_answer = [{'pid': 200, 'status': 'busy'}]
+        for _ in range(int(ca.PARSE_BROKEN_S) + 2):
+            self.tick(m)
+        self.assertEqual(m.mode, ca.AGENTS)
+        self.session(200, 'busy')
+        for _ in range(int(ca.FILE_RETRY_S) + 1):
+            self.tick(m)
+        self.assertEqual(m.mode, ca.FAST)
+        self.assertTrue(self.tick(m))
+
+    def test_a_late_agents_poll_is_not_read_as_a_check(self):
+        m = self.monitor()
+        self.session(200, 'busy')
+        m._agents_result = ('poll', None, True)
+        with self.assertNoLogs('ai_usage.activity', 'DEBUG'):
+            m._take_check_result()
+        self.assertEqual(m.mode, ca.FAST)
 
 
 if __name__ == '__main__':
