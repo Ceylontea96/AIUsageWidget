@@ -3,6 +3,7 @@ import json
 import logging
 import math
 import os
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -15,6 +16,9 @@ INACTIVITY_TIMEOUT = 12.0
 END_GRACE = 0.5
 SCAN_INTERVAL = 0.25
 DISCOVERY_INTERVAL = 1.0
+# A resumed older conversation keeps appending to the file in the date folder
+# it was created in, so the whole archive is also swept for recent writes.
+ARCHIVE_SWEEP_INTERVAL = 5.0
 STALE_TIMEOUT = 600.0
 BACKSCAN_LIMIT = 1 << 20
 _LIFECYCLE = {
@@ -47,9 +51,15 @@ def _last_lifecycle(path, end):
 
 
 class CodexActivityMonitor:
-    def __init__(self, home=None):
+    def __init__(self, home=None, spawn=None):
         self.root = Path(home or os.environ.get('CODEX_HOME') or Path.home() / '.codex') / 'sessions'
         self.files = {}
+        # The archive sweep lists every date folder, tens of ms on Windows, so
+        # it runs off the UI thread and the next poll takes its result.
+        self.spawn = spawn or (lambda job: threading.Thread(target=job, daemon=True, name='codex-sweep').start())
+        self._sweep_lock = threading.Lock()
+        self._sweeping = False
+        self._swept = None
         self.pause()
 
     def pause(self):
@@ -58,6 +68,7 @@ class CodexActivityMonitor:
         self.last_activity_time = float('-inf')
         self.last_scan = float('-inf')
         self.last_discovery = float('-inf')
+        self.last_sweep = float('-inf')
         self.initialized = False
         self.was_fast = False
         self.was_visual = False
@@ -103,6 +114,51 @@ class CodexActivityMonitor:
             state[LAST_APPEND] = now - quiet
             LOG.debug('[Codex] joined a running turn')
 
+    def _recent_in_archive(self):
+        """Session files in any date folder written within the stale window.
+
+        A folder listing already carries each file's modification time, so
+        the sweep opens no file, and quiet files are left alone.
+        """
+        cutoff = time.time() - STALE_TIMEOUT
+        found, folders = [], [self.root]
+        while folders:
+            try:
+                with os.scandir(folders.pop()) as entries:
+                    for entry in entries:
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                folders.append(entry.path)
+                            elif entry.name.endswith('.jsonl') and entry.stat().st_mtime >= cutoff:
+                                found.append(Path(entry.path))
+                        except OSError:
+                            continue
+            except OSError:
+                continue
+        return found
+
+    def _start_sweep(self):
+        with self._sweep_lock:
+            if self._sweeping:
+                return
+            self._sweeping = True
+
+        def job():
+            found = []
+            try:
+                found = self._recent_in_archive()
+            finally:
+                with self._sweep_lock:
+                    self._swept = found
+                    self._sweeping = False
+
+        self.spawn(job)
+
+    def _take_sweep(self):
+        with self._sweep_lock:
+            found, self._swept = self._swept or [], None
+        return found
+
     def poll(self, now):
         if now - self.last_scan < SCAN_INTERVAL:
             return False, False
@@ -117,6 +173,10 @@ class CodexActivityMonitor:
                 today = datetime.now().date()
                 for day in (today, today - timedelta(days=1)):
                     paths.update((self.root / day.strftime('%Y/%m/%d')).glob('*.jsonl'))
+            if now - self.last_sweep >= ARCHIVE_SWEEP_INTERVAL:
+                self.last_sweep = now
+                self._start_sweep()
+            paths.update(self._take_sweep())
             # Bound discovery and reads; never scan the full session archive.
             ranked = []
             for path in paths:

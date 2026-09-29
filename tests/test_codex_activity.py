@@ -2,7 +2,7 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 from codex_activity import END_GRACE, CodexActivityMonitor
@@ -179,6 +179,68 @@ class TurnTests(unittest.TestCase):
             f.write(self.line('task_complete') + quote + filler)
         self.monitor.poll(0)
         self.assertFalse(self.monitor.visual_active(0))
+
+
+class ArchiveTests(unittest.TestCase):
+    """A resumed older conversation writes to the folder of the day it began."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.monitor = CodexActivityMonitor(self.temp.name, spawn=lambda job: job())
+        began = datetime.now() - timedelta(days=17)
+        self.old_day = Path(self.temp.name) / 'sessions' / began.strftime('%Y/%m/%d')
+        self.old_day.mkdir(parents=True)
+        self.path = self.old_day / 'rollout-resumed.jsonl'
+
+    def test_a_resumed_older_conversation_turns_the_bar_on(self):
+        self.path.write_bytes(TurnTests.line('task_complete'))
+        self.monitor.poll(0)
+        self.assertIn(self.path, self.monitor.files)
+        with self.path.open('ab') as f:
+            f.write(TurnTests.line('task_started'))
+        self.monitor.poll(1)
+        self.assertTrue(self.monitor.visual_active(1))
+        with self.path.open('ab') as f:
+            f.write(TurnTests.line('task_complete'))
+        self.monitor.poll(2)
+        self.assertFalse(self.monitor.visual_active(2 + END_GRACE + 0.05))
+
+    def test_joining_a_running_turn_in_an_older_folder(self):
+        self.path.write_bytes(TurnTests.line('task_started'))
+        self.monitor.poll(0)
+        self.assertTrue(self.monitor.visual_active(0))
+
+    def test_quiet_old_files_are_not_picked_up(self):
+        import os, time
+        self.path.write_bytes(TurnTests.line('task_started'))
+        old = time.time() - 3600
+        os.utime(self.path, (old, old))
+        self.monitor.poll(0)
+        self.assertNotIn(self.path, self.monitor.files)
+
+    def test_the_sweep_runs_off_the_ui_thread(self):
+        queued = []
+        monitor = CodexActivityMonitor(self.temp.name, spawn=queued.append)
+        self.path.write_bytes(TurnTests.line('task_started'))
+        monitor.poll(0)
+        self.assertNotIn(self.path, monitor.files, 'the poll does not wait for the sweep')
+        self.assertEqual(len(queued), 1)
+        queued.pop()()
+        monitor.poll(0.25)
+        self.assertIn(self.path, monitor.files)
+        monitor.poll(0.5)
+        self.assertEqual(queued, [], 'one sweep per five seconds')
+
+    def test_the_archive_is_swept_every_five_seconds(self):
+        self.monitor.poll(0)
+        self.path.write_bytes(TurnTests.line('task_started'))
+        for now in (1, 2, 4.75):
+            self.monitor.poll(now)
+            self.assertNotIn(self.path, self.monitor.files)
+        self.monitor.poll(5)
+        self.assertIn(self.path, self.monitor.files)
+        self.assertTrue(self.monitor.visual_active(5))
 
 
 class CadenceTests(unittest.TestCase):
