@@ -958,33 +958,75 @@ def lift_owned_popups(owner_hwnd=0):
         pass
 
 
-def lift_menu_windows(extra_hwnd=0):
-    """Raise native/Tk popup menus into the TOPMOST band; do not touch the widget.
+def _window_rect(user32, hwnd):
+    rect = (ctypes.c_long * 4)()
+    if not user32.GetWindowRect(ctypes.c_void_p(hwnd), rect):
+        return None
+    return tuple(rect)
 
-    Windows lists the menus top first, and they are raised bottom first so
-    each keeps its place. Raising them top first put the main menu back over
-    an open submenu, and the next pass put the submenu back over the main
-    menu, so the two traded places about twenty times a second.
+
+def _menus_on_top(user32, ours):
+    """Whether no window that overlaps one of our menus is stacked above it.
+
+    Menu drop shadows sit between the menus and are ignored, as are windows
+    that do not overlap any menu, such as the 1x1 helper windows other
+    programs keep at the very top.
+    """
+    rects = {int(h): _window_rect(user32, h) for h in ours}
+    below = set(rects)
+    buf = ctypes.create_unicode_buffer(64)
+    hwnd = user32.GetTopWindow(None)
+    for _ in range(256):
+        if not hwnd or not below:
+            break
+        handle = int(hwnd)
+        if handle in below:
+            below.discard(handle)
+        elif user32.IsWindowVisible(ctypes.c_void_p(handle)):
+            user32.GetClassNameW(ctypes.c_void_p(handle), buf, 64)
+            if buf.value != 'SysShadow':
+                box = _window_rect(user32, handle)
+                for h in below:
+                    menu = rects[h]
+                    if box is None or menu is None or (
+                            box[0] < menu[2] and menu[0] < box[2] and box[1] < menu[3] and menu[1] < box[3]):
+                        return False
+        hwnd = user32.GetWindow(ctypes.c_void_p(handle), 2)  # GW_HWNDNEXT
+    return not below
+
+
+def lift_menu_windows(extra_hwnd=0):
+    """Keep native/Tk popup menus in the TOPMOST band; do not touch the widget.
+
+    This runs every 50 ms while a menu is held open. Raising every menu each
+    time made the main menu briefly cover the 6 px where an open submenu
+    overlaps it, so the strip flickered even though the order ended the same.
+    Menus already on top are now left alone. Otherwise only the top menu is
+    raised and each lower one is slotted directly under the one above it, so
+    no menu ever passes over another.
     """
     try:
         user32 = ctypes.windll.user32
     except (AttributeError, OSError):
         return
-    insert = ctypes.c_void_p(-1)
+    flags = 0x0013  # SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
 
-    def lift(hwnd):
+    def place(hwnd, after):
         if not hwnd:
             return
         try:
-            user32.SetWindowPos(ctypes.c_void_p(int(hwnd)), insert, 0, 0, 0, 0, 0x0013)
+            user32.SetWindowPos(ctypes.c_void_p(int(hwnd)), ctypes.c_void_p(after), 0, 0, 0, 0, flags)
         except (AttributeError, OSError, OverflowError, TypeError, ValueError):
             pass
 
     try:
-        lift(extra_hwnd)
         user32.FindWindowExW.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p]
         user32.FindWindowExW.restype = ctypes.c_void_p
-        # A submenu is its own #32768 window, so every one of ours is raised.
+        user32.GetTopWindow.argtypes = [ctypes.c_void_p]
+        user32.GetTopWindow.restype = ctypes.c_void_p
+        user32.GetWindow.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+        user32.GetWindow.restype = ctypes.c_void_p
+        # A submenu is its own #32768 window. Windows lists them top first.
         ours, hwnd = [], None
         for _ in range(8):
             hwnd = user32.FindWindowExW(None, hwnd, '#32768', None)
@@ -994,8 +1036,13 @@ def lift_menu_windows(extra_hwnd=0):
             user32.GetWindowThreadProcessId(ctypes.c_void_p(hwnd), ctypes.byref(pid))
             if pid.value == os.getpid():
                 ours.append(hwnd)
-        for hwnd in reversed(ours):
-            lift(hwnd)
+        if ours and _menus_on_top(user32, ours):
+            return
+        place(extra_hwnd, -1)
+        if ours:
+            place(ours[0], -1)  # HWND_TOPMOST
+            for above, below in zip(ours, ours[1:]):
+                place(below, above)
     except (AttributeError, OSError, OverflowError, TypeError, ValueError):
         pass
 
