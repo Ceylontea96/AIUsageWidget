@@ -900,7 +900,11 @@ def keep_topmost_style(hwnd, on=True):
 
 
 def lift_owned_popups(owner_hwnd=0):
-    """Raise this process's dialogs/menus above the widget without dropping the widget."""
+    """Raise this process's dialogs/menus above the widget without dropping the widget.
+
+    EnumWindows lists windows top first; they are raised bottom first so a
+    dialog and a menu keep their order instead of trading places each pass.
+    """
     try:
         user32 = ctypes.windll.user32
     except (AttributeError, OSError):
@@ -934,13 +938,16 @@ def lift_owned_popups(owner_hwnd=0):
             owned = int(user32.GetWindow(hwnd, 4) or 0)
             user32.GetClassNameW(hwnd, buf, 256)
             if owned == owner or buf.value in ('#32770', '#32768', 'TkTopLevel'):
-                lift(handle)
+                found.append(handle)
         except (AttributeError, OSError, OverflowError, TypeError, ValueError):
             pass
         return True
 
+    found = []
     try:
         user32.EnumWindows(callback, 0)
+        for handle in reversed(found):
+            lift(handle)
         dialog = user32.FindWindowW('#32770', None)
         if dialog:
             other = ctypes.c_ulong()
