@@ -181,6 +181,15 @@ def safe_extract(archive, dest, limit=UNPACKED_LIMIT):
                     out.write(chunk)
 
 
+def is_git_checkout(folder):
+    """True for a git working copy (a .git folder, or a .git file in a worktree).
+
+    Unpacking a release zip over one leaves git saying one version and the
+    files another, so such a folder is updated with git, not by the widget.
+    """
+    return (Path(folder) / '.git').exists()
+
+
 def download_and_stage(zip_url, timeout=60, sha256=''):
     if not https_url(zip_url):
         raise RuntimeError('업데이트 주소가 올바르지 않습니다.')

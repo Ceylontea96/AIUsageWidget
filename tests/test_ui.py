@@ -683,7 +683,9 @@ class UiTests(unittest.TestCase):
             seen.append((fn, args[0], args[1]))
             return False
         w.notify=fake_notify
-        w.install_update()
+        # A zip install, not a git checkout like the repository these tests run in.
+        with patch.object(u,'APP_ROOT',Path(self.directory.name)):
+            w.install_update()
         self.assertEqual(seen[0][0], u.messagebox.askyesno)
         self.assertEqual(seen[0][1], '업데이트')
         self.assertIn('새 버전 9.9.9', seen[0][2])

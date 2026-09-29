@@ -414,13 +414,33 @@ function Save-RuntimeCache([string]$PythonExe, [string]$Pythonw, [int]$StartedPi
         $dir = Join-Path $env:APPDATA 'AiUsageWidget'
         # A live process may still be showing an initialization error dialog.
         # Cache only after this child registered its successfully created window.
+        # The widget registers a moment after it starts (1.8 s on a busy PC), so
+        # wait for it while it runs; checking once at 1.2 s never wrote a cache.
         $instance = Join-Path $dir 'widget.instance'
-        if (-not (Test-Path -LiteralPath $instance)) { return }
-        $identity = [IO.File]::ReadAllLines($instance)
         $hwnd = [long]0
-        if ($StartedPid -le 0 -or $identity.Length -ne 2 -or
-                $identity[0] -ne [string]$StartedPid -or
-                -not [long]::TryParse($identity[1], [ref]$hwnd) -or $hwnd -eq 0) { return }
+        $registered = $false
+        $deadline = (Get-Date).AddSeconds(15)
+        while ($StartedPid -gt 0) {
+            try {
+                if (Test-Path -LiteralPath $instance) {
+                    $identity = [IO.File]::ReadAllLines($instance)
+                    if ($identity.Length -eq 2 -and $identity[0] -eq [string]$StartedPid -and
+                            [long]::TryParse($identity[1], [ref]$hwnd) -and $hwnd -ne 0) {
+                        $registered = $true
+                        break
+                    }
+                }
+            } catch {
+                # The widget may be writing the file right now; read it again.
+            }
+            if ((Get-Date) -ge $deadline -or
+                    -not (Get-Process -Id $StartedPid -ErrorAction SilentlyContinue)) { break }
+            Start-Sleep -Milliseconds 200
+        }
+        if (-not $registered) {
+            Write-LaunchLog "runtime cache skipped: widget $StartedPid did not register a window"
+            return
+        }
         $lines = @('AIUsageRuntime1', [IO.Path]::GetFullPath($Here),
                    [IO.Path]::GetFullPath($PythonExe), [IO.Path]::GetFullPath($Pythonw))
         foreach ($path in @($PythonExe, $Pythonw, $Widget, (Join-Path $Here 'setup_and_run.ps1'))) {

@@ -54,7 +54,7 @@ from quota_policy import (
 )
 from codex_app_server import CodexAppServer
 from runtime import AlertGate, AuthWatcher, CodexJob, PollRunner, ToastSender, WorkerJob, limiting_quota, login_present, login_status, prepare_action, session_locked, start_tool_setup
-from updater import APP_VERSION, CHECK_EVERY, LAUNCHER_EXE, download_and_stage, fetch_latest, load_feed_url, start_apply, update_confirm_text
+from updater import APP_VERSION, CHECK_EVERY, LAUNCHER_EXE, download_and_stage, fetch_latest, is_git_checkout, load_feed_url, start_apply, update_confirm_text
 
 APP_DIR = Path(os.environ.get('APPDATA', str(Path.home()))) / 'AiUsageWidget'
 SETTINGS_PATH = APP_DIR / 'settings.json'
@@ -64,7 +64,8 @@ CACHE_PATH = APP_DIR / 'last_snapshot.json'
 OBSOLETE_FILES = ('reset_credits.json',)
 ALERT_PATH = APP_DIR / 'alerts.json'
 INSTALL_PATH = APP_DIR / 'install.json'
-ICON_DIR = Path(__file__).resolve().parent / 'assets' / 'icons'
+APP_ROOT = Path(__file__).resolve().parent
+ICON_DIR = APP_ROOT / 'assets' / 'icons'
 FONT_DIR = Path(__file__).resolve().parent / 'assets' / 'fonts'
 SHORTCUT_NAME = 'AI Usage.lnk'
 _FONTS_REGISTERED = None
@@ -4100,6 +4101,12 @@ class UsageWidget:
 
     def install_update(self):
         if self.preview or not self.update_info or self._update_busy:
+            return
+        if is_git_checkout(APP_ROOT):
+            self.notify(messagebox.showinfo, '업데이트',
+                        f'새 버전 {self.update_info.get("version", "")}이 있습니다.\n\n'
+                        '이 위젯 폴더는 git 작업 폴더라 위젯이 파일을 덮어쓰지 않습니다.\n'
+                        'git pull 로 받은 뒤 위젯을 다시 시작하세요.', parent=self.root)
             return
         if not self.notify(messagebox.askyesno, '업데이트', update_confirm_text(self.update_info), parent=self.root):
             return
