@@ -7,6 +7,7 @@ import json
 import math
 import os
 import sqlite3
+import tempfile
 import threading
 import time
 import urllib.error
@@ -1636,6 +1637,22 @@ def _claude_cli_executable() -> Path | None:
     return resolve_claude_executable()
 
 
+def _claude_query_dir() -> str | None:
+    """An empty folder to run the usage query in.
+
+    Claude Code gathers project context (git status and the like) from its
+    working folder. The widget folder is a git checkout, which added about six
+    processes, 100 MB and 1-2 s of CPU to every query.
+    """
+    base = os.environ.get("APPDATA") or tempfile.gettempdir()
+    folder = Path(base) / "AiUsageWidget" / "claude-query"
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+    return str(folder)
+
+
 def fetch_claude_cli(now: float | None = None) -> ProviderSnapshot:
     """Ask the installed Claude Code for plan usage. No prompt, so no token spend."""
     import subprocess
@@ -1674,6 +1691,7 @@ def fetch_claude_cli(now: float | None = None) -> ProviderSnapshot:
             input=(request + "\n").encode("utf-8"),
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            cwd=_claude_query_dir(),
             timeout=max(0.1, deadline - time.monotonic()),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
@@ -1700,6 +1718,7 @@ def fetch_claude_cli(now: float | None = None) -> ProviderSnapshot:
             status = subprocess.run(
                 [str(executable), "auth", "status"],
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2,
+                cwd=_claude_query_dir(),
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             auth = json.loads(status.stdout)

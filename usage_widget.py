@@ -27,7 +27,7 @@ from bar_raster import progress_rgba, ringed_progress_rgba
 import widget_raster as raster
 from frame_clock import FAST as FRAME_FAST, SLOW as FRAME_SLOW, clock_for
 from codex_activity import CodexActivityMonitor, FAST_INTERVAL, LOG
-from claude_activity import ClaudeActivityMonitor
+from claude_activity import UNAVAILABLE as CLAUDE_ACTIVITY_UNAVAILABLE, ClaudeActivityMonitor
 from cursor_activity import BackgroundCursorActivityMonitor
 from providers import (
     claude_plan_label,
@@ -765,6 +765,11 @@ CALLBACK_ERROR_REPEAT = 60.0
 # statusLine only runs in terminal Claude Code. When it is silent the widget
 # asks the CLI itself; that costs a process, not tokens, so keep it infrequent.
 CLAUDE_CLI_INTERVAL = 60.0
+# Each usage query launches Claude Code: several seconds of CPU and ~0.5 GB for
+# a moment. While Claude has not been used on this PC for CLAUDE_RECENT_USE,
+# the quota only moves through other devices, so it is asked every 5 minutes.
+CLAUDE_CLI_IDLE_INTERVAL = 300.0
+CLAUDE_RECENT_USE = 600.0
 CLAUDE_CLI_STALE = 300.0
 
 
@@ -2566,7 +2571,7 @@ class UsageWidget:
         if not preview and not LOG.handlers:
             try:
                 APP_DIR.mkdir(parents=True, exist_ok=True)
-                handler = RotatingFileHandler(APP_DIR / 'activity-debug.log', maxBytes=262144, backupCount=1, encoding='utf-8')
+                handler = RotatingFileHandler(APP_DIR / 'activity-debug.log', maxBytes=262144, backupCount=4, encoding='utf-8')
                 handler.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
                 LOG.addHandler(handler)
                 LOG.setLevel(logging.DEBUG)
@@ -2588,6 +2593,7 @@ class UsageWidget:
         self.claude_cli_error = None
         self.claude_cli_at = float('-inf')
         self.claude_cli_due = 0.0
+        self.claude_cli_started = float('-inf')
         self.additional_open = None
         self.failures = dict.fromkeys(FETCHERS, 0)
         self.due = dict.fromkeys(FETCHERS, 0.0)
@@ -3510,11 +3516,27 @@ class UsageWidget:
             if self.runner.start(key, now):
                 self.request_started[key] = now
                 self.poll_pending[key] = False
-                LOG.debug('[Usage] %s request started', TITLES[key])
                 if math.isfinite(previous):
-                    LOG.debug('[Usage] %s request interval=%.2fs', TITLES[key], now - previous)
+                    self._log_interval(key, now - previous)
         except OSError:
             self.accept(key, error_snapshot(key, TITLES[key], '조회 프로세스를 시작하지 못했습니다.', URLS[key]))
+
+    def _log_interval(self, key, interval):
+        """Write the poll interval when the cadence changes, e.g. 30 s -> 2 s."""
+        logged = self.__dict__.setdefault('_logged_interval', {})
+        previous = logged.get(key)
+        if previous is None or abs(interval - previous) > max(1.0, previous * 0.25):
+            LOG.debug('[Usage] %s request interval=%.2fs', TITLES[key], interval)
+            logged[key] = interval
+
+    def _log_quota(self, key, snap):
+        line = [(item.quota_id, item.used_percent, item.remaining_percent,
+                 round(item.remaining_percent) if item.remaining_percent is not None else None)
+                for item in global_main_limits(snap)]
+        logged = self.__dict__.setdefault('_logged_quota', {})
+        if line != logged.get(key):
+            logged[key] = line
+            LOG.debug('[Usage] quota raw/display remaining: %s', line)
 
     def start_claude_job(self):
         """statusLine cache first; fall back to asking Claude Code directly."""
@@ -3528,8 +3550,12 @@ class UsageWidget:
         if snap.ok and not snap.stale and known_plan:
             self.claude_cli_due = max(self.claude_cli_due, now + CLAUDE_CLI_INTERVAL)
         else:
-            if now >= self.claude_cli_due:
+            # A due time of 0 is a refresh someone asked for; it skips the idle gap.
+            forced = self.claude_cli_due == 0.0
+            spaced = now - self.claude_cli_started >= self._claude_cli_interval(now)
+            if now >= self.claude_cli_due and (forced or spaced):
                 self.claude_cli_due = now + CLAUDE_CLI_INTERVAL
+                self.claude_cli_started = now
                 try:
                     if self.runner.start(key, now):
                         self.request_started[key] = now
@@ -3537,6 +3563,19 @@ class UsageWidget:
                 except OSError:
                     LOG.debug('[Usage] Claude usage query could not start')
         self.accept(key, self._claude_display_snapshot(snap, now))
+
+    def _claude_cli_interval(self, now):
+        """1 minute while Claude was used here recently, else 5 minutes.
+
+        Without activity detection nothing says Claude is idle, so the query
+        keeps its 1-minute pace.
+        """
+        monitor = getattr(self, 'claude_activity', None)
+        last = getattr(monitor, 'last_active', None)
+        mode = getattr(monitor, 'mode', None)
+        if not isinstance(last, (int, float)) or mode == CLAUDE_ACTIVITY_UNAVAILABLE:
+            return CLAUDE_CLI_INTERVAL
+        return CLAUDE_CLI_INTERVAL if now - last < CLAUDE_RECENT_USE else CLAUDE_CLI_IDLE_INTERVAL
 
     def _claude_display_snapshot(self, statusline, now):
         """Prefer fresh observations, then the newest; statusLine wins ties."""
@@ -3706,7 +3745,7 @@ class UsageWidget:
         elif key == 'chatgpt':
             fast = self.codex_activity.fast(now) and not self.failures[key]
             self._schedule_poll(key, snap, now, active=fast)
-            LOG.debug('[Usage] quota raw/display remaining: %s', [(item.quota_id, item.used_percent, item.remaining_percent, round(item.remaining_percent) if item.remaining_percent is not None else None) for item in global_main_limits(snap)])
+            self._log_quota(key, snap)
         else:
             fast = (self.cursor_activity.fast(now) or until.get(key, 0) > now) and not self.failures[key]
             self._schedule_poll(key, snap, now, active=fast)

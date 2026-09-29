@@ -138,7 +138,9 @@ class DisplayTests(unittest.TestCase):
         self.assertEqual(u.reset_credit(self.snap(None), now=NOW), "")
 
     def test_extras_line_carries_the_date(self):
-        expiry = NOW + 6 * 86400
+        # quota_extras reads the real clock, so the expiry must be in the real future.
+        import time as clock
+        expiry = clock.time() + 6 * 86400
         line = u.quota_extras(self.snap(1, {"nearest_expires_at": expiry}))
         self.assertIn("만료", line)
         self.assertIn(p.fmt_local(expiry, "reset"), line)
