@@ -952,7 +952,13 @@ def lift_owned_popups(owner_hwnd=0):
 
 
 def lift_menu_windows(extra_hwnd=0):
-    """Raise native/Tk popup menus into the TOPMOST band; do not touch the widget."""
+    """Raise native/Tk popup menus into the TOPMOST band; do not touch the widget.
+
+    Windows lists the menus top first, and they are raised bottom first so
+    each keeps its place. Raising them top first put the main menu back over
+    an open submenu, and the next pass put the submenu back over the main
+    menu, so the two traded places about twenty times a second.
+    """
     try:
         user32 = ctypes.windll.user32
     except (AttributeError, OSError):
@@ -972,15 +978,17 @@ def lift_menu_windows(extra_hwnd=0):
         user32.FindWindowExW.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p]
         user32.FindWindowExW.restype = ctypes.c_void_p
         # A submenu is its own #32768 window, so every one of ours is raised.
-        hwnd = None
+        ours, hwnd = [], None
         for _ in range(8):
             hwnd = user32.FindWindowExW(None, hwnd, '#32768', None)
             if not hwnd:
-                return
+                break
             pid = ctypes.c_ulong()
             user32.GetWindowThreadProcessId(ctypes.c_void_p(hwnd), ctypes.byref(pid))
             if pid.value == os.getpid():
-                lift(hwnd)
+                ours.append(hwnd)
+        for hwnd in reversed(ours):
+            lift(hwnd)
     except (AttributeError, OSError, OverflowError, TypeError, ValueError):
         pass
 
