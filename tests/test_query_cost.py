@@ -73,6 +73,23 @@ class ClaudeQueryScheduleTests(WidgetCase):
                 self.assertEqual(self.w._claude_cli_interval(5000), u.CLAUDE_CLI_INTERVAL)
 
 
+class ClaudeStaleTests(WidgetCase):
+    def display_at(self, observed_at, now):
+        cli = ProviderSnapshot('claude', 'Claude', 'Pro', True, 80, '5시간 기준 잔여',
+                               internal={'source': 'claude_cli', 'quota_observed_at': 1000})
+        self.w.claude_cli_snapshot = cli
+        self.w.claude_cli_at = observed_at
+        missing = p.error_snapshot('claude', 'Claude', 'waiting', '')
+        return self.w._claude_display_snapshot(missing, now)
+
+    def test_an_idle_query_that_takes_a_while_does_not_grey_the_card(self):
+        # The next idle query starts 5 minutes after the last and needs a few seconds.
+        self.assertFalse(self.display_at(1000, 1000 + u.CLAUDE_CLI_IDLE_INTERVAL + 10).stale)
+
+    def test_two_missed_idle_queries_grey_the_card(self):
+        self.assertTrue(self.display_at(1000, 1000 + 2 * u.CLAUDE_CLI_IDLE_INTERVAL + 61).stale)
+
+
 class LogVolumeTests(WidgetCase):
     def test_unchanged_quota_is_logged_once(self):
         snap = ProviderSnapshot('chatgpt', 'GPT', 'Plus', True, 80, '', main_limits=[quota(80)])

@@ -774,7 +774,10 @@ CLAUDE_CLI_INTERVAL = 60.0
 # the quota only moves through other devices, so it is asked every 5 minutes.
 CLAUDE_CLI_IDLE_INTERVAL = 300.0
 CLAUDE_RECENT_USE = 600.0
-CLAUDE_CLI_STALE = 300.0
+# A CLI value turns grey only after two idle queries were missed. It used to
+# equal the idle interval, so each 3-7 s query greyed the card before it came
+# back. A failed query still marks the value stale at once.
+CLAUDE_CLI_STALE = 2 * CLAUDE_CLI_IDLE_INTERVAL + 60.0
 
 
 def remaining_marks(snap):

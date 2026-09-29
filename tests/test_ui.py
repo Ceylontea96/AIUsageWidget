@@ -929,7 +929,7 @@ class UiTests(unittest.TestCase):
         self.w.claude_cli_at=10
         missing=error_snapshot('claude','Claude','waiting','')
         first=self.w._claude_display_snapshot(missing,20)
-        later=self.w._claude_display_snapshot(missing,311)
+        later=self.w._claude_display_snapshot(missing,10+u.CLAUDE_CLI_STALE+1)
         self.assertFalse(first.stale)
         self.assertTrue(later.stale)
         self.assertEqual(first.fetched_at,later.fetched_at)
