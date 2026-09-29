@@ -185,6 +185,10 @@ $manifest = [ordered]@{ version = $version; files = @($shipped) } | ConvertTo-Js
 
 $release = Join-Path $project ('dist\release-' + $version + '-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $release | Out-Null
+# Every release is on GitHub; keep only the newest few local copies.
+Get-ChildItem -LiteralPath (Join-Path $project 'dist') -Directory -Filter 'release-*' |
+    Sort-Object CreationTime -Descending | Select-Object -Skip 3 |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
 $z1 = Join-Path $release 'AIUsageWidget.zip'
 $z2 = $z1
 Add-Type -AssemblyName System.IO.Compression.FileSystem

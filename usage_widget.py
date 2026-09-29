@@ -59,6 +59,9 @@ from updater import APP_VERSION, CHECK_EVERY, LAUNCHER_EXE, download_and_stage, 
 APP_DIR = Path(os.environ.get('APPDATA', str(Path.home()))) / 'AiUsageWidget'
 SETTINGS_PATH = APP_DIR / 'settings.json'
 CACHE_PATH = APP_DIR / 'last_snapshot.json'
+# Files earlier versions kept in APP_DIR that nothing reads any more.
+# reset_credits.json: GPT reset-credit expiry cache, unused since 3.7.0.
+OBSOLETE_FILES = ('reset_credits.json',)
 ALERT_PATH = APP_DIR / 'alerts.json'
 INSTALL_PATH = APP_DIR / 'install.json'
 ICON_DIR = Path(__file__).resolve().parent / 'assets' / 'icons'
@@ -805,6 +808,15 @@ def next_interval(snap, failures=0, active=False):
         active=bool(active),
         retry_after=getattr(snap, 'retry_after', '') if snap else '',
     )
+
+
+def remove_obsolete_files(folder):
+    """Delete files earlier versions left in the data folder; never anything else."""
+    for name in OBSOLETE_FILES:
+        try:
+            (Path(folder) / name).unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def should_setup(settings, preview=False):
@@ -2568,6 +2580,8 @@ class UsageWidget:
         self.request_started = dict.fromkeys(FETCHERS, float('-inf'))
         self.poll_pending = dict.fromkeys(FETCHERS, False)
         self._ui_active = dict.fromkeys(FETCHERS, False)
+        if not preview:
+            remove_obsolete_files(APP_DIR)
         if not preview and not LOG.handlers:
             try:
                 APP_DIR.mkdir(parents=True, exist_ok=True)
