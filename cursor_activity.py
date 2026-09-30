@@ -1,6 +1,7 @@
 """Detect Cursor Agent turns without reading transcript content for quota values."""
 import json
 import queue
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -27,6 +28,92 @@ _WORK_TYPES = {
     'subagent', 'subagent_start', 'subagent_message',
 }
 _WORK_ROLES = {'assistant', 'tool', 'subagent'}
+
+
+class NameChanges:
+    """Whether anything under a folder was created, removed or renamed.
+
+    A folder's modification time moves only when an entry directly inside it
+    is added, removed or renamed. Windows signals a change handle for exactly
+    those events anywhere in a tree, so one check costing microseconds can
+    stand in for looking at hundreds of folders. Appends to existing files do
+    not signal; they are read separately. Without a usable handle every call
+    answers True and the monitor looks at the folders as before.
+    """
+
+    _NOTIFY = 0x1 | 0x2  # FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME
+    _WAIT_OBJECT_0 = 0x0
+    _WAIT_TIMEOUT = 0x102
+
+    def __init__(self, root):
+        self.root = root
+        self._handle = None
+        self._k32 = self._kernel32()
+
+    @staticmethod
+    def _kernel32():
+        if sys.platform != 'win32':
+            return None
+        try:
+            import ctypes
+            from ctypes import wintypes
+            # A private instance, so these signatures never touch ctypes.windll.
+            k32 = ctypes.WinDLL('kernel32', use_last_error=True)
+            k32.FindFirstChangeNotificationW.restype = wintypes.HANDLE
+            k32.FindFirstChangeNotificationW.argtypes = [wintypes.LPCWSTR, wintypes.BOOL, wintypes.DWORD]
+            k32.WaitForSingleObject.restype = wintypes.DWORD
+            k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+            k32.FindNextChangeNotification.restype = wintypes.BOOL
+            k32.FindNextChangeNotification.argtypes = [wintypes.HANDLE]
+            k32.FindCloseChangeNotification.restype = wintypes.BOOL
+            k32.FindCloseChangeNotification.argtypes = [wintypes.HANDLE]
+            k32.invalid_handle = ctypes.c_void_p(-1).value
+            return k32
+        except (OSError, AttributeError):
+            return None
+
+    @property
+    def watching(self):
+        return self._handle is not None
+
+    def changed(self):
+        """True if something may have changed since the previous call."""
+        k32 = self._k32
+        if k32 is None:
+            return True
+        if self._handle is None:
+            handle = k32.FindFirstChangeNotificationW(str(self.root), True, self._NOTIFY)
+            if handle and handle != k32.invalid_handle:
+                self._handle = handle
+            # A new handle has seen nothing yet, so the caller must look once.
+            return True
+        state = k32.WaitForSingleObject(self._handle, 0)
+        if state == self._WAIT_TIMEOUT:
+            return False
+        # Re-arm before the caller looks, so a change made meanwhile signals
+        # the next call. A handle that cannot be re-armed (the folder was
+        # removed, say) is dropped and made again later.
+        if state != self._WAIT_OBJECT_0 or not k32.FindNextChangeNotification(self._handle):
+            self.close()
+        return True
+
+    def close(self):
+        handle, self._handle = self._handle, None
+        if handle is not None and self._k32 is not None:
+            self._k32.FindCloseChangeNotification(handle)
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
+def _close(monitor):
+    """Release a monitor's change handle; test factories may return anything."""
+    close = getattr(monitor, 'close', None)
+    if close is not None:
+        close()
 
 
 @dataclass
@@ -56,6 +143,10 @@ class CursorActivityMonitor:
         self._root_mtime = None
         self._transcript_dirs = []
         self._folders = None
+        self._changes = NameChanges(self.root)
+
+    def close(self):
+        self._changes.close()
 
     @staticmethod
     def _classify(event):
@@ -345,7 +436,10 @@ class CursorActivityMonitor:
         self.last_scan = now
         # Consume tracked appends before discovery can evict a newly-active file.
         refresh = self._read_appends(now)
-        folders = self._folder_times()
+        # Folder times can only have moved if an entry was added, removed or
+        # renamed somewhere under the root; otherwise the last ones still hold.
+        changed = self._changes.changed()
+        folders = self._folder_times() if changed or self._folders is None else self._folders
         if now - self.last_discovery >= DISCOVERY_INTERVAL or folders != self._folders:
             self.last_discovery = now
             refresh |= self._discover(now)
@@ -402,25 +496,29 @@ class BackgroundCursorActivityMonitor:
 
     def _run(self):
         monitor = None
-        while not self._stop.is_set():
-            request = self._requests.get()
-            if request is None or self._stop.is_set():
-                return
-            generation, now, reset = request
-            try:
-                if monitor is None or reset:
-                    monitor = self._factory()
-                refresh = monitor.poll(now)
-                deadlines = [
-                    state.last_meaningful_at + STALE_TIMEOUT if state.status == ACTIVE else state.grace_until
-                    for state in monitor.files.values() if state.status in (ACTIVE, GRACE)
-                ]
-                visual_until = max(deadlines, default=float('-inf'))
-                fast_until = max(visual_until, monitor.last_activity_time + INACTIVITY_TIMEOUT)
-                self._results.put((generation, refresh, visual_until, fast_until))
-            except Exception:
-                LOG.exception('[CursorActivity] background scan failed')
-                self._results.put((generation, False, None, None))
+        try:
+            while not self._stop.is_set():
+                request = self._requests.get()
+                if request is None or self._stop.is_set():
+                    return
+                generation, now, reset = request
+                try:
+                    if monitor is None or reset:
+                        _close(monitor)
+                        monitor = self._factory()
+                    refresh = monitor.poll(now)
+                    deadlines = [
+                        state.last_meaningful_at + STALE_TIMEOUT if state.status == ACTIVE else state.grace_until
+                        for state in monitor.files.values() if state.status in (ACTIVE, GRACE)
+                    ]
+                    visual_until = max(deadlines, default=float('-inf'))
+                    fast_until = max(visual_until, monitor.last_activity_time + INACTIVITY_TIMEOUT)
+                    self._results.put((generation, refresh, visual_until, fast_until))
+                except Exception:
+                    LOG.exception('[CursorActivity] background scan failed')
+                    self._results.put((generation, False, None, None))
+        finally:
+            _close(monitor)
 
     def poll(self, now):
         if self._stop.is_set():
