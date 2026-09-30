@@ -213,16 +213,16 @@ class VersionTests(unittest.TestCase):
         p = patch.object(integration, 'resolve_claude_executable', return_value=self.exe)
         p.start()
         self.addCleanup(p.stop)
-        self.reply = SimpleNamespace(returncode=0, stdout='2.1.275 (Claude Code)', stderr='')
+        self.reply = SimpleNamespace(returncode=0, stdout=b'2.1.275 (Claude Code)', stderr=b'')
 
     def test_first_lookup_once_and_repeated_lookups_cached(self):
-        with patch.object(integration.subprocess, 'run', return_value=self.reply) as run:
+        with patch.object(integration.cli_process, 'run', return_value=self.reply) as run:
             for _ in range(10):
                 self.assertTrue(integration.claude_ready()[0])
             self.assertEqual(run.call_count, 1)
 
     def test_executable_metadata_change_rechecks(self):
-        with patch.object(integration.subprocess, 'run', return_value=self.reply) as run:
+        with patch.object(integration.cli_process, 'run', return_value=self.reply) as run:
             integration.claude_version_text()
             self.exe.write_bytes(b'v2 changed')
             integration.claude_version_text()
@@ -231,24 +231,24 @@ class VersionTests(unittest.TestCase):
     def test_path_change_rechecks(self):
         other = self.exe.with_name('other.exe')
         other.write_bytes(b'v2')
-        with patch.object(integration.subprocess, 'run', return_value=self.reply) as run:
+        with patch.object(integration.cli_process, 'run', return_value=self.reply) as run:
             integration.claude_version_text()
             with patch.object(integration, 'resolve_claude_executable', return_value=other):
                 integration.claude_version_text()
             self.assertEqual(run.call_count, 2)
 
     def test_failure_short_ttl_and_forced_refresh(self):
-        with patch.object(integration.subprocess, 'run', side_effect=OSError('bad')) as run, patch.object(integration.time, 'monotonic', return_value=10):
+        with patch.object(integration.cli_process, 'run', side_effect=OSError('bad')) as run, patch.object(integration.time, 'monotonic', return_value=10):
             self.assertEqual(integration.claude_version_text(), '')
             self.assertEqual(integration.claude_version_text(), '')
             self.assertEqual(run.call_count, 1)
-        with patch.object(integration.subprocess, 'run', return_value=self.reply) as run, patch.object(integration.time, 'monotonic', return_value=41):
+        with patch.object(integration.cli_process, 'run', return_value=self.reply) as run, patch.object(integration.time, 'monotonic', return_value=41):
             self.assertTrue(integration.claude_version_text())
             integration.claude_version_text(force=True)
             self.assertEqual(run.call_count, 2)
 
     def test_success_ttl_and_explicit_invalidation(self):
-        with patch.object(integration.subprocess,'run',return_value=self.reply) as run:
+        with patch.object(integration.cli_process,'run',return_value=self.reply) as run:
             with patch.object(integration.time,'monotonic',return_value=10):
                 integration.claude_version_text()
             with patch.object(integration.time,'monotonic',return_value=3611):
@@ -267,7 +267,7 @@ class VersionTests(unittest.TestCase):
             called.set()
             release.wait(2)
             return self.reply
-        with patch.object(integration.subprocess, 'run', side_effect=run):
+        with patch.object(integration.cli_process, 'run', side_effect=run):
             try:
                 self.assertEqual(integration.claude_version_text(background=True), '')
                 self.assertTrue(called.wait(2))
@@ -348,10 +348,11 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(bridge.extract_whitelist({'version': '99.1.1', 'rate_limits': {'new_schema': 42}})['windows'], {})
 
     def test_two_second_provider_path_has_no_subprocess(self):
-        with patch.object(integration, 'is_installed', return_value=True), patch.object(bridge, 'list_session_caches', return_value=[cache()]), patch.object(subprocess, 'run') as run:
+        with patch.object(integration, 'is_installed', return_value=True), patch.object(bridge, 'list_session_caches', return_value=[cache()]), patch.object(subprocess, 'run') as run, patch.object(subprocess, 'Popen') as popen:
             for _ in range(10):
                 self.assertTrue(providers.fetch_claude(1000).ok)
             run.assert_not_called()
+            popen.assert_not_called()
 
     def test_persisted_whitelist_removes_sensitive_unknowns(self):
         data = cache()

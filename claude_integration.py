@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import cli_process
 from claude_bridge import (
     MIN_CLAUDE_VERSION,
     atomic_write_json,
@@ -220,17 +221,9 @@ def claude_version_text(executable: Path | None = None, *, force=False, backgrou
 def _cache_version(exe, key) -> str:
     text = ""
     try:
-        completed = subprocess.run(
-            [str(exe), "--version"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=2,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
+        completed = cli_process.run([str(exe), "--version"], timeout=2, stderr=True)
         if completed.returncode == 0:
-            text = ((completed.stdout or "") + " " + (completed.stderr or "")).strip()
+            text = (completed.stdout + b" " + (completed.stderr or b"")).decode("utf-8", "replace").strip()
             if parse_claude_version(text) is None:
                 text = ""
     except (OSError, subprocess.TimeoutExpired):

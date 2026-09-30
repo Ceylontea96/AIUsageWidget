@@ -122,7 +122,7 @@ class QueryFolderTests(unittest.TestCase):
             with patch.dict(p.os.environ, {'APPDATA': base}), \
                     patch.object(p, '_claude_cli_executable', return_value=Path('claude.exe')), \
                     patch('claude_integration.claude_ready', return_value=(True, '')), \
-                    patch('subprocess.run', side_effect=run):
+                    patch('cli_process.run', side_effect=run):
                 p.fetch_claude_cli()
             folder = Path(base) / 'AiUsageWidget' / 'claude-query'
             self.assertTrue(calls)

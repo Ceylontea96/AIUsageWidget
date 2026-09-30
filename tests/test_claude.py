@@ -1,12 +1,12 @@
 import json
 import os
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import cli_process
 import claude_integration as integration
 import providers
 import usage_widget as widget
@@ -60,7 +60,7 @@ class ClaudeTests(unittest.TestCase):
             'rate_limits_available': False, 'rate_limits': None}}}
         results = [SimpleNamespace(stdout=json.dumps(body).encode()),
                    SimpleNamespace(stdout=json.dumps({'loggedIn': logged_in}).encode())]
-        with patch.object(subprocess, 'run', side_effect=results), patch.object(integration, 'claude_ready', return_value=(True, 'test')):
+        with patch.object(cli_process, 'run', side_effect=results), patch.object(integration, 'claude_ready', return_value=(True, 'test')):
             return providers.fetch_claude_cli()
 
     def test_signed_out_is_actionable(self):

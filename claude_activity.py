@@ -31,6 +31,7 @@ import threading
 import time
 from pathlib import Path
 
+import cli_process
 from codex_activity import LOG
 
 SCAN_INTERVAL = 0.25
@@ -124,11 +125,7 @@ def run_agents_json():
     if exe is None:
         return None
     try:
-        done = subprocess.run(
-            [str(exe), 'agents', '--json'],
-            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            timeout=AGENTS_TIMEOUT, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
-        )
+        done = cli_process.run([str(exe), 'agents', '--json'], timeout=AGENTS_TIMEOUT)
         data = json.loads(done.stdout.decode('utf-8', 'replace')) if done.returncode == 0 else None
     except (OSError, ValueError, subprocess.TimeoutExpired):
         return None

@@ -1656,6 +1656,8 @@ def _claude_query_dir() -> str | None:
 def fetch_claude_cli(now: float | None = None) -> ProviderSnapshot:
     """Ask the installed Claude Code for plan usage. No prompt, so no token spend."""
     import subprocess
+
+    import cli_process
     from claude_integration import claude_ready
 
     current = time.time() if now is None else float(now)
@@ -1680,7 +1682,8 @@ def fetch_claude_cli(now: float | None = None) -> ProviderSnapshot:
         ensure_ascii=True,
     )
     try:
-        completed = subprocess.run(
+        # An npm install runs claude.cmd, which starts node; a timeout must end both.
+        completed = cli_process.run(
             [
                 str(executable),
                 "-p",
@@ -1689,11 +1692,8 @@ def fetch_claude_cli(now: float | None = None) -> ProviderSnapshot:
                 "--verbose",
             ],
             input=(request + "\n").encode("utf-8"),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
             cwd=_claude_query_dir(),
             timeout=max(0.1, deadline - time.monotonic()),
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except subprocess.TimeoutExpired:
         return error_snapshot(
@@ -1715,12 +1715,7 @@ def fetch_claude_cli(now: float | None = None) -> ProviderSnapshot:
         # get_usage reports rate_limits_available=false for both signed-out
         # and unsupported accounts. Ask the CLI rather than reading credentials.
         try:
-            status = subprocess.run(
-                [str(executable), "auth", "status"],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2,
-                cwd=_claude_query_dir(),
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
+            status = cli_process.run([str(executable), "auth", "status"], timeout=2, cwd=_claude_query_dir())
             auth = json.loads(status.stdout)
             if isinstance(auth, dict) and auth.get("loggedIn") is False:
                 snap.error = "Claude Code 로그인이 필요합니다. 우클릭 → 서비스·로그인 관리 → Claude 로그인에서 연결하세요."

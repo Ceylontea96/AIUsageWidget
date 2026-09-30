@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- npm으로 설치한 Claude Code(`claude.cmd`)에서 Claude 사용량 조회가 시간 제한(12초)에 걸리면 끝나지 않고 기다리던 문제를 고쳤습니다. 시간 제한에 걸리면 `claude.cmd`만 종료되고, 실제로 일하는 node는 남아 조회 결과를 계속 붙잡고 있었습니다. 그래서 위젯이 node가 끝날 때까지 기다렸고, 네트워크가 멈추면 조회 한 번에 약 0.5GB를 쓰는 node가 1~5분마다 하나씩 쌓일 수 있었습니다. 같은 구조로 재현하면 1초 제한이 8.2초 뒤에야 끝났습니다. 이제 시간 제한에 걸리면 node까지 함께 종료합니다. `claude --version`, `claude auth status`, `claude agents --json`도 같은 방식으로 실행합니다.
+
 ## [3.11.12] - 2026-09-30
 
 ### Changed

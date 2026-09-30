@@ -19,6 +19,8 @@ import threading
 from pathlib import Path
 from typing import Any, Callable
 
+from cli_process import kill_tree
+
 START_TIMEOUT = 20.0
 READ_TIMEOUT = 12.0
 READ_METHOD = "account/rateLimits/read"
@@ -143,25 +145,6 @@ def resolve_codex_executable() -> Path | None:
         if hits:
             return hits[0]
     return path
-
-
-def _kill_tree(process: subprocess.Popen) -> None:
-    if process.poll() is not None:
-        return
-    try:
-        # A shim may sit between us and codex.exe; take the whole tree down.
-        subprocess.run(
-            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-    try:
-        process.kill()
-        process.wait(timeout=2)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
 
 
 def _user_message(error: Any) -> str:
@@ -326,7 +309,8 @@ class CodexAppServer:
                 process.wait(timeout=3)
             except (OSError, ValueError, subprocess.TimeoutExpired):
                 pass
-        _kill_tree(process)
+        # A shim may sit between us and codex.exe; take the whole tree down.
+        kill_tree(process)
         for stream in (process.stdin, process.stdout):
             try:
                 if stream is not None:
