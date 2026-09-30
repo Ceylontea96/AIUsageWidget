@@ -1,7 +1,9 @@
 """Claude Code activity from session state only. Offline, with fake processes."""
 import builtins
 import json
+import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -353,6 +355,65 @@ class AgentsModeTests(MonitorCase):
         with self.assertNoLogs('ai_usage.activity', 'DEBUG'):
             m._take_check_result()
         self.assertEqual(m.mode, ca.FAST)
+
+
+class SettledFileTests(MonitorCase):
+    """A session file that has not changed since it settled is not opened again."""
+
+    def age(self, pid, seconds):
+        stamp = time.time_ns() - int(seconds * 1e9)
+        os.utime(self.root / f'{pid}.json', ns=(stamp, stamp))
+
+    def opened_during(self, monitor, polls):
+        opened = []
+        real_open = builtins.open
+
+        def spy(path, *args, **kwargs):
+            opened.append(Path(path).name)
+            return real_open(path, *args, **kwargs)
+
+        with patch('builtins.open', spy):
+            for _ in range(polls):
+                self.tick(monitor)
+        return opened
+
+    def test_an_unchanged_settled_file_is_read_once(self):
+        m = self.monitor()
+        self.session(200, 'busy')
+        self.age(200, 10)
+        self.assertEqual(self.opened_during(m, 4), ['200.json'])
+        self.assertTrue(m.visual_active(self.now))
+
+    def test_a_rewrite_of_the_same_size_is_still_seen(self):
+        m = self.monitor()
+        self.session(200, 'busy')
+        self.age(200, 20)
+        self.assertTrue(self.tick(m))
+        self.session(200, 'idle')  # as long as busy: only the write time moves
+        self.age(200, 10)
+        self.assertFalse(self.tick(m, ca.END_GRACE + 0.05))
+
+    def test_a_file_written_within_the_second_is_read_every_scan(self):
+        # Two writes close together can share a time stamp; a fresh one proves nothing.
+        m = self.monitor()
+        self.session(200, 'busy')
+        self.assertEqual(self.opened_during(m, 3), ['200.json'] * 3)
+
+    def test_an_unreadable_file_is_tried_again(self):
+        m = self.monitor()
+        self.procs.add(200, 5000)
+        (self.root / '200.json').write_text('{"pid": 200, "sta', encoding='utf-8')
+        self.age(200, 10)
+        self.assertEqual(self.opened_during(m, 2), ['200.json'] * 2)
+
+    def test_a_removed_file_is_forgotten(self):
+        m = self.monitor()
+        self.session(200, 'busy')
+        self.age(200, 10)
+        self.assertTrue(self.tick(m))
+        (self.root / '200.json').unlink()
+        self.assertFalse(self.tick(m, ca.END_GRACE + 0.05))
+        self.assertEqual(m._settled, {})
 
 
 if __name__ == '__main__':

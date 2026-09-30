@@ -50,6 +50,11 @@ PARSE_BROKEN_S = 5.0
 FILE_RETRY_S = 30.0
 MAX_SESSION_BYTES = 16384
 MAX_ANCESTRY = 16
+# A session file keeps its size when its state changes: busy and idle are both
+# four letters, and the times beside them keep their digit count. An unchanged
+# size and write time only prove an unchanged file once that time is older
+# than any two writes the file system could stamp alike.
+SETTLED_NS = 1_000_000_000
 
 STATUSES = frozenset({'busy', 'waiting', 'idle'})
 STATES = frozenset({'working', 'blocked', 'done', 'failed', 'stopped'})
@@ -165,6 +170,8 @@ class ClaudeActivityMonitor:
         self._files_retry_at = float('-inf')
         self._agents_failures = 0
         self._own_cache = {}
+        # file name -> ((write time, size), fields) of its last good read, once settled
+        self._settled = {}
         self._lock = threading.Lock()
         self._busy = False
         self._agents_result = None
@@ -193,26 +200,48 @@ class ClaudeActivityMonitor:
 
     # -- fast path -------------------------------------------------------
     def _read_sessions(self):
-        """(sessions, broken) for every `<digits>.json`; nothing else is opened."""
+        """(sessions, broken) for every `<digits>.json`; nothing else is opened.
+
+        A file is opened again only if its size or write time moved since its
+        last good read, or that time was not yet settled then. Reading and
+        parsing every file four times a second was most of this scan's cost.
+        """
         sessions, broken = [], []
         try:
             names = [entry.name for entry in os.scandir(self.root) if entry.is_file()]
         except OSError:
             return sessions, broken
+        settled, now = {}, time.time_ns()
         for name in names:
             match = _SESSION_FILE.match(name)
             if not match:
                 continue
+            path = self.root / name
             try:
-                with open(self.root / name, 'rb') as handle:
-                    entry = json.loads(handle.read(MAX_SESSION_BYTES).decode('utf-8'))
-            except (OSError, ValueError):
+                # os.stat asks the file itself; a listing's copy can lag behind a write.
+                info = os.stat(path)
+            except OSError:
                 broken.append(name)
                 continue
-            if not isinstance(entry, dict) or not _session_shape_ok(entry) or entry['pid'] != int(match.group(1)):
-                broken.append(name)
-                continue
-            sessions.append({key: entry.get(key) for key in ('pid', 'status', 'state', 'kind', 'version', 'procStart')})
+            stamp = (info.st_mtime_ns, info.st_size)
+            known = self._settled.get(name)
+            if known is not None and known[0] == stamp:
+                fields = known[1]
+            else:
+                try:
+                    with open(path, 'rb') as handle:
+                        entry = json.loads(handle.read(MAX_SESSION_BYTES).decode('utf-8'))
+                except (OSError, ValueError):
+                    broken.append(name)
+                    continue
+                if not isinstance(entry, dict) or not _session_shape_ok(entry) or entry['pid'] != int(match.group(1)):
+                    broken.append(name)
+                    continue
+                fields = {key: entry.get(key) for key in ('pid', 'status', 'state', 'kind', 'version', 'procStart')}
+            if now - info.st_mtime_ns > SETTLED_NS:
+                settled[name] = (stamp, fields)
+            sessions.append(dict(fields))
+        self._settled = settled
         return sessions, broken
 
     def _alive(self, session):
