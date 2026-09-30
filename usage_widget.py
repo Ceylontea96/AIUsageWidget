@@ -26,7 +26,7 @@ from additional_ui import AdditionalBlock, additional_count, expanded_body_budge
 from bar_raster import progress_rgba, ringed_progress_rgba
 import widget_raster as raster
 from frame_clock import FAST as FRAME_FAST, SLOW as FRAME_SLOW, clock_for
-from codex_activity import CodexActivityMonitor, FAST_INTERVAL, LOG
+from codex_activity import CodexActivityMonitor, LOG
 from claude_activity import UNAVAILABLE as CLAUDE_ACTIVITY_UNAVAILABLE, ClaudeActivityMonitor
 from cursor_activity import BackgroundCursorActivityMonitor
 from providers import (
@@ -795,7 +795,8 @@ def usage_dropped(previous, current):
     return any(old - new > 0.25 for old, new in zip(before, after))
 
 
-def next_fast_due(started, now, interval=FAST_INTERVAL):
+def next_fast_due(started, now, interval):
+    """When the next fast poll may start; `interval` is the provider's active_interval."""
     return max(now, started + interval)
 
 
@@ -3923,8 +3924,10 @@ class UsageWidget:
             if cursor_hit:
                 self._request_fast_poll('cursor', now)
             elif cursor_fast:
+                from polling import policy_for
                 started = self.request_started.get('cursor', float('-inf'))
-                self.due['cursor'] = min(self.due['cursor'], next_fast_due(started, now))
+                self.due['cursor'] = min(self.due['cursor'],
+                                         next_fast_due(started, now, policy_for('cursor').active_interval))
             if was_cursor and not cursor_fast and not cursor_hit:
                 self.due['cursor'] = now + next_interval(self.snapshots.get('cursor'), active=False)
         self._sync_activity_ui(now)
@@ -3970,8 +3973,9 @@ class UsageWidget:
             if self.poll_pending.get(key):
                 self.poll_pending[key] = False
                 if not self.locked and self.enabled[key].get() and not self.failures[key]:
+                    from polling import policy_for
                     started = self.request_started.get(key, float('-inf'))
-                    self.due[key] = min(self.due[key], next_fast_due(started, now))
+                    self.due[key] = min(self.due[key], next_fast_due(started, now, policy_for(key).active_interval))
         if not self.preview and not self.locked:
             for key in FETCHERS:
                 if self.enabled[key].get() and key not in self.runner.slots and now >= self.due[key]:

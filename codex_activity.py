@@ -9,7 +9,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 LOG = logging.getLogger('ai_usage.activity')
-FAST_INTERVAL = 2.0
 INACTIVITY_TIMEOUT = 12.0
 # The bar follows a turn from its start to its end. Codex writes both, and a
 # session runs one turn at a time, so a new start replaces an unfinished one.

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 from email.utils import format_datetime
 import io
@@ -132,7 +133,10 @@ class PollingPolicyTests(unittest.TestCase):
         self.assertEqual(next_poll_delay(policy, **{**base, 'blocked': True}), 300)
         self.assertEqual([next_poll_delay(policy, **base, failures=n) for n in (1, 2, 3, 6)],
                          [30, 60, 120, 900])
-        self.assertEqual(policy_for('chatgpt'), policy_for('cursor'))
+        # Only the fast pace differs: Cursor is read through its app's own call.
+        self.assertEqual(policy_for('chatgpt').active_interval, 2)
+        self.assertEqual(policy_for('cursor').active_interval, 5)
+        self.assertEqual(replace(policy_for('cursor'), active_interval=2), policy_for('chatgpt'))
         self.assertNotIn('claude', __import__('polling').POLICIES)
 
     def test_retry_after_integer_is_not_clamped(self):

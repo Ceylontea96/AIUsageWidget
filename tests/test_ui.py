@@ -734,7 +734,33 @@ class UiTests(unittest.TestCase):
         w.due['cursor']=100
         w.request_started['cursor']=9
         w._request_fast_poll('cursor', 10)
-        self.assertEqual(w.due['cursor'], 11)
+        self.assertEqual(w.due['cursor'], 14)
+
+    def test_cursor_activity_keeps_the_five_second_pace(self):
+        # Cursor's usage call is its app's own, not a public API.
+        w=self.prepare()
+        w.enabled['chatgpt'].set(False)
+        w.enabled['claude'].set(False)
+        w.cursor_activity=Mock(was_fast=True)
+        w.cursor_activity.poll.return_value=False
+        w.cursor_activity.fast.return_value=True
+        w.request_started['cursor']=9
+        w.due['cursor']=100
+        w._poll_activity(10)
+        self.assertEqual(w.due['cursor'], 14)
+
+    def test_a_coalesced_fast_poll_keeps_each_services_pace(self):
+        w=self.prepare()
+        w.enabled['claude'].set(False)
+        now=u.time.monotonic()
+        for key in ('chatgpt','cursor'):
+            w.poll_pending[key]=True
+            w.request_started[key]=now
+        w.runner.poll.return_value=[(key,ProviderSnapshot(key,u.TITLES[key],'Pro',True,80,''),'')
+                                    for key in ('chatgpt','cursor')]
+        with patch.object(u,'session_locked',return_value=False):w.tick()
+        self.assertAlmostEqual(w.due['chatgpt']-now, 2, delta=.01)
+        self.assertAlmostEqual(w.due['cursor']-now, 5, delta=.01)
 
     def test_legacy_quota_cache_is_not_loaded(self):
         from providers import snapshot_to_dict

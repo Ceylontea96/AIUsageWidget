@@ -27,7 +27,9 @@ class PollingPolicy:
 
 POLICIES = {
     "chatgpt": PollingPolicy(),
-    "cursor": PollingPolicy(),
+    # Cursor is read through its app's own usage call, not a public API, so
+    # while it is in use ask every 5 s: at most 720 requests an hour, not 1,800.
+    "cursor": PollingPolicy(active_interval=5.0),
 }
 
 
