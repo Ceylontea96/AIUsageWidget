@@ -32,12 +32,15 @@ foreach ($node in $ast.FindAll({param($n) $n -is [System.Management.Automation.L
     if ($node.Name -in @('Save-RuntimeCache', 'Write-LaunchLog')) { Invoke-Expression $node.Extent.Text }
 }
 # Stands in for the widget process: alive for a while, registering late (or never).
-$sleeper = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-Command', "Start-Sleep -Seconds $SleeperSeconds") -WindowStyle Hidden -PassThru
+# cmd and ping start in a fraction of a second even when PowerShell takes several.
+$pings = [int]$SleeperSeconds + 1
+$sleeper = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', "ping -n $pings 127.0.0.1 >nul") -WindowStyle Hidden -PassThru
 $instance = Join-Path $appDir 'widget.instance'
 [IO.File]::WriteAllLines($instance, @('1', '999'))   # an older widget's registration
 if ($RegisterAfterMs -ne 'never') {
-    $write = "Start-Sleep -Milliseconds $RegisterAfterMs; [IO.File]::WriteAllLines('$instance', @('$($sleeper.Id)', '123'))"
-    Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-Command', $write) -WindowStyle Hidden | Out-Null
+    $delay = [int][math]::Ceiling([int]$RegisterAfterMs / 1000.0) + 1
+    $write = "ping -n $delay 127.0.0.1 >nul & (echo $($sleeper.Id)& echo 123)> `"$instance`""
+    Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', $write) -WindowStyle Hidden | Out-Null
 }
 $watch = [Diagnostics.Stopwatch]::StartNew()
 Save-RuntimeCache $python $pythonw $sleeper.Id

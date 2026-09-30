@@ -11,3 +11,5 @@ dist/
 design_reference/
 # Written by the widget's own updater when this folder is also the install
 package_files.json
+# Per-PC test timings used by tests/parallel.py
+tests/.durations.json

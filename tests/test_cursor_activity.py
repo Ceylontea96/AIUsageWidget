@@ -192,6 +192,8 @@ class CursorActivityTests(unittest.TestCase):
 
 
 class BackgroundActivityTests(unittest.TestCase):
+    # Waits end as soon as the worker gets there; the limits only need to
+    # outlast a busy machine, where a thread can wait seconds for its turn.
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -205,14 +207,14 @@ class BackgroundActivityTests(unittest.TestCase):
         def stop():
             monitor.close()
             if monitor._thread:
-                monitor._thread.join(3)
+                monitor._thread.join(10)
                 self.assertFalse(monitor._thread.is_alive())
         self.addCleanup(stop)
         return monitor
 
     def drain(self, monitor, now):
         hit = monitor.poll(now)
-        deadline = time.monotonic() + 3
+        deadline = time.monotonic() + 10
         while monitor._busy and time.monotonic() < deadline:
             time.sleep(.001)
             hit |= monitor.poll(now)
@@ -244,13 +246,13 @@ class BackgroundActivityTests(unittest.TestCase):
             def _candidate_files(self):
                 worker_ids.append(threading.get_ident())
                 started.set()
-                if not release.wait(3):
+                if not release.wait(10):
                     raise RuntimeError('test worker was not released')
                 return super()._candidate_files()
         monitor = self.monitor(lambda: Slow(owner.root))
         self.addCleanup(release.set)
         monitor.poll(0)
-        self.assertTrue(started.wait(1))
+        self.assertTrue(started.wait(10))
         for now in (1, 2, 3):
             self.assertFalse(monitor.poll(now))
             self.assertTrue(monitor._busy)
@@ -267,13 +269,13 @@ class BackgroundActivityTests(unittest.TestCase):
             def poll(self, now):
                 result = super().poll(now)
                 started.set()
-                if not release.wait(3):
+                if not release.wait(10):
                     raise RuntimeError('test worker was not released')
                 return result
         monitor = self.monitor(lambda: Delayed(owner.root))
         self.addCleanup(release.set)
         monitor.poll(0)
-        self.assertTrue(started.wait(1))
+        self.assertTrue(started.wait(10))
         monitor.pause()
         CursorActivityTests.append(self.path, {'type': 'turn_ended'})
         release.set()
@@ -313,18 +315,18 @@ class BackgroundActivityTests(unittest.TestCase):
         class Slow(ca.CursorActivityMonitor):
             def poll(self, now):
                 started.set()
-                if not release.wait(3):
+                if not release.wait(10):
                     raise RuntimeError('test worker was not released')
                 return super().poll(now)
         monitor = self.monitor(lambda: Slow(owner.root))
         self.addCleanup(release.set)
         monitor.poll(0)
-        self.assertTrue(started.wait(1))
+        self.assertTrue(started.wait(10))
         monitor.close()
         self.assertTrue(monitor._thread.is_alive())
         self.assertFalse(monitor.poll(1))
         release.set()
-        monitor._thread.join(2)
+        monitor._thread.join(10)
         self.assertFalse(monitor._thread.is_alive())
 
 

@@ -64,8 +64,8 @@ AI Usage 3.11.12 — GPT + Cursor + Claude
 이 위젯은 OpenAI(ChatGPT·Codex)·Cursor·Anthropic과 제휴되지 않은 비공식 도구입니다. 공식 앱이 아니며, 사용량 조회는 언제든 실패하거나 바뀔 수 있습니다. 소스 라이선스는 LICENSE(MIT)입니다.
 이 위젯은 사용량 조회 도구이며 크레딧 구매·리셋권 사용 기능은 없습니다.
 
-검증: py -3 -B -m unittest discover -p "test_*.py" -v
-  PowerShell·실행기·배포 스크립트를 실제로 띄우는 느린 통합 테스트는 평소 건너뜁니다. 배포 전에는 set AIUSAGE_FULL_TESTS=1 을 먼저 실행한 뒤 같은 명령으로 전부 돌립니다.
+검증: py -3 -B -m tests.parallel  (여러 프로세스로 나눠 돌립니다. 한 줄로 돌리려면 py -3 -B -m unittest discover -p "test_*.py")
+  PowerShell·실행기·배포 스크립트를 실제로 띄우는 느린 통합 테스트는 평소 건너뜁니다. 배포 전에는 py -3 -B -m tests.parallel --full 로 전부 돌립니다. 통합 테스트는 다른 테스트가 끝난 뒤 따로 돌아갑니다.
 
 자동 감지 / 알림
 - 최신 데이터가 10% 이하 또는 소진·제한 상태가 되면 Windows 토스트를 한 번 보냅니다.

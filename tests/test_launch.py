@@ -16,7 +16,9 @@ from tests.support import integration
 PROJECT = Path(__file__).resolve().parents[1]
 
 
-def powershell(script, *args, cwd=None, timeout=30):
+# PowerShell alone can take seconds to start on a busy machine; these limits
+# only matter when something is wrong, since every wait ends as soon as it can.
+def powershell(script, *args, cwd=None, timeout=120):
     return subprocess.run(
         ['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy',
          'Bypass', '-File', str(script), *map(str, args)],
@@ -117,7 +119,7 @@ class LauncherTests(unittest.TestCase):
             probe = root / 'host-check.vbs'
             probe.write_text('WScript.Quit 0\n')
             host_ready = subprocess.run(['cscript.exe', '//Nologo', '//T:5', str(probe)],
-                capture_output=True, timeout=10).returncode == 0
+                capture_output=True, timeout=60).returncode == 0
             script = root / 'runtime-test.ps1'
             script.write_text(r'''
 param($Launcher, $SetupSource, $VbsSource, [switch]$SkipVbs)
@@ -218,7 +220,7 @@ try {
 [IO.File]::WriteAllText((Join-Path $Here 'mode.txt'), 'fail')
 $null = $start.Invoke($null, @([string]$Here, [string]$appDir))
 $fallback = Join-Path $Here 'fallback.txt'
-for ($i = 0; $i -lt 100 -and -not (Test-Path -LiteralPath $fallback); $i++) { Start-Sleep -Milliseconds 50 }
+for ($i = 0; $i -lt 400 -and -not (Test-Path -LiteralPath $fallback); $i++) { Start-Sleep -Milliseconds 50 }
 $recovered = (Test-Path -LiteralPath $fallback) -and -not (Test-Path -LiteralPath $cache)
 $fallbackCount = [IO.File]::ReadAllLines($fallback).Length
 [IO.File]::Delete($fallback)
@@ -230,7 +232,7 @@ $zeroNoFallback = -not (Test-Path -LiteralPath $fallback)
 # A missing cache uses setup directly too.
 [IO.File]::Delete($cache)
 $null = $start.Invoke($null, @([string]$Here, [string]$appDir))
-for ($i = 0; $i -lt 100 -and -not (Test-Path -LiteralPath $fallback); $i++) { Start-Sleep -Milliseconds 50 }
+for ($i = 0; $i -lt 400 -and -not (Test-Path -LiteralPath $fallback); $i++) { Start-Sleep -Milliseconds 50 }
 $uncachedFallback = Test-Path -LiteralPath $fallback
 [IO.File]::Delete($cache)
 New-Item -ItemType Directory -Path $cache | Out-Null
@@ -246,13 +248,13 @@ $argumentFile = Join-Path $Here 'arguments.txt'
 [IO.File]::Delete($argumentFile)
 $wscript = Join-Path $env:WINDIR 'System32\wscript.exe'
 $child = Start-Process -FilePath $wscript -ArgumentList ('//B //T:5 "' + $vbs + '"') -WindowStyle Hidden -Wait -PassThru
-for ($i = 0; $i -lt 100 -and -not (Test-Path -LiteralPath $argumentFile); $i++) { Start-Sleep -Milliseconds 50 }
+for ($i = 0; $i -lt 400 -and -not (Test-Path -LiteralPath $argumentFile); $i++) { Start-Sleep -Milliseconds 50 }
 $vbsUsesStartup = [IO.File]::ReadAllText($argumentFile).Trim() -eq '--startup'
 $vbsFallback = @()
 [IO.File]::Delete($fallback)
 [IO.File]::Delete($entryExe)
 $child = Start-Process -FilePath $wscript -ArgumentList ('//B //T:5 "' + $vbs + '"') -WindowStyle Hidden -Wait -PassThru
-for ($i = 0; $i -lt 100 -and -not (Test-Path -LiteralPath $fallback); $i++) { Start-Sleep -Milliseconds 50 }
+for ($i = 0; $i -lt 400 -and -not (Test-Path -LiteralPath $fallback); $i++) { Start-Sleep -Milliseconds 50 }
 $vbsFallback = Test-Path -LiteralPath $fallback
 }
 @{missing=$missing;valid=$valid;arguments=$arguments;rejected=$rejected;moved=$moved;
@@ -302,7 +304,7 @@ $success = Attempt 'success' 'exit 0'
 $timeout = Attempt 'timeout' '$PID | Set-Content (Join-Path $PSScriptRoot "child.pid"); Start-Sleep -Seconds 60'
 $childId = [int](Get-Content (Join-Path $PSScriptRoot 'timeout/child.pid'))
 $child = Get-Process -Id $childId -ErrorAction SilentlyContinue
-if ($child) { $null = $child.WaitForExit(3000) }
+if ($child) { $null = $child.WaitForExit(15000) }
 $stopped = $null -eq (Get-Process -Id $childId -ErrorAction SilentlyContinue)
 if (-not $stopped) { Stop-Process -Id $childId }
 @{missing=$missing; failure=$failure; success=$success; timeout=$timeout; stopped=$stopped} | ConvertTo-Json -Compress
@@ -334,7 +336,7 @@ class LogonScriptLogTests(unittest.TestCase):
         appdata.mkdir()  # %APPDATA% always exists; the script creates only its own folder
         env = dict(os.environ, APPDATA=str(appdata))
         done = subprocess.run(['cscript.exe', '//Nologo', '//T:10', str(root / 'start_usage_widget.vbs')],
-                              env=env, capture_output=True, timeout=20)
+                              env=env, capture_output=True, timeout=90)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         text = (appdata / 'AiUsageWidget' / 'launch.log').read_bytes().decode('ascii')
         self.assertRegex(text, r'^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d vbs start ')
