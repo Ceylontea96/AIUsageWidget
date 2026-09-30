@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import updater
 import usage_widget as u
+from tests.support import integration
 
 PROJECT = Path(__file__).resolve().parents[1]
 
@@ -50,6 +51,7 @@ if (Test-Path -LiteralPath $log) { Write-Output ("log=" + [IO.File]::ReadAllText
 '''
 
 
+@integration('runs the setup script')
 @unittest.skipUnless(os.name == 'nt' and shutil.which('powershell'), 'Windows launcher integration')
 class RuntimeCacheTests(unittest.TestCase):
     def run_save(self, register_after_ms, sleeper_seconds=20):

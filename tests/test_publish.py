@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from tests.support import integration
 
 
 GIT_ENV = {'GIT_AUTHOR_NAME': 'fixture', 'GIT_AUTHOR_EMAIL': 'fixture@example.invalid',
@@ -30,6 +31,7 @@ def publish_clone(root, origin):
     git(root, 'push', '-q', '-u', 'origin', 'main')
 
 
+@integration('runs the release script in git clones')
 @unittest.skipUnless(os.name == 'nt', 'PowerShell release script is Windows-only')
 class PublishGuardTests(unittest.TestCase):
     def guarded_attempt(self, version, published, code=0, feed_version=None, after_commit=None):

@@ -65,6 +65,7 @@ AI Usage 3.11.11 — GPT + Cursor + Claude
 이 위젯은 사용량 조회 도구이며 크레딧 구매·리셋권 사용 기능은 없습니다.
 
 검증: py -3 -B -m unittest discover -p "test_*.py" -v
+  PowerShell·실행기·배포 스크립트를 실제로 띄우는 느린 통합 테스트는 평소 건너뜁니다. 배포 전에는 set AIUSAGE_FULL_TESTS=1 을 먼저 실행한 뒤 같은 명령으로 전부 돌립니다.
 
 자동 감지 / 알림
 - 최신 데이터가 10% 이하 또는 소진·제한 상태가 되면 Windows 토스트를 한 번 보냅니다.

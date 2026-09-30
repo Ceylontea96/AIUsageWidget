@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 import usage_widget as u
+from tests.support import integration
 
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -24,6 +25,7 @@ def powershell(script, *args, cwd=None, timeout=30):
     )
 
 
+@integration('starts PowerShell')
 @unittest.skipUnless(os.name == 'nt', 'Windows launcher integration')
 class ShortcutTests(unittest.TestCase):
     def test_missing_exe_error_is_utf8_korean(self):
@@ -58,6 +60,7 @@ class ShortcutTests(unittest.TestCase):
                     u.create_desktop_shortcut(root, desktop)
 
 
+@integration('starts PowerShell')
 @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell Python selection')
 class PythonSelectionTests(unittest.TestCase):
     def select(self, minimum, missing_tk=False):
@@ -104,6 +107,7 @@ $chosen = Get-ReadyPython
         self.assertFalse(self.select('3.9', missing_tk=True))
 
 
+@integration('compiles and runs the launcher')
 @unittest.skipUnless(os.name == 'nt', 'Compiled Windows launcher')
 class LauncherTests(unittest.TestCase):
     def test_cached_runtime_validation_and_recovery(self):
@@ -312,6 +316,7 @@ if (-not $stopped) { Stop-Process -Id $childId }
         self.assertTrue(data['stopped'])
 
 
+@integration('runs the logon script')
 @unittest.skipUnless(os.name == 'nt', 'Windows Script Host')
 class LogonScriptLogTests(unittest.TestCase):
     def test_logon_script_logs_utf8_safe_ascii(self):

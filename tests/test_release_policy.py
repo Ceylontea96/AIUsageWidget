@@ -3,10 +3,12 @@ import shutil
 import subprocess
 import unittest
 from pathlib import Path
+from tests.support import integration
 
 PROJECT = Path(__file__).resolve().parent.parent
 
 
+@integration('runs the release script')
 class ReleasePolicyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

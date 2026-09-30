@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 import usage_widget as u
+from tests.support import integration
 
 PROJECT = Path(__file__).resolve().parent.parent
 
@@ -27,6 +28,7 @@ class ObsoleteFileTests(unittest.TestCase):
         u.remove_obsolete_files(Path(tempfile.gettempdir()) / 'ai-usage-no-such-folder')
 
 
+@integration('runs the release script')
 @unittest.skipUnless(os.name == 'nt' and shutil.which('powershell'), 'PowerShell release script is Windows-only')
 class ReleasePruneTests(unittest.TestCase):
     def prune_snippet(self):
