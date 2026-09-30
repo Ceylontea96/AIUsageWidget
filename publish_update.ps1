@@ -36,15 +36,18 @@ function Get-ChangelogSection {
 
 function Get-LatestNotes {
     param([string]$Section, [string]$Version)
-    $added = [regex]::Matches($Section, '(?m)^- (.+)$')
-    if ($added.Count -gt 0) {
-        $bits = @()
-        foreach ($item in $added) {
-            $bits += $item.Groups[1].Value.Trim()
-            if ($bits.Count -ge 3) { break }
-        }
-        return ($bits -join ' / ')
+    # The widget's update dialog shows these lines. A changelog item leads with
+    # a one-sentence summary; only that goes out, the details stay on GitHub.
+    $bits = @()
+    foreach ($item in [regex]::Matches($Section, '(?m)^- (.+)$')) {
+        $text = $item.Groups[1].Value.Trim()
+        # A period ends the sentence only before a space: 3.11.10 and 1.4ms do not.
+        $first = [regex]::Match($text, '^.+?[.!?](?=\s|$)')
+        if ($first.Success) { $text = $first.Value }
+        $bits += $text
+        if ($bits.Count -ge 3) { break }
     }
+    if ($bits.Count -gt 0) { return ($bits -join ' / ') }
     return "AI Usage $Version"
 }
 

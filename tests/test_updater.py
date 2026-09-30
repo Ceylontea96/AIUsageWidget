@@ -102,6 +102,28 @@ class UpdaterTests(unittest.TestCase):
         self.assertEqual(u.note_lines('a / b / c / d'), ['a', 'b', 'c'])
         self.assertNotIn('·', u.update_confirm_text({'version': '1.0.0'}))
 
+    def test_long_changelog_items_show_only_their_summary(self):
+        # What 3.12.0's feed carried: whole changelog items, details and all.
+        notes = ('사용 중 막대와 칩 위를 지나는 빛이 더 부드럽게 흐릅니다. 초당 30번 그리던 것을 60번 그려, '
+                 '한 번에 최대 12px씩 건너뛰던 빛이 6px씩 움직입니다. / Cursor를 쓰는 동안의 사용량 조회 '
+                 '간격을 2초에서 5초로 늘렸습니다. Cursor는 공개 사용량 API가 없어 / Claude 사용 감지를 '
+                 '가볍게 했습니다. 이 PC에서 한 번 확인하는 비용이 약 1.4ms에서 0.7ms로 줄었습니다.')
+        self.assertEqual(u.note_lines(notes), [
+            '사용 중 막대와 칩 위를 지나는 빛이 더 부드럽게 흐릅니다.',
+            'Cursor를 쓰는 동안의 사용량 조회 간격을 2초에서 5초로 늘렸습니다.',
+            'Claude 사용 감지를 가볍게 했습니다.',
+        ])
+
+    def test_a_sentence_ends_only_before_a_space(self):
+        self.assertEqual(u.first_sentence('3.11.10에서 약 1.4ms 걸리던 조회를 고쳤습니다. 자세한 설명'),
+                         '3.11.10에서 약 1.4ms 걸리던 조회를 고쳤습니다.')
+        self.assertEqual(u.first_sentence('마침표가 없는 짧은 안내'), '마침표가 없는 짧은 안내')
+
+    def test_an_overlong_summary_is_cut_to_one_line(self):
+        line = u.first_sentence('가' * 200 + '.')
+        self.assertEqual(len(line), u.NOTE_CHARS)
+        self.assertTrue(line.endswith('…'))
+
     def test_launch_after_update_prefers_exe(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)

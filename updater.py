@@ -32,6 +32,8 @@ APPLY_SCRIPT = 'AIUsageWidget-apply.py'
 WAIT_FOR_EXIT = 20.0
 APPLY_ATTEMPTS = 3
 LOG_LIMIT = 256 * 1024
+# The update dialog shows each change as one line of at most this many characters.
+NOTE_CHARS = 80
 
 
 def parse_version(text):
@@ -99,12 +101,23 @@ def pending_update(payload, local=APP_VERSION, feed=''):
     return {'version': version, 'zip': zip_url, 'notes': notes, 'sha256': digest}
 
 
+def first_sentence(text, limit=NOTE_CHARS):
+    """The summary a changelog item leads with, as one short dialog line.
+
+    A period ends the sentence only before a space, so 3.11.10 and 1.4ms stay
+    whole.
+    """
+    match = re.match(r'.+?[.!?](?=\s|$)', text)
+    text = match.group(0) if match else text
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + '…'
+
+
 def note_lines(notes, limit=3):
     parts = []
     text = str(notes or '').replace('\r\n', '\n').replace('\r', '\n')
     for chunk in text.split('\n'):
         for bit in chunk.split(' / '):
-            bit = bit.replace('`', '').strip()
+            bit = first_sentence(bit.replace('`', '').strip())
             if not bit:
                 continue
             parts.append(bit)
