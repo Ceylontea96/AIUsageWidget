@@ -17,6 +17,11 @@ def limit(raw_id,name,remaining,window=None,reset_at=None,source='chatgpt',scope
 
 FIVE_H=18000.0
 WEEK=604800.0
+# A monitor area that holds the withdrawn test window wherever Windows put it.
+# geometry('+10+10') does not move a withdrawn window: it keeps the cascade
+# position, 26 px further on for every window the process has opened, so an
+# 800x600 area missed it once enough tests had run in the same worker.
+INSIDE=(-20000,-20000,20000,20000)
 
 class UiTests(unittest.TestCase):
     def setUp(self):
@@ -211,9 +216,8 @@ class UiTests(unittest.TestCase):
         w=self.prepare()
         w._overlay=1
         w.topmost.set(True)
-        w.last_area=(0,0,800,600)
-        w.root.geometry('+10+10')
-        with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=(0,0,800,600)),patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_owned_popups') as popups,patch.object(u,'keep_topmost_style'):
+        w.last_area=INSIDE
+        with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=INSIDE),patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_owned_popups') as popups,patch.object(u,'keep_topmost_style'):
             w.environment(0)
             zorder.assert_not_called()
             popups.assert_called()
@@ -222,9 +226,8 @@ class UiTests(unittest.TestCase):
         w=self.prepare()
         w._menu_held=True
         w.topmost.set(True)
-        w.last_area=(0,0,800,600)
-        w.root.geometry('+10+10')
-        with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=(0,0,800,600)),patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_menu_windows') as lift,patch.object(u,'keep_topmost_style'):
+        w.last_area=INSIDE
+        with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=INSIDE),patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_menu_windows') as lift,patch.object(u,'keep_topmost_style'):
             w.environment(0)
             zorder.assert_not_called()
             lift.assert_called()
@@ -641,8 +644,7 @@ class UiTests(unittest.TestCase):
     def test_tip_stays_above_after_environment_raise(self):
         w=self.prepare()
         w.topmost.set(True)
-        w.last_area=(0,0,800,600)
-        w.root.geometry('+10+10')
+        w.last_area=INSIDE
         w.tip.delay=0
         btn=w.header_buttons[0]
         w.tip.schedule(btn, btn.tip_text)
@@ -650,7 +652,7 @@ class UiTests(unittest.TestCase):
         tip=w.tip.win
         self.assertIsNotNone(tip)
         self.assertTrue(tip.winfo_ismapped())
-        with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=(0,0,800,600)),patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_tip_window',wraps=u.lift_tip_window) as lift:
+        with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=INSIDE),patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_tip_window',wraps=u.lift_tip_window) as lift:
             w.environment(0)
             self.assertTrue(tip.winfo_ismapped())
             self.assertIs(w.tip.win, tip)
