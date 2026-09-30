@@ -212,13 +212,24 @@ class UiTests(unittest.TestCase):
         self.assertEqual(self.w.scale, 1.3)
         self.assertEqual(int(self.w.shell.cget('width')), u.px(u.WINDOW_W, 1.3))
 
+    def environment_inside(self, w):
+        """One environment pass with the window inside an unchanged monitor.
+
+        The widget's own one-second tick may already have run behind the test,
+        when a busy machine makes the setup take that long: it records the real
+        monitor and time, and this pass would then look for a new monitor or
+        be skipped as too soon after it.
+        """
+        w.last_area=INSIDE
+        w.last_environment=float('-inf')
+        w.environment(0)
+
     def test_environment_keeps_widget_while_overlay(self):
         w=self.prepare()
         w._overlay=1
         w.topmost.set(True)
-        w.last_area=INSIDE
         with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=INSIDE),patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_owned_popups') as popups,patch.object(u,'keep_topmost_style'):
-            w.environment(0)
+            self.environment_inside(w)
             zorder.assert_not_called()
             popups.assert_called()
 
@@ -226,9 +237,8 @@ class UiTests(unittest.TestCase):
         w=self.prepare()
         w._menu_held=True
         w.topmost.set(True)
-        w.last_area=INSIDE
         with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=INSIDE),patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_menu_windows') as lift,patch.object(u,'keep_topmost_style'):
-            w.environment(0)
+            self.environment_inside(w)
             zorder.assert_not_called()
             lift.assert_called()
 
@@ -644,7 +654,6 @@ class UiTests(unittest.TestCase):
     def test_tip_stays_above_after_environment_raise(self):
         w=self.prepare()
         w.topmost.set(True)
-        w.last_area=INSIDE
         w.tip.delay=0
         btn=w.header_buttons[0]
         w.tip.schedule(btn, btn.tip_text)
@@ -653,7 +662,7 @@ class UiTests(unittest.TestCase):
         self.assertIsNotNone(tip)
         self.assertTrue(tip.winfo_ismapped())
         with patch.object(u,'session_locked',return_value=False),patch.object(u,'monitor_area',return_value=INSIDE),patch.object(u,'set_over_taskbar') as zorder,patch.object(u,'lift_tip_window',wraps=u.lift_tip_window) as lift:
-            w.environment(0)
+            self.environment_inside(w)
             self.assertTrue(tip.winfo_ismapped())
             self.assertIs(w.tip.win, tip)
             lift.assert_called()
