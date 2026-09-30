@@ -276,13 +276,14 @@ class WidgetFrameTests(unittest.TestCase):
         self.assertIsNone(self.frame(card, 13.5, False))
 
     def test_a_length_change_asks_for_60_until_it_lands(self):
+        # A rise below a reset's size: no ring moment follows the length.
         card = u.Card(self.root, 'chatgpt')
         with patch.object(u.time, 'monotonic', return_value=10):
-            card.render(snapshot(60))
             card.render(snapshot(40))
+            card.render(snapshot(50))
         self.assertEqual(card._frame_interval(), fc.FAST)
         self.frame(card, 12.5)
-        self.assertEqual(card._shown_pcts[0], 40)
+        self.assertEqual(card._shown_pcts[0], 50)
         self.assertIsNone(card._frame_interval())
 
     def test_cards_and_chips_share_one_clock(self):

@@ -588,6 +588,18 @@ BAR_ANIM_SPEED = 8.0
 BAR_ANIM_SNAP = 0.01  # Percentage points.
 # The ring's growth is drawn in this many cached steps.
 RING_EMPHASIS_STEPS = 8
+# Moments the ring marks once, then rests: quota just used, a limit coming
+# back, turning red. Each is drawn in RING_FX_STEPS cached images.
+RING_FX_STEPS = 10
+GHOST_HOLD_S = 0.6       # the used part stays this long, then shrinks away
+REFILL_JUMP = 15.0       # a rise of this many points or more is a reset
+REFILL_S = 0.9           # the ring flashes and a circle spreads out from it
+REFILL_PACE = 0.45       # a reset refills the ring at this pace of a bar's
+RIPPLE_DELAY_S = 0.2
+RING_MARGIN = 8          # transparent pixels around the ring while the circle spreads
+PULSE_BEATS = 3
+PULSE_BEAT_S = 0.4
+RING_BANDS = ('ok', 'warn', 'danger', 'critical')
 SHIMMER_GROW_S = 0.4
 SHIMMER_SHRINK_S = 0.85
 SHIMMER_SWEEP_S = 1.2
@@ -1601,6 +1613,13 @@ class BarShimmer:
     def _advance_tween(self, now):
         pass
 
+    def _moving(self):
+        """A one-off effect is playing, such as a card ring's moments."""
+        return False
+
+    def _advance_effects(self, now):
+        pass
+
     def _shimmer_live(self):
         try:
             return bool(self.winfo_ismapped()) and self.animate and self._shimmer_ready()
@@ -1608,7 +1627,7 @@ class BarShimmer:
             return False
 
     def _frame_interval(self):
-        if self._tweening():
+        if self._tweening() or self._moving():
             return FRAME_FAST
         if not self._shimmer_live():
             return None
@@ -1632,6 +1651,7 @@ class BarShimmer:
         tweening = self._tweening()
         if tweening:
             self._advance_tween(now)
+        self._advance_effects(now)
         live = self._shimmer_live()
         if live:
             self._advance_shimmer(now)
@@ -1877,8 +1897,11 @@ def reset_countdown(reset, now=None, monthly=False):
     return f'{seconds // 60}분 {seconds % 60:02d}초'
 
 
-def ring_photo(size, percent, color, thickness, background=CARD):
-    return tk.PhotoImage(data=raster.ring_png(max(1, int(size)), percent, color, thickness, background, TRACK), format='png')
+def ring_photo(size, percent, color, thickness, background=CARD, ghost=None, ghost_color=None,
+               ripple=None, ripple_color=None, margin=0):
+    return tk.PhotoImage(data=raster.ring_png(max(1, int(size)), percent, color, thickness, background, TRACK,
+                                              ghost=ghost, ghost_color=ghost_color, ripple=ripple,
+                                              ripple_color=ripple_color, margin=margin), format='png')
 
 
 class Card(BarShimmer, tk.Frame):
@@ -1902,6 +1925,12 @@ class Card(BarShimmer, tk.Frame):
         self._ring_photo = None
         # (image, number, colour) the ring and hero items show now
         self._ring_shown = None
+        # Ring moments, see RING_FX_STEPS.
+        self._ghost = None        # percent the trail of quota just used reaches
+        self._ghost_hold = 0.0    # when that trail starts to shrink
+        self._ghost_t0 = None
+        self._refill_t0 = None
+        self._pulse_t0 = None
         self._hero_shown = self._hero_target = 0.0
         self._clock_second = None
         self._shown_pcts = []
@@ -1992,6 +2021,7 @@ class Card(BarShimmer, tk.Frame):
         self.configure(width=self.metrics.card_w, height=self.height)
 
     def render(self,snap):
+        before = self._ring_reading(self._snap, self._hero_value()[0]) if self._snap is not None else None
         visual = {field: getattr(snap, field) for field in (
             'key', 'title', 'plan', 'ok', 'hero_caption',
             'footer', 'error', 'dashboard_url', 'stale', 'blocked',
@@ -2027,6 +2057,9 @@ class Card(BarShimmer, tk.Frame):
             self._anim_to = targets
             if self._anim_t0 is None:
                 self._anim_t0 = time.monotonic()
+            index = hero_index(snap)
+            target = targets[index] if index is not None and index < len(targets) else self._hero_target
+            self._ring_moment(before, self._ring_reading(snap, target))
             self._arm_anim()
         else:
             self._cancel_anim()
@@ -2048,11 +2081,91 @@ class Card(BarShimmer, tk.Frame):
     def _advance_tween(self, now):
         dt = now - self._anim_t0
         self._anim_t0 = now
-        self._shown_pcts = [follow_bar(a, b, dt) for a, b in zip(self._shown_pcts, self._anim_to)]
-        self._hero_shown = follow_bar(self._hero_shown, self._hero_target, dt)
+        # After a reset the ring refills at a pace you can watch; bars keep theirs.
+        refill = self._refill_t0 is not None
+        hero = hero_index(self._snap) if refill else None
+        self._shown_pcts = [follow_bar(a, b, dt * REFILL_PACE if index == hero else dt)
+                            for index, (a, b) in enumerate(zip(self._shown_pcts, self._anim_to))]
+        self._hero_shown = follow_bar(self._hero_shown, self._hero_target, dt * REFILL_PACE if refill else dt)
         if self._shown_pcts == self._anim_to and self._hero_shown == self._hero_target:
             self._anim_to = []
             self._anim_t0 = None
+
+    # -- ring moments --------------------------------------------------------
+    @staticmethod
+    def _ring_reading(snap, shown):
+        """(quota id, percent shown, severity band) of the ring for `snap`, or None when muted."""
+        if snap is None or not snap.ok or snap.stale:
+            return None
+        index = hero_index(snap)
+        limits = main_limits(snap)
+        item = limits[index] if index is not None and index < len(limits) else None
+        actual = item.remaining_percent if item is not None else representative_percent(snap)
+        if actual is None:
+            return None
+        band = design_severity(actual, False, representative_blocked(snap))[0]
+        return (item.quota_id if item is not None else None), shown, band
+
+    def _ring_moment(self, before, after):
+        """Start the trail of quota just used, the reset flash or the red pulse."""
+        if not self.animate or before is None or after is None or before[0] != after[0]:
+            # Nothing to compare, or the ring now shows another quota.
+            return
+        (_, was, was_band), (_, value, band) = before, after
+        now = time.monotonic()
+        if value < was - 0.25:
+            self._ghost = max(self._ghost or 0.0, was)
+            self._ghost_hold = now + GHOST_HOLD_S
+            self._ghost_t0 = None
+        elif value >= was + REFILL_JUMP:
+            self._ghost = None
+            self._refill_t0 = now
+        if band in ('danger', 'critical') and RING_BANDS.index(band) > RING_BANDS.index(was_band):
+            self._pulse_t0 = now
+
+    def _moving(self):
+        return self._ghost is not None or self._refill_t0 is not None or self._pulse_t0 is not None
+
+    def _advance_effects(self, now):
+        if self._ghost is not None and now >= self._ghost_hold:
+            dt = 0.0 if self._ghost_t0 is None else now - self._ghost_t0
+            self._ghost_t0 = now
+            shown = self._hero_value()[0]
+            self._ghost = follow_bar(self._ghost, shown, dt)
+            if self._ghost <= shown + 0.25:
+                self._ghost = None
+        if self._refill_t0 is not None and now - self._refill_t0 >= REFILL_S:
+            self._refill_t0 = None
+        if self._pulse_t0 is not None and now - self._pulse_t0 >= PULSE_BEATS * PULSE_BEAT_S:
+            self._pulse_t0 = None
+
+    def _pulse_beat(self, now):
+        """0-1 swell of the ring's beat after it turns red."""
+        if self._pulse_t0 is None:
+            return 0.0
+        beats = (now - self._pulse_t0) / PULSE_BEAT_S
+        if not 0 <= beats < PULSE_BEATS:
+            return 0.0
+        return round(math.sin(math.pi * (beats % 1)) * RING_FX_STEPS) / RING_FX_STEPS
+
+    def _refill_flash(self, now):
+        """1-0 brightness of the ring as a reset refills it."""
+        if self._refill_t0 is None:
+            return 0.0
+        left = max(0.0, min(1.0, 1 - (now - self._refill_t0) / REFILL_S))
+        return round(left * RING_FX_STEPS) / RING_FX_STEPS
+
+    def _ripple_for(self, now, size, thickness):
+        """(radius, strength) of the circle spreading from the ring after a reset, or None."""
+        if self._refill_t0 is None:
+            return None
+        progress = (now - self._refill_t0 - RIPPLE_DELAY_S) / (REFILL_S - RIPPLE_DELAY_S)
+        if not 0 <= progress < 1:
+            return None
+        step = round(progress * RING_FX_STEPS) / RING_FX_STEPS
+        start = size * 35 / 84 + thickness / 2 + 1
+        end = size / 2 + self.metrics.p(RING_MARGIN) - 1.5
+        return round(start + (end - start) * step, 1), round(0.75 * (1 - step), 2)
 
     def _shimmer_ready(self):
         return (not self.collapsed and self._snap is not None and self._snap.ok and not self._snap.stale
@@ -2079,12 +2192,24 @@ class Card(BarShimmer, tk.Frame):
         color = color or ACCENTS[self.key]
         emphasis = self._emphasis if self.animate and self._shimmer_ready() else 0.0
         emphasis = round(emphasis * RING_EMPHASIS_STEPS) / RING_EMPHASIS_STEPS
-        thickness = round((m.p(7) + m.p(2) * emphasis) * 2) / 2
-        color = raster.blend(color, '#FFFFFF', .24 * emphasis)
+        now = time.monotonic()
+        beat = self._pulse_beat(now)
+        thickness = round((m.p(7) + m.p(2) * emphasis + m.p(3) * beat) * 2) / 2
+        base = raster.blend(color, '#FFFFFF', .24 * emphasis)
+        lit = .35 * max(beat, self._refill_flash(now))
+        color = raster.blend(base, '#FFFFFF', lit) if lit else base
         ring_pct = 0 if actual is None else round(shown * 2) / 2
-        signature = (m.p(84), ring_pct, color, thickness)
+        size = m.p(84)
+        ghost = None if self._ghost is None else round(self._ghost * 2) / 2
+        ghost = ghost if ghost is not None and actual is not None and ghost > ring_pct else None
+        # Paler than the ring even at the top of a beat or a flash (.35), so the two stay apart.
+        ghost_color = raster.blend(base, '#FFFFFF', .6) if ghost is not None else None
+        ripple = self._ripple_for(now, size, thickness)
+        margin = m.p(RING_MARGIN) if ripple else 0
+        signature = (size, ring_pct, color, thickness, ghost, ghost_color, ripple, margin)
         if getattr(self,'_ring_signature',None) != signature:
-            self._ring_photo = ring_photo(*signature)
+            self._ring_photo = ring_photo(size, ring_pct, color, thickness, ghost=ghost, ghost_color=ghost_color,
+                                          ripple=ripple, ripple_color=base if ripple else None, margin=margin)
             self._ring_signature = signature
         hero = '—' if actual is None else f'{shown:.0f}%'
         # This runs every shimmer frame. Setting the same image or text again
@@ -2094,6 +2219,8 @@ class Card(BarShimmer, tk.Frame):
             return
         self._ring_shown = shown_now
         self.rows.itemconfigure('ring', image=self._ring_photo)
+        # A spreading circle needs a margin round the ring; the ring stays put.
+        self.rows.coords('ring', m.p(16) - margin, m.p(54) - margin)
         self.rows.itemconfigure('hero',text=hero,fill=color)
 
     def _paint_shimmer(self):

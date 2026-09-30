@@ -280,9 +280,20 @@ def ring_geometry(size):
     return points
 
 
-@lru_cache(maxsize=48)
-def ring_png(size, percent, color, thickness, background, track):
-    """A drawn ring costs several milliseconds; the same ring is reused."""
+@lru_cache(maxsize=8)
+def ring_annulus(total, inner, outer):
+    """(y, x*4, radius) of every pixel between two radii about a square image's centre."""
+    center = total / 2
+    points = []
+    for y in range(total):
+        for x in range(total):
+            radius = math.hypot(x + .5 - center, y + .5 - center)
+            if inner <= radius <= outer:
+                points.append((y, x * 4, radius))
+    return points
+
+
+def _ring_rows(size, percent, color, thickness, background, track, ghost, ghost_color):
     radius, half = size*35/84, thickness/2
     fraction = max(0,min(100,percent))/100
     end = fraction*math.tau
@@ -290,6 +301,12 @@ def ring_png(size, percent, color, thickness, background, track):
     bg,track,fg=hex_rgb(background),hex_rgb(track),hex_rgb(color)
     track_palette=[bytes([round(b+(t-b)*i/255) for b,t in zip(bg,track)]+[255]) for i in range(256)]
     fill_palette=[bytes([round(b+(f-b)*i/255) for b,f in zip(bg,fg)]+[255]) for i in range(256)]
+    if ghost is not None:
+        # The part just used: a lighter arc from the ring's end up to `ghost`.
+        gh = hex_rgb(ghost_color)
+        ghost_palette=[bytes([round(b+(g-b)*i/255) for b,g in zip(bg,gh)]+[255]) for i in range(256)]
+        gend = max(fraction, min(100, ghost)/100)*math.tau
+        gx,gy=math.sin(gend)*radius,-math.cos(gend)*radius
     rows=[bytearray(bytes(bg)+b'\xff')*size for _ in range(size)]
     for y,x,distance,angle,dx,dy in ring_geometry(size):
         cov=max(0,min(255,int((half+.5-distance)*255)))
@@ -298,12 +315,54 @@ def ring_png(size, percent, color, thickness, background, track):
         if fraction>=1 or 0<fraction and angle<=end:
             pixel=fill_palette[cov]
         else:
+            if ghost is None:
+                base=track_palette[cov]
+            elif angle<=gend:
+                base=ghost_palette[cov]
+            else:
+                base=track_palette[cov]
+                # The ghost's round ends: where it stops and, with no ring left, where it starts.
+                ends=math.hypot(dx-gx,dy-gy) if fraction>0 else min(math.hypot(dx-gx,dy-gy),math.hypot(dx,dy+radius))
+                gcap=max(0,min(255,int((half+.5-ends)*255)))
+                if gcap:
+                    base=bytes([round(base[i]+(gh[i]-base[i])*gcap/255) for i in range(3)]+[255])
             cap=min(math.hypot(dx,dy+radius),math.hypot(dx-ex,dy-ey)) if fraction>0 else size
             arc=max(0,min(255,int((half+.5-cap)*255)))
             if arc:
-                base=track_palette[cov]
                 pixel=bytes([round(base[i]+(fg[i]-base[i])*arc/255) for i in range(3)]+[255])
             else:
-                pixel=track_palette[cov]
+                pixel=base
         rows[y][x:x+4]=pixel
-    return png_rgba(size,size,rows)
+    return rows
+
+
+@lru_cache(maxsize=128)
+def ring_png(size, percent, color, thickness, background, track, ghost=None, ghost_color=None,
+             ripple=None, ripple_color=None, margin=0):
+    """A drawn ring costs several milliseconds; the same ring is reused.
+
+    ghost: percent a lighter arc reaches past the ring's end, the part just used.
+    margin: transparent pixels added on every side, room for `ripple`, the
+    (radius, strength) of a thin circle spreading out from the ring.
+    """
+    rows = _ring_rows(size, percent, color, thickness, background, track, ghost, ghost_color)
+    if not margin:
+        return png_rgba(size,size,rows)
+    total = size + 2*margin
+    out = [bytearray(4*total) for _ in range(total)]
+    for y, row in enumerate(rows):
+        out[y+margin][4*margin:4*(margin+size)] = row
+    if ripple:
+        at, strength = ripple
+        rc = hex_rgb(ripple_color)
+        for y, x, radius in ring_annulus(total, size*35/84 + thickness/2, total/2):
+            alpha = strength*max(0.0, min(1.0, 1.25-abs(radius-at)))
+            if alpha <= 0:
+                continue
+            row = out[y]
+            if row[x+3]:
+                # Inside the ring's own square, which is opaque: paint onto it.
+                row[x:x+3] = bytes(round(row[x+i]+(rc[i]-row[x+i])*alpha) for i in range(3))
+            else:
+                row[x:x+4] = bytes((*rc, round(255*alpha)))
+    return png_rgba(total,total,out)
