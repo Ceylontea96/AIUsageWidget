@@ -1,8 +1,8 @@
 """One Tk timer for every animated bar, chip and ring in a window.
 
-A client reports the frame interval it needs: FAST (60 fps) while a value or
-the bar thickness is moving, SLOW (30 fps) while only the light sweeps, None
-when it is idle. Each client keeps a deadline that advances by whole
+A client reports the frame interval it needs: FAST (60 fps) while a value,
+the bar thickness or the light is moving, None when it is idle. Each client
+keeps a deadline that advances by whole
 intervals from the previous deadline, not from when the last frame finished.
 A frame that starts late therefore skips the deadlines it missed instead of
 pushing every later frame back; animation positions come from
@@ -18,7 +18,6 @@ from collections import deque
 from tkinter import TclError
 
 FAST = 1 / 60
-SLOW = 1 / 30
 # Windows wakes Tk timers on its ~15.6 ms system tick, so after(17) waits
 # about 31 ms. Timers are armed this much before a deadline, and a client
 # within this much of its deadline is drawn now. Positions come from
@@ -27,7 +26,7 @@ EARLY = 0.008
 
 
 def frame_class(interval):
-    return '60fps' if interval <= FAST + 1e-9 else '30fps'
+    return f'{round(1 / interval)}fps'
 
 
 class FrameStats:

@@ -10,6 +10,9 @@ import usage_widget as u
 import widget_raster as raster
 from providers import ProviderSnapshot, QuotaItem
 
+# A client slower than FAST: the clock serves whatever interval it is asked for.
+SLOW = 1 / 30
+
 
 def reference(*args, **kwargs):
     width, height, rows = raster.progress_bar_rgba(*args, **kwargs)
@@ -106,7 +109,7 @@ class FakeWidget:
 
 
 class Client:
-    def __init__(self, interval=fc.SLOW, cost=0.0, clock=None):
+    def __init__(self, interval=SLOW, cost=0.0, clock=None):
         self.interval = interval
         self.cost = cost
         self.clock = clock
@@ -142,35 +145,35 @@ class FrameClockTests(unittest.TestCase):
         self.assertEqual(len(self.widget.pending), 1)
         self.fire(100 + fc.FAST)
         self.assertEqual((len(a.frames), len(b.frames)), (0, 1))
-        self.fire(100 + fc.SLOW)
+        self.fire(100 + SLOW)
         self.assertEqual((len(a.frames), len(b.frames)), (1, 2))
         self.assertEqual(len(self.widget.pending), 1)
 
     def test_deadlines_follow_the_grid_and_late_frames_skip(self):
-        slow = Client(fc.SLOW, clock=self.now)
+        slow = Client(SLOW, clock=self.now)
         self.clock.wake(slow)
-        start = 100 + fc.SLOW
+        start = 100 + SLOW
         # 2.5 intervals late: draw once now, count the two skipped deadlines,
         # and keep the next deadline on the original 30 fps grid.
-        self.fire(start + 2.5 * fc.SLOW)
+        self.fire(start + 2.5 * SLOW)
         self.assertEqual(len(slow.frames), 1)
-        self.assertAlmostEqual(self.clock._due[slow], start + 3 * fc.SLOW)
+        self.assertAlmostEqual(self.clock._due[slow], start + 3 * SLOW)
         stats = self.clock.stats.summary()['30fps']
         self.assertEqual((stats['frames'], stats['deadline_missed']), (1, 2))
-        self.assertAlmostEqual(stats['lateness_ms_p95'], 2.5 * fc.SLOW * 1000, delta=0.01)
+        self.assertAlmostEqual(stats['lateness_ms_p95'], 2.5 * SLOW * 1000, delta=0.01)
 
     def test_a_timer_waking_just_before_the_deadline_still_draws(self):
-        client = Client(fc.SLOW, clock=self.now)
+        client = Client(SLOW, clock=self.now)
         self.clock.wake(client)
-        self.fire(100 + fc.SLOW - fc.EARLY / 2)
+        self.fire(100 + SLOW - fc.EARLY / 2)
         self.assertEqual(len(client.frames), 1)
-        self.assertAlmostEqual(self.clock._due[client], 100 + 2 * fc.SLOW)
+        self.assertAlmostEqual(self.clock._due[client], 100 + 2 * SLOW)
         self.assertEqual(self.clock.stats.summary()['30fps']['deadline_missed'], 0)
 
     def test_a_timer_waking_well_before_the_deadline_waits(self):
-        client = Client(fc.SLOW, clock=self.now)
+        client = Client(SLOW, clock=self.now)
         self.clock.wake(client)
-        self.fire(100 + fc.SLOW - 2 * fc.EARLY)
+        self.fire(100 + SLOW - 2 * fc.EARLY)
         self.assertEqual(client.frames, [])
         self.assertTrue(self.clock.scheduled(client))
         self.assertEqual(len(self.widget.pending), 1)
@@ -187,7 +190,7 @@ class FrameClockTests(unittest.TestCase):
         client = Client(clock=self.now)
         self.clock.wake(client)
         client.interval = None
-        self.fire(100 + fc.SLOW)
+        self.fire(100 + SLOW)
         self.assertEqual(client.frames, [])
         self.assertFalse(self.clock.scheduled(client))
         self.assertEqual(self.widget.pending, {})
@@ -195,7 +198,7 @@ class FrameClockTests(unittest.TestCase):
         self.assertEqual(self.widget.pending, {})
 
     def test_a_faster_need_brings_the_next_frame_forward(self):
-        client = Client(fc.SLOW, clock=self.now)
+        client = Client(SLOW, clock=self.now)
         self.clock.wake(client)
         client.interval = fc.FAST
         self.clock.wake(client)
@@ -212,17 +215,17 @@ class FrameClockTests(unittest.TestCase):
         self.assertFalse(self.clock.scheduled(client))
 
     def test_a_failing_client_does_not_stop_the_others(self):
-        good = Client(fc.SLOW, clock=self.now)
+        good = Client(SLOW, clock=self.now)
 
         class Broken(Client):
             def _frame(self, now):
                 raise ValueError('boom')
 
-        bad = Broken(fc.SLOW, clock=self.now)
+        bad = Broken(SLOW, clock=self.now)
         self.clock.wake(bad)
         self.clock.wake(good)
         with self.assertRaises(ValueError):
-            self.fire(100 + fc.SLOW)
+            self.fire(100 + SLOW)
         self.assertFalse(self.clock.scheduled(bad))
         self.assertTrue(self.clock.scheduled(good))
         self.assertEqual(len(self.widget.pending), 1)
@@ -234,7 +237,7 @@ class FrameClockTests(unittest.TestCase):
 
         gone = Gone(clock=self.now)
         self.clock.wake(gone)
-        self.fire(100 + fc.SLOW)
+        self.fire(100 + SLOW)
         self.assertFalse(self.clock.scheduled(gone))
 
 
@@ -262,13 +265,13 @@ class WidgetFrameTests(unittest.TestCase):
             control._frame(now)
             return control._frame_interval()
 
-    def test_growth_runs_at_60_and_the_sweep_alone_at_30(self):
+    def test_growth_and_the_sweep_both_run_at_60(self):
         card = u.Card(self.root, 'chatgpt')
         card.render(snapshot())
         self.assertEqual(self.frame(card, 10.0, True), fc.FAST)
         self.assertEqual(self.frame(card, 10.2, True), fc.FAST)
-        self.assertEqual(self.frame(card, 10.4, True), fc.SLOW)
-        self.assertEqual(self.frame(card, 12.0, True), fc.SLOW)
+        self.assertEqual(self.frame(card, 10.4, True), fc.FAST)
+        self.assertEqual(self.frame(card, 12.0, True), fc.FAST)
         self.assertEqual(self.frame(card, 12.1, False), fc.FAST)
         self.assertIsNone(self.frame(card, 13.5, False))
 
@@ -309,6 +312,112 @@ class WidgetFrameTests(unittest.TestCase):
         card._ring_signature = None
         card._paint_ring()
         self.assertEqual(raster.ring_png.cache_info().hits, before.hits + 1)
+
+
+class SteadySweepTests(unittest.TestCase):
+    """Once the light sweeps at a steady thickness, a frame redraws only the bars."""
+
+    def setUp(self):
+        self.root = u.tk.Tk()
+        self.root.withdraw()
+        self.addCleanup(destroy_root, self.root)
+        self.cache = u.FrameCache()
+        cache = patch.object(u, 'SHIMMER_CACHE', self.cache)
+        cache.start()
+        self.addCleanup(cache.stop)
+
+    def frame(self, control, now):
+        with patch.object(control, 'winfo_ismapped', return_value=True), \
+                patch.object(u.time, 'monotonic', return_value=now):
+            control.set_activity(True)
+            control._frame(now)
+
+    def sweep(self, control, start):
+        for step in range(73):
+            self.frame(control, start + step / 60)
+
+    def steady_card(self):
+        card = u.Card(self.root, 'chatgpt')
+        card.render(snapshot())
+        for step in range(100):  # grown, and every length landed
+            self.frame(card, 10 + step * 0.02)
+        return card
+
+    def test_a_steady_frame_leaves_the_ring_and_number_alone(self):
+        card = self.steady_card()
+        tags = []
+        configure = card.rows.itemconfigure
+
+        def spy(tag, *args, **kwargs):
+            tags.append(tag)
+            return configure(tag, *args, **kwargs)
+
+        with patch.object(card.rows, 'itemconfigure', side_effect=spy):
+            self.sweep(card, 20)
+        # The hero quota is the ring; the weekly one is drawn as bar_1.
+        self.assertIn('bar_1', tags)
+        self.assertNotIn('ring', tags)
+        self.assertNotIn('hero', tags)
+
+    def test_a_repaint_shows_the_ring_and_number_again(self):
+        card = self.steady_card()
+        card._paint(card._snap, card._shown_pcts)
+        self.assertTrue(card.rows.itemcget('ring', 'image'))
+        self.assertEqual(card.rows.itemcget('hero', 'text'), '60%')
+
+    def test_the_next_sweep_draws_no_new_frame(self):
+        card = self.steady_card()
+        self.sweep(card, 20)
+        with patch.object(u, 'progress_png', side_effect=AssertionError('drawn again')):
+            self.sweep(card, 20 + u.SHIMMER_SWEEP_S)
+
+    def test_a_steady_chip_reuses_frames_with_or_without_its_warning_ring(self):
+        for warning in (None, u.WARN):
+            with self.subTest(warning=warning):
+                chip = u.Chip(self.root)
+                chip.configure(text='GPT 60%', percent=60, bg=u.CHIP_CODEX)
+                chip._warning_color = warning
+                for step in range(100):
+                    self.frame(chip, 10 + step * 0.02)
+                self.sweep(chip, 20)
+                with patch.object(u, 'progress_png', side_effect=AssertionError('drawn again')), \
+                        patch.object(u, 'ringed_progress_rgba', side_effect=AssertionError('drawn again')):
+                    self.sweep(chip, 20 + u.SHIMMER_SWEEP_S)
+
+    def test_frames_while_the_bar_grows_are_not_cached(self):
+        card = u.Card(self.root, 'chatgpt')
+        card.render(snapshot())
+        before = len(self.cache)
+        for step in range(10):  # half of the 0.4 s growth
+            self.frame(card, 10 + step * 0.02)
+        self.assertIsNone(card._frame_cache())
+        self.assertEqual(len(self.cache), before)
+
+    def test_the_light_lands_on_fixed_positions(self):
+        card = self.steady_card()
+        for now in (20.0, 20.013, 20.3337, 20.9, 21.19):
+            with patch.object(u.time, 'monotonic', return_value=now):
+                phase = card._shimmer_phase_for(0)
+            steps = (phase - 0.15) / 0.60 * u.SHIMMER_PHASES
+            self.assertAlmostEqual(steps, round(steps), places=6)
+
+    def test_the_cache_keeps_the_most_recent_frames(self):
+        cache = u.FrameCache(limit=3)
+        for key in 'abcd':
+            cache.get(key, key.encode)
+        self.assertEqual(len(cache), 3)
+        drawn = []
+        cache.get('b', lambda: drawn.append('b') or b'b')
+        cache.get('a', lambda: drawn.append('a') or b'a')
+        self.assertEqual(drawn, ['a'])
+
+    def test_bars_that_look_alike_get_their_own_images(self):
+        # One shared image would carry one bar's light onto the other.
+        args = (80, 10, 4, 40, u.TRACK, u.CODEX, u.CARD)
+        first = u.progress_photo(*args, shimmer=0.4, shape_height=8, cache=self.cache)
+        second = u.progress_photo(*args, shimmer=0.4, shape_height=8, cache=self.cache)
+        self.assertIsNot(first, second)
+        self.assertEqual(len(self.cache), 1)
 
 
 if __name__ == '__main__':

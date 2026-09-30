@@ -18,6 +18,7 @@ import traceback
 import tkinter as tk
 import webbrowser
 import zlib
+from collections import OrderedDict
 from dataclasses import replace
 from pathlib import Path
 from tkinter import messagebox, font as tkfont
@@ -25,7 +26,7 @@ from tkinter import messagebox, font as tkfont
 from additional_ui import AdditionalBlock, additional_count, expanded_body_budget, layout_additional
 from bar_raster import progress_rgba, ringed_progress_rgba
 import widget_raster as raster
-from frame_clock import FAST as FRAME_FAST, SLOW as FRAME_SLOW, clock_for
+from frame_clock import FAST as FRAME_FAST, clock_for
 from codex_activity import CodexActivityMonitor, LOG
 from claude_activity import UNAVAILABLE as CLAUDE_ACTIVITY_UNAVAILABLE, ClaudeActivityMonitor
 from cursor_activity import BackgroundCursorActivityMonitor
@@ -587,6 +588,13 @@ SHIMMER_GROW_S = 0.4
 SHIMMER_SHRINK_S = 0.85
 SHIMMER_SWEEP_S = 1.2
 SHIMMER_GLOW = 0.65
+# Light positions per sweep. At its fastest the light crosses a card bar at
+# about 360 px/s, so neighbouring positions are under a pixel apart, and each
+# sweep draws the same frames as the one before it.
+SHIMMER_PHASES = 288
+# Recent shimmer frames kept as PNG bytes, about 0.65 KB each; six bars
+# sweeping at once use 1,734 of them.
+SHIMMER_FRAMES = 2048
 
 
 def bar_display_percent(value):
@@ -1213,14 +1221,52 @@ STATUS_FG = raster.blend(MUTED, TEXT, 0.55)
 PILL_PULSE_STEPS = 24
 
 
-def progress_photo(width, height, radius, fill_width, track, fill, background, samples=1, shimmer=None, shape_height=None):
+class FrameCache:
+    """Recent shimmer frames as PNG bytes, shared by every bar and chip.
+
+    While the light sweeps at a steady thickness the same SHIMMER_PHASES
+    frames come round every sweep, so after the first few sweeps a frame is
+    only decoded, not drawn and compressed again. Bytes, not Tk images: 288
+    images hold about 4 MB for each bar, and each bar makes its own image from
+    the bytes, so two bars that look alike never share one.
+    """
+
+    def __init__(self, limit=SHIMMER_FRAMES):
+        self.limit = limit
+        self._frames = OrderedDict()
+
+    def __len__(self):
+        return len(self._frames)
+
+    def get(self, key, draw):
+        data = self._frames.get(key)
+        if data is None:
+            data = self._frames[key] = draw()
+            if len(self._frames) > self.limit:
+                self._frames.popitem(last=False)
+        else:
+            self._frames.move_to_end(key)
+        return data
+
+
+SHIMMER_CACHE = FrameCache()
+
+
+def progress_png(width, height, radius, fill_width, track, fill, background, shimmer=None, shape_height=None):
+    w, h, rows = progress_rgba(width, height, radius, fill_width, track, fill, background,
+                               shimmer=shimmer, shape_height=shape_height, glow=SHIMMER_GLOW)
+    # Fast compression: a frame is decoded at once, or kept small in the cache.
+    return raster.png_rgba(w, h, rows, level=1)
+
+
+def progress_photo(width, height, radius, fill_width, track, fill, background, samples=1, shimmer=None,
+                   shape_height=None, cache=None):
     if samples != 1:
         return tk.PhotoImage(data=raster.progress_bar_png(width, height, radius, fill_width, track, fill, background,
                                                    samples=samples, shimmer=shimmer, shape_height=shape_height, glow=SHIMMER_GLOW), format='png')
-    w, h, rows = progress_rgba(width, height, radius, fill_width, track, fill, background,
-                               shimmer=shimmer, shape_height=shape_height, glow=SHIMMER_GLOW)
-    # A frame lives for one paint; fast compression beats a smaller file.
-    return tk.PhotoImage(data=raster.png_rgba(w, h, rows, level=1), format='png')
+    args = (width, height, radius, fill_width, track, fill, background, shimmer, shape_height)
+    data = progress_png(*args) if cache is None else cache.get(('bar',) + args, lambda: progress_png(*args))
+    return tk.PhotoImage(data=data, format='png')
 
 
 def notify_user(title, text, icon=0x10):
@@ -1794,9 +1840,11 @@ class UpdatePill(tk.Canvas):
 class BarShimmer:
     """Thickness and sweep follow activity state, not a fixed hold timer.
 
-    Frames come from the window's FrameClock: 60 fps while the thickness or a
-    length is moving, 30 fps while only the light sweeps. Every position is
-    computed from time.monotonic(), so a skipped frame costs smoothness only.
+    Frames come from the window's FrameClock at 60 fps while the thickness, a
+    length or the light is moving. Every position is computed from
+    time.monotonic(), so a skipped frame costs smoothness only. At a steady
+    thickness and length the frames repeat every sweep and come from
+    SHIMMER_CACHE instead of being drawn again.
     """
 
     def _init_shimmer(self):
@@ -1858,11 +1906,20 @@ class BarShimmer:
             return FRAME_FAST
         if not self._shimmer_live():
             return None
-        if self._emphasis != (1.0 if self._active else 0.0):
+        growing = self._emphasis != (1.0 if self._active else 0.0)
+        if growing or self._active or self._sweep_t0 is not None:
+            # The light too: at 30 fps it jumped up to 12 px a frame, at 60 6 px.
             return FRAME_FAST
-        if self._active or self._sweep_t0 is not None:
-            return FRAME_SLOW
         return None
+
+    def _frame_cache(self):
+        """SHIMMER_CACHE while frames come round again, else None.
+
+        While the thickness or a length moves every frame is new; caching those
+        would only push out the frames that repeat.
+        """
+        steady = self._emphasis == (1.0 if self._active else 0.0) and not self._tweening()
+        return SHIMMER_CACHE if steady else None
 
     def _frame(self, now):
         """One frame: move the length, then the light, then draw once."""
@@ -1935,7 +1992,8 @@ class BarShimmer:
         if self._sweep_t0 is None or not self.animate or not self._shimmer_ready():
             return None
         progress = max(0.0, min(1.0, (time.monotonic() - self._sweep_t0) / SHIMMER_SWEEP_S))
-        return 0.15 + 0.60 * progress
+        # On fixed positions, so every sweep draws the frames of the last one.
+        return 0.15 + 0.60 * round(progress * SHIMMER_PHASES) / SHIMMER_PHASES
 
     def _advance_shimmer(self, now):
         dt = 0.0 if self._emphasis_t0 is None else now - self._emphasis_t0
@@ -2056,17 +2114,22 @@ class Chip(BarShimmer, tk.Canvas):
         width, height = self.chip_width, self.metrics.chip_canvas_h
         shape_height = self.metrics.chip_h + (height-self.metrics.chip_h) * self._emphasis
         shimmer = self._shimmer_phase_for(0)
+        cache = self._frame_cache()
         if not self._warning_color:
             self.fill_width = chip_fill_width(width, self.percent)
             # Fill is clipped to the track so the leading cap cannot bulge outside.
             return progress_photo(width, height, shape_height / 2, self.fill_width, CHIP_TRACK, self.fill, BG,
-                                  shimmer=shimmer, shape_height=shape_height)
+                                  shimmer=shimmer, shape_height=shape_height, cache=cache)
         ring_w = self.metrics.p(2, 1)
         self.fill_width = chip_fill_width(max(1, width - 2 * ring_w), self.percent)
-        w, h, rows = ringed_progress_rgba(width, height, shape_height, ring_w, self._warning_color,
-                                          self.fill_width, CHIP_TRACK, self.fill, BG,
-                                          shimmer=shimmer, glow=SHIMMER_GLOW)
-        return tk.PhotoImage(data=raster.png_rgba(w, h, rows, level=1), format='png')
+        args = (width, height, shape_height, ring_w, self._warning_color, self.fill_width, CHIP_TRACK, self.fill, BG)
+
+        def draw():
+            w, h, rows = ringed_progress_rgba(*args, shimmer=shimmer, glow=SHIMMER_GLOW)
+            return raster.png_rgba(w, h, rows, level=1)
+
+        data = draw() if cache is None else cache.get(('ringed',) + args + (shimmer,), draw)
+        return tk.PhotoImage(data=data, format='png')
 
     def _paint_shimmer(self):
         self._photo = self._bar_photo()
@@ -2131,6 +2194,8 @@ class Card(BarShimmer, tk.Frame):
         self._bar_photos = []
         self._bar_origins = []
         self._ring_photo = None
+        # (image, number, colour) the ring and hero items show now
+        self._ring_shown = None
         self._hero_shown = self._hero_target = 0.0
         self._clock_second = None
         self._shown_pcts = []
@@ -2315,8 +2380,15 @@ class Card(BarShimmer, tk.Frame):
         if getattr(self,'_ring_signature',None) != signature:
             self._ring_photo = ring_photo(*signature)
             self._ring_signature = signature
+        hero = '—' if actual is None else f'{shown:.0f}%'
+        # This runs every shimmer frame. Setting the same image or text again
+        # still redrew the ring and the number, the larger part of a frame.
+        shown_now = (self._ring_photo, hero, color)
+        if shown_now == self._ring_shown:
+            return
+        self._ring_shown = shown_now
         self.rows.itemconfigure('ring', image=self._ring_photo)
-        self.rows.itemconfigure('hero',text='—' if actual is None else f'{shown:.0f}%',fill=color)
+        self.rows.itemconfigure('hero',text=hero,fill=color)
 
     def _paint_shimmer(self):
         if self._snap is None or not self.rows.find_withtag('ring'):
@@ -2338,7 +2410,7 @@ class Card(BarShimmer, tk.Frame):
             raster_height = m.bar_h + m.p(4) + 2
             photo = progress_photo(m.card_w-m.p(32),raster_height,height/2,
                 chip_fill_width(m.card_w-m.p(32),shown),TRACK,color,CARD,
-                shimmer=self._shimmer_phase_for(index),shape_height=height)
+                shimmer=self._shimmer_phase_for(index),shape_height=height,cache=self._frame_cache())
             self.rows.itemconfigure('bar_'+str(index),image=photo)
             self._bar_photos[index+1] = photo
 
@@ -2414,6 +2486,7 @@ class Card(BarShimmer, tk.Frame):
     def _paint(self,snap,percents):
         m, c = self.metrics, self.rows
         c.delete('all')
+        self._ring_shown = None  # new ring and hero items show nothing yet
         # Canvas IDs and displayed text belong to this paint, including collapsed cards.
         self._clock_text = {}
         self._clock_second = None
