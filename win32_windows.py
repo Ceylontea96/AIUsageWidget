@@ -7,20 +7,26 @@ from __future__ import annotations
 
 import ctypes
 import os
+from ctypes import wintypes
 from tkinter import TclError
+
+
+class _MonitorInfo(ctypes.Structure):
+    # Defined once, at import. ctypes keeps every type ctypes.POINTER makes
+    # until the process ends, so a class defined inside _monitor_rects was a
+    # new class each call and every lookup leaked about 6 KB.
+    _fields_ = [('size', wintypes.DWORD), ('monitor', wintypes.RECT), ('work', wintypes.RECT),
+                ('flags', wintypes.DWORD)]
 
 
 def _monitor_rects(x, y):
     try:
-        from ctypes import wintypes as wt
-        class Info(ctypes.Structure):
-            _fields_ = [('size', wt.DWORD), ('monitor', wt.RECT), ('work', wt.RECT), ('flags', wt.DWORD)]
         api = ctypes.windll.user32
-        api.MonitorFromPoint.argtypes = [wt.POINT, wt.DWORD]
-        api.MonitorFromPoint.restype = wt.HANDLE
-        api.GetMonitorInfoW.argtypes = [wt.HANDLE, ctypes.POINTER(Info)]
-        info = Info(); info.size = ctypes.sizeof(info)
-        monitor = api.MonitorFromPoint(wt.POINT(x, y), 2)
+        api.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+        api.MonitorFromPoint.restype = wintypes.HANDLE
+        api.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_MonitorInfo)]
+        info = _MonitorInfo(); info.size = ctypes.sizeof(info)
+        monitor = api.MonitorFromPoint(wintypes.POINT(x, y), 2)
         if api.GetMonitorInfoW(monitor, ctypes.byref(info)):
             work = info.work
             full = info.monitor

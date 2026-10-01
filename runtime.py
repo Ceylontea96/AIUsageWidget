@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import threading
+from ctypes import wintypes
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -475,30 +476,34 @@ class PollRunner:
                 pass
 
 
+# WTSINFOEX_LEVEL1_W and WTSINFOEXW, defined once at import. ctypes keeps every
+# type ctypes.POINTER makes until the process ends, so classes defined inside
+# session_locked were new classes each call and every check leaked about 10 KB.
+class _SessionInfo1(ctypes.Structure):
+    _fields_ = [('session', wintypes.DWORD), ('state', ctypes.c_int), ('flags', wintypes.LONG),
+                ('station', wintypes.WCHAR * 33), ('user', wintypes.WCHAR * 21), ('domain', wintypes.WCHAR * 18),
+                ('times', ctypes.c_longlong * 5), ('counters', wintypes.DWORD * 6)]
+
+
+class _SessionInfo(ctypes.Structure):
+    _fields_ = [('level', wintypes.DWORD), ('data', _SessionInfo1)]
+
+
 def session_locked():
     """None means unknown; never infer unlock from a failed API call."""
-    from ctypes import wintypes as wt
-
-    class Level1(ctypes.Structure):
-        _fields_ = [('session', wt.DWORD), ('state', ctypes.c_int), ('flags', wt.LONG),
-                    ('station', wt.WCHAR * 33), ('user', wt.WCHAR * 21), ('domain', wt.WCHAR * 18),
-                    ('times', ctypes.c_longlong * 5), ('counters', wt.DWORD * 6)]
-
-    class Info(ctypes.Structure):
-        _fields_ = [('level', wt.DWORD), ('data', Level1)]
-
     try:
         api = ctypes.WinDLL('wtsapi32', use_last_error=True)
-        api.WTSQuerySessionInformationW.argtypes = [wt.HANDLE, wt.DWORD, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wt.DWORD)]
+        api.WTSQuerySessionInformationW.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.c_int,
+                                                    ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.DWORD)]
         api.WTSFreeMemory.argtypes = [ctypes.c_void_p]
         pointer = ctypes.c_void_p()
-        size = wt.DWORD()
+        size = wintypes.DWORD()
         if not api.WTSQuerySessionInformationW(None, 0xFFFFFFFF, 25, ctypes.byref(pointer), ctypes.byref(size)):
             return None
         try:
-            if size.value < ctypes.sizeof(Info):
+            if size.value < ctypes.sizeof(_SessionInfo):
                 return None
-            info = ctypes.cast(pointer, ctypes.POINTER(Info)).contents
+            info = ctypes.cast(pointer, ctypes.POINTER(_SessionInfo)).contents
             if info.level != 1:
                 return None
             if info.data.state != 0:  # disconnected or inactive session
