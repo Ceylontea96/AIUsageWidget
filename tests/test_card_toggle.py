@@ -87,28 +87,34 @@ class CardTurnTests(unittest.TestCase):
         self.assertIsNone(self.card._turn_t0)
 
 
+def open_widget(test):
+    """A preview widget showing all three cards, closed when the test ends."""
+    directory = tempfile.TemporaryDirectory()
+    test.addCleanup(directory.cleanup)
+    base = Path(directory.name)
+    for guard in (
+        patch.object(u, 'SETTINGS_PATH', base / 'settings.json'),
+        patch.object(u, 'CACHE_PATH', base / 'cache.json'),
+        patch.object(u, 'login_present', return_value=False),
+        patch('claude_integration.ensure_bridge_copy'),
+        patch.object(u, 'work_area', return_value=(0, 0, 1920, 1080)),
+        patch.object(u, 'monitor_area', return_value=(0, 0, 1920, 1080)),
+    ):
+        guard.start()
+        test.addCleanup(guard.stop)
+    w = u.UsageWidget(preview=True)
+    test.addCleanup(w.close)
+    for key in u.FETCHERS:
+        w.enabled[key].set(True)
+        w.snapshots[key] = snapshot(key)
+        w.render(key)
+    w.root.update_idletasks()
+    return w
+
+
 class InPlaceLayoutTests(unittest.TestCase):
     def setUp(self):
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        base = Path(directory.name)
-        for guard in (
-            patch.object(u, 'SETTINGS_PATH', base / 'settings.json'),
-            patch.object(u, 'CACHE_PATH', base / 'cache.json'),
-            patch.object(u, 'login_present', return_value=False),
-            patch('claude_integration.ensure_bridge_copy'),
-            patch.object(u, 'work_area', return_value=(0, 0, 1920, 1080)),
-            patch.object(u, 'monitor_area', return_value=(0, 0, 1920, 1080)),
-        ):
-            guard.start()
-            self.addCleanup(guard.stop)
-        self.w = u.UsageWidget(preview=True)
-        self.addCleanup(self.w.close)
-        for key in u.FETCHERS:
-            self.w.enabled[key].set(True)
-            self.w.snapshots[key] = snapshot(key)
-            self.w.render(key)
-        self.w.root.update_idletasks()
+        self.w = open_widget(self)
 
     def taken_down(self, stack):
         w = self.w
@@ -137,6 +143,127 @@ class InPlaceLayoutTests(unittest.TestCase):
             w.toggle()
         self.assertTrue([call for call in calls if call.called])
         self.assertEqual(int(w.shell.cget('height')), w.metrics.compact_h)
+
+
+class FakeCurtain:
+    def __init__(self, events, works=True):
+        self.events, self.works = events, works
+
+    def cover(self, owner, corner):
+        self.events.append(('cover',))
+        return self.works
+
+    def extend(self, height, split, corner, top=None):
+        self.events.append(('extend', height, split, top))
+        return True
+
+    def uncover(self):
+        self.events.append(('uncover',))
+
+
+class HeldStillTests(unittest.TestCase):
+    """A fold shows as one change: a still copy covers the widget until it is painted."""
+
+    def setUp(self):
+        w = self.w = open_widget(self)
+        w.root.update()                    # mapped, so the parts can be painted
+        w.preview = False
+        self.events = []
+        w._curtain = FakeCurtain(self.events)
+        paint = w._paint_now
+
+        def painted(key=None):
+            self.events.append(('paint', key))
+            paint(key)
+
+        w._paint_now = painted
+        region = lambda hwnd, rgn, redraw: self.events.append(('region', bool(redraw))) or 1
+        for guard in (
+            patch.object(w.root, 'winfo_viewable', return_value=True),
+            patch.object(w.root, 'attributes'),
+            patch.object(u, 'set_over_taskbar', side_effect=lambda *a: self.events.append(('restack',))),
+            patch.object(u, 'lift_tip_window'),
+            patch.object(u.ctypes.windll.user32, 'SetWindowRgn', side_effect=region),
+        ):
+            guard.start()
+            self.addCleanup(guard.stop)
+
+    def names(self):
+        return [event[0] for event in self.events if event[0] != 'extend']
+
+    def test_a_fold_is_painted_in_full_before_the_copy_goes(self):
+        self.w.toggle_card('chatgpt')
+        self.assertTrue(self.w.cards['chatgpt'].collapsed)
+        self.assertEqual(self.names(), ['cover', 'region', 'paint', 'uncover', 'restack'])
+        # Painted in full under the copy, so the new outline needs no repaint of its own.
+        self.assertIn(('region', False), self.events)
+        self.assertIn(('paint', 'chatgpt'), self.events)
+        self.assertIsNone(self.w._held_split)
+
+    def test_unfolding_opens_the_space_below_the_card_first(self):
+        w = self.w
+        card = w.cards['cursor']
+        w.toggle_card('cursor')
+        split = card.winfo_rooty() + card.winfo_height() - w.root.winfo_rooty()
+        self.events.clear()
+        w.toggle_card('cursor')
+        self.assertFalse(card.collapsed)
+        grow = [event[:3] for event in self.events if event[0] == 'extend']
+        self.assertEqual(grow, [('extend', int(w.shell.cget('height')), split)])
+        self.assertLess(self.events.index(next(e for e in self.events if e[0] == 'extend')),
+                        self.events.index(('paint', 'cursor')))
+
+    def test_growing_off_the_bottom_moves_the_copy_and_the_window_up_together(self):
+        w = self.w
+        w.toggle_card('cursor')
+        folded = int(w.shell.cget('height'))
+        self.events.clear()
+        # Sitting on the bottom of the screen; taller, relayout lifts it to stay on screen.
+        with patch.object(w.root, 'winfo_x', return_value=100), \
+                patch.object(w.root, 'winfo_y', return_value=1080 - folded), \
+                patch.object(w.root, 'geometry', wraps=w.root.geometry) as geometry:
+            w.toggle_card('cursor')
+        height = int(w.shell.cget('height'))
+        top = (100, 1080 - height)
+        grow = [event for event in self.events if event[0] == 'extend']
+        self.assertEqual(grow[0][3], top)
+        # The window took its new size and place in one step, not grown and then lifted.
+        self.assertIn(f'{w.metrics.window_w}x{height}+{top[0]}+{top[1]}',
+                      [call.args[0] for call in geometry.call_args_list if call.args])
+
+    def test_without_a_copy_the_card_folds_as_before(self):
+        self.w._curtain.works = False
+        self.w.toggle_card('chatgpt')
+        self.assertTrue(self.w.cards['chatgpt'].collapsed)
+        self.assertEqual(self.names(), ['cover', 'region', 'restack'])
+        self.assertIn(('region', True), self.events)
+
+    def test_an_error_mid_fold_still_takes_the_copy_away(self):
+        with patch.object(self.w, 'relayout', side_effect=RuntimeError('boom')):
+            with self.assertRaises(RuntimeError):
+                self.w.toggle_card('chatgpt')
+        self.assertEqual(self.names()[-1], 'uncover')
+        self.assertIsNone(self.w._held_split)
+
+    def test_only_the_card_and_what_moved_below_it_repaint(self):
+        w = self.w
+        exposed = []
+        w.root.bind_all('<Expose>', lambda event: exposed.append(event.widget), add='+')
+        w._paint_now('cursor')
+        for widget in (w.cards['cursor'].rows, w.cards['claude'].rows, w.footer, w.body):
+            self.assertIn(widget, exposed)
+        for widget in (w.cards['chatgpt'].rows, w.header):
+            self.assertNotIn(widget, exposed)
+
+    def test_extra_rows_opening_are_held_still_too(self):
+        self.w.toggle_additional('claude')
+        self.assertEqual(self.names()[0], 'cover')
+        self.assertEqual(self.names()[-2:], ['uncover', 'restack'])
+
+    def test_the_preview_never_covers(self):
+        self.w.preview = True
+        self.w.toggle_card('chatgpt')
+        self.assertNotIn(('cover',), self.events)
 
 
 if __name__ == '__main__':

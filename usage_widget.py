@@ -14,6 +14,7 @@ import time
 import traceback
 import tkinter as tk
 import webbrowser
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from tkinter import messagebox, font as tkfont
@@ -38,6 +39,7 @@ from win32_windows import (
     clamp_position, keep_topmost_style, lift_menu_windows, lift_owned_popups, monitor_area, process_alive,
     set_over_taskbar, show_window, terminate_pid, widget_windows, windows_for_pid, work_area,
 )
+from win32_curtain import Curtain
 from widget_theme import *  # noqa: F401,F403  colours, fonts and sizes
 from widget_text import *  # noqa: F401,F403  what a snapshot reads as
 from widget_cards import *  # noqa: F401,F403  cards, chips and their animation
@@ -945,6 +947,11 @@ class UsageWidget:
         self.icons = {}
         self._layout = None
         self._region_h = None
+        # The still copy held over the widget while a card folds (see _held_still):
+        # the row its new space opens at while it is up, else None.
+        self._curtain = Curtain(BG)
+        self._held_split = None
+        self._topmost_held = False
         self._footer_state = None
         self.update_info = None
         self.update_queue = queue.Queue()
@@ -1112,6 +1119,11 @@ class UsageWidget:
 
     def apply_topmost(self):
         if self.preview:
+            return
+        if self._held_split is not None:
+            # Restacking the widget under its still copy let the copy drop
+            # behind it for a frame; _held_still restacks once it is gone.
+            self._topmost_held = True
             return
         want = bool(self.topmost.get())
         owner = self._widget_hwnd()
@@ -1590,8 +1602,9 @@ class UsageWidget:
         return 'break'
 
     def toggle_additional(self, key):
-        self.additional_open = None if self.additional_open == key else key
-        self.relayout()
+        with self._held_still(key):
+            self.additional_open = None if self.additional_open == key else key
+            self.relayout()
 
     def _enter(self):
         """Open the widget: it fades in with its rings empty, then the cards fill one after another.
@@ -1642,11 +1655,67 @@ class UsageWidget:
 
     def toggle_card(self, key):
         card = self.cards[key]
-        card.set_collapsed(not card.collapsed, animate=True)
-        self.collapsed[key] = card.collapsed
-        self.tip.hide()
-        self.relayout()
+        with self._held_still(key):
+            card.set_collapsed(not card.collapsed, animate=True)
+            self.collapsed[key] = card.collapsed
+            self.tip.hide()
+            self.relayout()
         self.persist()
+
+    @contextmanager
+    def _held_still(self, key):
+        """Keep the widget's picture still while the block changes the card key, then show the new one.
+
+        Tk moves and paints the parts one at a time and Windows showed each as
+        it landed: for 40-100 ms after a fold, cards drawn over each other, one
+        card twice, or the desktop through a gap. A copy of the picture covers
+        the widget instead, until everything is painted. Growing, the copy opens
+        the new space below the card at once (see apply_mode), so the change
+        that follows only fills it in.
+        """
+        card = self.cards[key]
+        held = scrolled = False
+        if not self.preview and not self.compact:
+            try:
+                if self.root.winfo_viewable():
+                    self._held_split = card.winfo_rooty() + card.winfo_height() - self.root.winfo_rooty()
+                    scrolled = bool(self.body_scroll.winfo_ismapped())
+                    held = self._curtain.cover(self._widget_hwnd(), self.metrics.p(28))
+            except tk.TclError:
+                pass
+        if not held:
+            self._held_split = None
+        try:
+            yield
+            if held:
+                scrolled = scrolled or bool(self.body_scroll.winfo_ismapped())
+                self._paint_now(None if scrolled else key)
+        finally:
+            if held:
+                self._held_split = None
+                self._curtain.uncover()
+                if self._topmost_held:
+                    self._topmost_held = False
+                    self.apply_topmost()
+
+    def _paint_now(self, key=None):
+        """Paint the card key and everything below it now, rather than when Windows asks.
+
+        Cards above it did not move unless the body scrolled; key None paints all.
+        """
+        keys = [k for k in FETCHERS if self.enabled[k].get()]
+        start = keys.index(key) if key in keys else 0
+        widgets = [self.shell, self.body_view, self.body]
+        pending = [self.cards[k] for k in keys[start:]] + [self.footer]
+        while pending:
+            widget = pending.pop()
+            widgets.append(widget)
+            pending.extend(widget.winfo_children())
+        for widget in widgets:
+            if widget.winfo_ismapped():
+                widget.event_generate('<Expose>', x=0, y=0, width=widget.winfo_width(),
+                                      height=widget.winfo_height())
+        self.root.update_idletasks()
 
     def _scroll_page(self, direction, event=None):
         if not self.compact and (event is None or event.widget.winfo_toplevel() is self.root):
@@ -1690,7 +1759,7 @@ class UsageWidget:
         remaining = expanded_body_budget(work[3] - work[1], used, m.p)
         for key in FETCHERS:
             self.cards[key].set_additional_layout(self.additional_open == key, remaining)
-        self.apply_mode()
+        self.apply_mode((x, y, work, monitor))
         height = int(self.shell.cget('height'))
         x, y = clamp_position(x, y, m.window_w, height, work, monitor)
         self.root.geometry(geometry_at(x, y))
@@ -1713,7 +1782,11 @@ class UsageWidget:
         return compact_row_layout(count=len(visible), chip_width=needed,
                                   controls_left=controls_left, scale_px=m.p)
 
-    def apply_mode(self):
+    def apply_mode(self, place=None):
+        """Lay the window out for its mode, cards and size.
+
+        place: (x, y, work, monitor) relayout keeps the window on screen with.
+        """
         m = self.metrics
         visible = [k for k in FETCHERS if self.enabled[k].get()]
         for key,card in self.cards.items():
@@ -1777,7 +1850,15 @@ class UsageWidget:
                                        width=m.p(8),height=view_h)
                 self.body_scroll.lift()
             self.footer.place(x=1,y=height-m.footer_h-1,width=m.window_w-2,height=m.footer_h,bordermode='outside')
-        self.root.geometry(f'{m.window_w}x{height}')
+        size = f'{m.window_w}x{height}'
+        if self._held_split is not None:
+            # Growing under the still copy: open the new space in the copy first,
+            # where the window ends up (relayout keeps it on screen, which can
+            # move it up), and move the window there in the step it grows.
+            top = clamp_position(place[0], place[1], m.window_w, height, *place[2:]) if place else None
+            if self._curtain.extend(height, self._held_split, m.p(28), top) and top:
+                size += geometry_at(*top)
+        self.root.geometry(size)
         # Refresh before the newly visible detail widgets are painted.
         self._refresh_visible_clocks()
         self.root.update_idletasks()
@@ -1788,7 +1869,9 @@ class UsageWidget:
                 gdi.CreateRoundRectRgn.restype = ctypes.c_void_p
                 hwnd = ctypes.c_void_p(int(self.root.wm_frame(),16))
                 region = gdi.CreateRoundRectRgn(0,0,m.window_w+1,height+1,m.p(28),m.p(28))
-                if ctypes.windll.user32.SetWindowRgn(hwnd,ctypes.c_void_p(region),True):
+                # Under the still copy everything is painted before it goes
+                # (_held_still); repainting the whole window again is waste.
+                if ctypes.windll.user32.SetWindowRgn(hwnd,ctypes.c_void_p(region),self._held_split is None):
                     self._region_h = height
                 else:
                     gdi.DeleteObject(ctypes.c_void_p(region))
@@ -2557,6 +2640,7 @@ class UsageWidget:
         # short-lived menu/tooltip callbacks that do not retain their IDs.
         for callback in self.root.tk.splitlist(self.root.tk.call('after', 'info')):
             self.root.tk.call('after', 'cancel', callback)
+        self._curtain.uncover()
         self.root.destroy()
 
 

@@ -44,6 +44,7 @@ AI Usage 위젯(Windows, Python/Tk) 저장소에서 일하는 모든 AI 에이�
 - `widget_cards.py`: 카드와 한 줄 모드 칩, 막대 위 빛·링 효과·화살표 회전 같은 애니메이션.
 - `widget_theme.py`: 디자인 토큰, 색, 글꼴과 크기(`Metrics`). Tk를 쓰지 않습니다.
 - `widget_text.py`: 사용량 데이터를 상태와 문구로 바꾸는 순수 함수. Tk를 쓰지 않습니다.
+- `win32_curtain.py`: 카드를 접거나 펼치는 동안 위젯 위에 지금 화면을 그대로 덮어 두는 창. Tk가 부분부분 그리는 과정은 화면에 그대로 보이므로, 창 배치를 바꾸는 작업이 새로 생기면 `UsageWidget._held_still` 안에서 합니다.
 - 테스트에서 함수나 전역 값을 `patch`할 때는 그 코드가 실제로 있는 모듈을 바꿉니다. 예를 들어 카드가 읽는 `progress_png`는 `widget_cards`에서 바꿔야 하며, `usage_widget`에서 바꾸면 아무 효과가 없습니다.
 
 ## 배포 파일

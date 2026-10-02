@@ -58,7 +58,7 @@ $copy = @(
     'codex_activity.py', 'cursor_activity.py', 'claude_activity.py', 'LICENSE',
     'claude_bridge.py', 'claude_integration.py', 'CLAUDE_INTEGRATION.md', 'polling.py', 'additional_ui.py',
     'quota_policy.py', 'codex_app_server.py', 'bar_raster.py', 'frame_clock.py', 'widget_raster.py',
-    'cli_process.py', 'win32_windows.py', 'widget_theme.py', 'widget_text.py', 'widget_cards.py',
+    'cli_process.py', 'win32_windows.py', 'win32_curtain.py', 'widget_theme.py', 'widget_text.py', 'widget_cards.py',
     'setup_and_run.ps1', 'setup_login.ps1', 'create_shortcut.ps1',
     'start_usage_widget.vbs', 'start_usage_widget.bat',
     'toast.ps1', 'register_notifications.ps1', 'feed_url.txt', 'CHANGELOG.md'
