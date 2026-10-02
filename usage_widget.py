@@ -1598,9 +1598,8 @@ class UsageWidget:
 
         Each card first draws the ring images its fill will show (about 85 ms a
         card, while the window is still see-through). The fill waits for the
-        fade: a see-through window is a layered one, which Windows paints far
-        more slowly, and cards filling during the fade dropped frames (gaps of
-        35-40 ms) where after it they stayed under 20 ms.
+        fade: cards filling while the window was see-through dropped frames
+        (gaps of 35-40 ms), where once it was opaque they stayed under 20 ms.
         """
         if self.closing:
             return
@@ -1626,8 +1625,9 @@ class UsageWidget:
                 self.root.attributes('-alpha', (elapsed / ENTRANCE_FADE_S) ** 0.6)
                 self.root.after(16, self._fade_in)
             else:
-                # Opaque again: Tk drops the layered style and repaints once,
-                # before ENTRANCE_SETTLE_S is up and the first card moves.
+                # Opaque again, before ENTRANCE_SETTLE_S is up and the first
+                # card moves. Tk keeps the window layered (at alpha 255) from
+                # here on, which measured no costlier than a plain window.
                 self.root.attributes('-alpha', 1.0)
         except tk.TclError:
             pass
