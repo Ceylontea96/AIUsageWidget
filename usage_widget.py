@@ -571,6 +571,8 @@ def compact_tooltip(snap):
     for item in global_main_limits(snap):
         value = '확인 중' if item.remaining_percent is None else f'잔여 {item.remaining_percent:.0f}%'
         lines.append(f'{item.display_name} · {value}')
+    if no_five_hour_limit(snap):
+        lines.append(NO_FIVE_HOUR_NOTE)
     return '\n'.join(lines)
 
 
@@ -706,6 +708,21 @@ def bonus_line(snap):
 def main_limits(snap):
     """The card's rows: global main quota, in canonical order."""
     return global_main_limits(snap) if snap is not None and snap.ok else []
+
+
+NO_FIVE_HOUR_NOTE = '5시간 한도 없음 · Codex 기준'
+
+
+def no_five_hour_limit(snap):
+    """GPT limits from Codex, none of them a five-hour window.
+
+    Some plans have only a weekly limit. The card then shows the weekly one as
+    its large number; without a word it looked as if the five-hour limit had
+    gone missing from the widget.
+    """
+    limits = main_limits(snap)
+    return (bool(limits) and snap.key == 'chatgpt'
+            and not any(window_matches(item, FIVE_HOURS, FIVE_HOUR_TOLERANCE) for item in limits))
 
 
 def hero_index(snap):
@@ -2458,6 +2475,10 @@ class Card(BarShimmer, tk.Frame):
         short_reset = primary is not None and window_matches(primary, FIVE_HOURS, FIVE_HOUR_TOLERANCE)
         text(114,112,reset_stamp(reset) if short_reset else dated_reset_stamp(reset),FONT_META,DIM)
         y = 156
+        if no_five_hour_limit(snap):
+            # Where the weekly row sits when the ring shows five hours.
+            text(16,y,NO_FIVE_HOUR_NOTE,FONT_META,MUTED,tags='five_hour_note')
+            y += 24
         drawn = 0
         hidden = 0
         for index,item in enumerate(limits):
