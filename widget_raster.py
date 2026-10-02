@@ -345,7 +345,9 @@ def _ring_rows(size, percent, color, thickness, background, track, ghost, ghost_
     return rows
 
 
-@lru_cache(maxsize=128)
+# Room for the opening fill (37 images a card, see widget_cards.ENTRANCE_S)
+# next to the rings the cards show day to day; about 10 KB each.
+@lru_cache(maxsize=256)
 def ring_png(size, percent, color, thickness, background, track, ghost=None, ghost_color=None,
              ripple=None, ripple_color=None, margin=0):
     """A drawn ring costs several milliseconds; the same ring is reused.

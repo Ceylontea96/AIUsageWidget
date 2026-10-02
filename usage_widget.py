@@ -184,6 +184,12 @@ def compact_row_layout(*, count, chip_width, controls_left, scale_px,
 
 ACTIVE_HOLD = 60
 ACTIVITY_TICK_MS = 250
+# Opening: the window fades in over ENTRANCE_FADE_S with its rings empty, then
+# after ENTRANCE_SETTLE_S the cards fill (widget_cards.ENTRANCE_S), each
+# starting ENTRANCE_STAGGER_S after the last.
+ENTRANCE_FADE_S = 0.22
+ENTRANCE_SETTLE_S = 0.05
+ENTRANCE_STAGGER_S = 0.09
 LOG_LIMIT = 256 * 1024
 CALLBACK_ERROR_REPEAT = 60.0
 # statusLine only runs in terminal Claude Code. When it is silent the widget
@@ -878,6 +884,11 @@ class UsageWidget:
         self.root.overrideredirect(not preview)
         self.topmost = tk.BooleanVar(value=bool(self.settings.get('topmost', True)))
         self.root.attributes('-topmost', self.topmost.get())
+        # The widget opens by fading in while its cards fill (see _enter);
+        # preview and tests show it at once.
+        self.entrance = not preview
+        if self.entrance:
+            self.root.attributes('-alpha', 0.0)
         self.compact = bool(self.settings.get('compact', False))
         saved_collapsed = self.settings.get('collapsed', {})
         self.collapsed = saved_collapsed if isinstance(saved_collapsed, dict) else {}
@@ -978,6 +989,10 @@ class UsageWidget:
         self.root.bind_all('<Button-3>', self.popup)
         if not preview:
             self.root.after(1500, self.cards[FETCHERS[0]].warm_turns)
+        if self.entrance:
+            self.root.after(0, self._enter)
+            # Whatever happens to the entrance, the widget never stays see-through.
+            self.root.after(3000, self._show_fully)
         self.tick()
         self._activity_tick()
 
@@ -1577,6 +1592,53 @@ class UsageWidget:
     def toggle_additional(self, key):
         self.additional_open = None if self.additional_open == key else key
         self.relayout()
+
+    def _enter(self):
+        """Open the widget: it fades in with its rings empty, then the cards fill one after another.
+
+        Each card first draws the ring images its fill will show (about 85 ms a
+        card, while the window is still see-through). The fill waits for the
+        fade: a see-through window is a layered one, which Windows paints far
+        more slowly, and cards filling during the fade dropped frames (gaps of
+        35-40 ms) where after it they stayed under 20 ms.
+        """
+        if self.closing:
+            return
+        try:
+            cards = [] if self.compact else [self.cards[k] for k in FETCHERS if self.enabled[k].get()]
+            for card in cards:
+                card.warm_entrance()
+            started = 0
+            for card in cards:
+                if card.enter(delay=ENTRANCE_FADE_S + ENTRANCE_SETTLE_S + started * ENTRANCE_STAGGER_S):
+                    started += 1
+        except tk.TclError:
+            pass
+        self._entrance_t0 = time.monotonic()
+        self._fade_in()
+
+    def _fade_in(self):
+        if self.closing:
+            return
+        elapsed = time.monotonic() - self._entrance_t0
+        try:
+            if elapsed < ENTRANCE_FADE_S:
+                self.root.attributes('-alpha', (elapsed / ENTRANCE_FADE_S) ** 0.6)
+                self.root.after(16, self._fade_in)
+            else:
+                # Opaque again: Tk drops the layered style and repaints once,
+                # before ENTRANCE_SETTLE_S is up and the first card moves.
+                self.root.attributes('-alpha', 1.0)
+        except tk.TclError:
+            pass
+
+    def _show_fully(self):
+        if not self.closing:
+            try:
+                if float(self.root.attributes('-alpha')) < 1.0:
+                    self.root.attributes('-alpha', 1.0)
+            except (tk.TclError, ValueError):
+                pass
 
     def toggle_card(self, key):
         card = self.cards[key]

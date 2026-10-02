@@ -60,6 +60,10 @@ RING_BANDS = ('ok', 'warn', 'danger', 'critical')
 # drawn in CHEVRON_TURN_STEPS cached images.
 CHEVRON_TURN_S = 0.2
 CHEVRON_TURN_STEPS = 12
+# Opening the widget: a card's ring, bars and number fill from zero over
+# ENTRANCE_S, in steps of 1/ENTRANCE_FPS so the ring images are known before.
+ENTRANCE_S = 0.6
+ENTRANCE_FPS = 60
 SHIMMER_GROW_S = 0.4
 SHIMMER_SHRINK_S = 0.85
 SHIMMER_SWEEP_S = 1.2
@@ -538,11 +542,18 @@ def reset_countdown(reset, now=None, monthly=False):
     return f'{seconds // 60}분 {seconds % 60:02d}초'
 
 
+def ring_png_for(size, percent, color, thickness, background=CARD, ghost=None, ghost_color=None,
+                 ripple=None, ripple_color=None, margin=0):
+    """The ring's PNG, always asked for the same way so cached images are found."""
+    return raster.ring_png(max(1, int(size)), percent, color, thickness, background, TRACK,
+                           ghost=ghost, ghost_color=ghost_color, ripple=ripple,
+                           ripple_color=ripple_color, margin=margin)
+
+
 def ring_photo(size, percent, color, thickness, background=CARD, ghost=None, ghost_color=None,
                ripple=None, ripple_color=None, margin=0):
-    return tk.PhotoImage(data=raster.ring_png(max(1, int(size)), percent, color, thickness, background, TRACK,
-                                              ghost=ghost, ghost_color=ghost_color, ripple=ripple,
-                                              ripple_color=ripple_color, margin=margin), format='png')
+    return tk.PhotoImage(data=ring_png_for(size, percent, color, thickness, background, ghost, ghost_color,
+                                           ripple, ripple_color, margin), format='png')
 
 
 class Card(BarShimmer, tk.Frame):
@@ -560,6 +571,12 @@ class Card(BarShimmer, tk.Frame):
         self._turn_t0 = None
         self._turn_from = 1.0
         self._chevron_turn = None
+        # The opening fill (see enter()): when it starts, and the bar and
+        # number values it fills to.
+        self._enter_t0 = None
+        self._enter_to = []
+        self._enter_hero = 0.0
+        self._enter_step = None   # the step painted last, so a waiting card is not redrawn
         self._actions = []
         m = self.metrics
         super().__init__(parent,width=m.card_w,height=m.p(120),bg=BG)
@@ -716,7 +733,11 @@ class Card(BarShimmer, tk.Frame):
         self.configure(width=self.metrics.card_w, height=self.height)
 
     def render(self,snap):
-        before = self._ring_reading(self._snap, self._hero_value()[0]) if self._snap is not None else None
+        # Mid-entrance the ring shows a fraction of its value, which is no reading
+        # to mark a change from: new data there is not a reset.
+        entering = self._enter_t0 is not None
+        before = (self._ring_reading(self._snap, self._hero_value()[0])
+                  if self._snap is not None and not entering else None)
         visual = {field: getattr(snap, field) for field in (
             'key', 'title', 'plan', 'ok', 'hero_caption',
             'footer', 'error', 'dashboard_url', 'stale', 'blocked',
@@ -746,6 +767,8 @@ class Card(BarShimmer, tk.Frame):
         if signature == self.last_signature:
             return
         self.last_signature = signature
+        # New data ends the entrance; the usual tween goes on from where it got to.
+        self._enter_t0 = None
         targets = [bar_display_percent(item.remaining_percent) for item in limits]
         self._hero_target = bar_display_percent(representative_percent(snap))
         if self.animate and snap.ok and self._shown_pcts and len(self._shown_pcts) == len(targets):
@@ -771,9 +794,68 @@ class Card(BarShimmer, tk.Frame):
         self._sync_frames()
 
     def _tweening(self):
-        return bool(self._anim_to) and self._anim_t0 is not None
+        return (bool(self._anim_to) and self._anim_t0 is not None) or self._enter_t0 is not None
+
+    def enter(self, delay=0.0):
+        """Fill the ring, bars and number from zero to what the card shows, as the widget opens.
+
+        Positions move in steps of 1/ENTRANCE_FPS over ENTRANCE_S, so the ring
+        images are the ones warm_entrance() drew beforehand: drawn during the
+        first frames instead, three cards at once overran the frame budget.
+        """
+        snap = self._snap
+        if not self.animate or snap is None or not snap.ok or not self.rows.find_withtag('ring'):
+            return False
+        self._cancel_anim()
+        self._enter_to, self._enter_hero = list(self._shown_pcts), self._hero_shown
+        self._enter_t0 = time.monotonic() + delay
+        self._shown_pcts = [0.0] * len(self._enter_to)
+        self._hero_shown = 0.0
+        self._enter_step = None
+        self._paint_shimmer()
+        self._enter_step = 0
+        self._sync_frames()
+        return True
+
+    @property
+    def entering(self):
+        return self._enter_t0 is not None
+
+    def _entrance_steps(self):
+        return round(ENTRANCE_S * ENTRANCE_FPS)
+
+    def warm_entrance(self):
+        """Draw the ring images enter() will show; its frames then only look them up."""
+        snap, m = self._snap, self.metrics
+        if snap is None or not snap.ok:
+            return
+        hero, _, actual = self._hero_value()
+        if actual is None:
+            return
+        # As _paint_ring draws it with no emphasis, beat or flash during the entrance.
+        _, _, color = design_severity(actual, snap.stale or not snap.ok, representative_blocked(snap))
+        color = raster.blend(color or ACCENTS[self.key], '#FFFFFF', 0.0)
+        thickness = round(m.p(7) * 2) / 2
+        steps = self._entrance_steps()
+        for step in range(steps + 1):
+            ring_png_for(m.p(84), round(hero * ease_out(step / steps) * 2) / 2, color, thickness)
+
+    def _advance_entrance(self, now):
+        steps = self._entrance_steps()
+        step = min(steps, max(0, round((now - self._enter_t0) * ENTRANCE_FPS)))
+        if step == self._enter_step:
+            return
+        self._enter_step = step
+        eased = ease_out(step / steps)
+        self._shown_pcts = [target * eased for target in self._enter_to]
+        self._hero_shown = self._enter_hero * eased
+        if step >= steps:
+            self._enter_t0 = None
 
     def _advance_tween(self, now):
+        if self._enter_t0 is not None:
+            self._advance_entrance(now)
+            return
         dt = now - self._anim_t0
         self._anim_t0 = now
         # After a reset the ring refills at a pace you can watch; bars keep theirs.
@@ -866,8 +948,10 @@ class Card(BarShimmer, tk.Frame):
         return round(start + (end - start) * step, 1), round(0.75 * (1 - step), 2)
 
     def _shimmer_ready(self):
-        return (not self.collapsed and self._snap is not None and self._snap.ok and not self._snap.stale
-                and any(percent > 0 for percent in self._shown_pcts))
+        # No light or thickening while the entrance fills the card: each would
+        # need ring and bar images warm_entrance() has not drawn.
+        return (self._enter_t0 is None and not self.collapsed and self._snap is not None and self._snap.ok
+                and not self._snap.stale and any(percent > 0 for percent in self._shown_pcts))
 
     def _bar_height_for(self, index):
         base = self.metrics.bar_h
@@ -923,6 +1007,9 @@ class Card(BarShimmer, tk.Frame):
 
     def _paint_shimmer(self):
         if self._snap is None or not self.rows.find_withtag('ring'):
+            return
+        if self._enter_t0 is not None and self._enter_step is not None and self._enter_t0 > time.monotonic():
+            # Still waiting for its turn at zero; the frame before already shows that.
             return
         self._paint_ring()
         m = self.metrics
