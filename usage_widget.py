@@ -600,6 +600,10 @@ RING_MARGIN = 8          # transparent pixels around the ring while the circle s
 PULSE_BEATS = 3
 PULSE_BEAT_S = 0.4
 RING_BANDS = ('ok', 'warn', 'danger', 'critical')
+# Folding or unfolding a card turns its chevron a quarter over CHEVRON_TURN_S,
+# drawn in CHEVRON_TURN_STEPS cached images.
+CHEVRON_TURN_S = 0.2
+CHEVRON_TURN_STEPS = 12
 SHIMMER_GROW_S = 0.4
 SHIMMER_SHRINK_S = 0.85
 SHIMMER_SWEEP_S = 1.2
@@ -611,6 +615,12 @@ SHIMMER_PHASES = 288
 # Recent shimmer frames kept as PNG bytes, about 0.65 KB each; six bars
 # sweeping at once use 1,734 of them.
 SHIMMER_FRAMES = 2048
+
+
+def ease_out(progress):
+    """Ease-out cubic: quick to answer the click, gentle as it lands."""
+    progress = max(0.0, min(1.0, progress))
+    return 1 - (1 - progress) ** 3
 
 
 def bar_display_percent(value):
@@ -1914,6 +1924,11 @@ class Card(BarShimmer, tk.Frame):
         self.on_toggle = on_toggle
         self.on_retry = on_retry
         self.on_login = on_login
+        # The chevron's quarter turn (see CHEVRON_TURN_S): when it began, inf
+        # until its first frame, and the turn it began from.
+        self._turn_t0 = None
+        self._turn_from = 1.0
+        self._chevron_turn = None
         self._actions = []
         m = self.metrics
         super().__init__(parent,width=m.card_w,height=m.p(120),bg=BG)
@@ -1981,13 +1996,62 @@ class Card(BarShimmer, tk.Frame):
             self.on_toggle()
         return 'break'
 
-    def set_collapsed(self, collapsed):
+    def set_collapsed(self, collapsed, animate=False):
+        """Fold or unfold the card. The rows change at once; animated, the
+        chevron turns over CHEVRON_TURN_S, back from where it is if clicked
+        again mid-turn."""
         if self.collapsed == bool(collapsed):
             return
+        turn = self._turn_at(time.monotonic())
         self.collapsed = bool(collapsed)
         self.last_signature = None
+        if animate and self.animate and self._snap is not None:
+            # The clock starts on the first frame: painting the new rows takes
+            # tens of ms, which would otherwise eat the start of the turn.
+            self._turn_t0, self._turn_from = math.inf, turn
+        else:
+            self._turn_t0 = None
         if self._snap is not None:
             self.render(self._snap)
+        self._sync_frames()
+
+    def _turn_at(self, now):
+        """The chevron's turn: 1 points down (open), 0 right (folded)."""
+        target = 0.0 if self.collapsed else 1.0
+        if self._turn_t0 is None:
+            return target
+        turn = self._turn_from + (target - self._turn_from) * ease_out((now - self._turn_t0) / CHEVRON_TURN_S)
+        return round(turn * CHEVRON_TURN_STEPS) / CHEVRON_TURN_STEPS
+
+    def _advance_turn(self, now):
+        if self._turn_t0 == math.inf:
+            self._turn_t0 = now
+        elif now - self._turn_t0 >= CHEVRON_TURN_S:
+            self._turn_t0 = None
+        self._paint_chevron(now)
+
+    def _chevron_png(self, turn):
+        m = self.metrics
+        return raster.chevron_png(m.p(11, 8), turn, ICON, max(1.5, 1.6*m.scale))
+
+    def _paint_chevron(self, now=None):
+        if not self.on_toggle or not self.rows.find_withtag('collapse_toggle'):
+            return
+        turn = self._turn_at(time.monotonic() if now is None else now)
+        if turn == self._chevron_turn:
+            return
+        self._chevron = tk.PhotoImage(data=self._chevron_png(turn), format='png')
+        self.rows.itemconfigure('collapse_toggle', image=self._chevron)
+        self._chevron_turn = turn
+
+    def warm_turns(self, step=0):
+        """Draw the chevron's in-between turns one at a time while idle.
+
+        Each takes about 3.5 ms; drawn during a first turn they cost it frames.
+        """
+        if step <= CHEVRON_TURN_STEPS and self.winfo_exists():
+            self._chevron_png(step / CHEVRON_TURN_STEPS)
+            self.after(40, self.warm_turns, step + 1)
 
     def set_additional_layout(self, expanded, max_body):
         if (self._additional_expanded, self._additional_max_body) == (bool(expanded), max(0, int(max_body or 0))):
@@ -2124,9 +2188,12 @@ class Card(BarShimmer, tk.Frame):
             self._pulse_t0 = now
 
     def _moving(self):
-        return self._ghost is not None or self._refill_t0 is not None or self._pulse_t0 is not None
+        return (self._ghost is not None or self._refill_t0 is not None or self._pulse_t0 is not None
+                or self._turn_t0 is not None)
 
     def _advance_effects(self, now):
+        if self._turn_t0 is not None:
+            self._advance_turn(now)
         if self._ghost is not None and now >= self._ghost_hold:
             dt = 0.0 if self._ghost_t0 is None else now - self._ghost_t0
             self._ghost_t0 = now
@@ -2352,9 +2419,9 @@ class Card(BarShimmer, tk.Frame):
         text(46,18,TITLES[self.key],FONT_SERVICE)
         if self.on_toggle:
             # Same colour as the header's line icons, centred on the service icon row.
-            self._chevron = tk.PhotoImage(data=raster.chevron_png(m.p(11, 8), not self.collapsed, ICON, max(1.5, 1.6*m.scale)),
-                                          format='png')
-            c.create_image(m.p(8), m.p(27), image=self._chevron, tags='collapse_toggle')
+            c.create_image(m.p(8), m.p(27), tags='collapse_toggle')
+            self._chevron_turn = None
+            self._paint_chevron()
         plan = '' if snap.plan=='-' else snap.plan.upper()
         font = tkfont.Font(root=c,font=m.font(FONT_PLAN))
         plan_w = font.measure(plan)+m.p(14) if plan else 0
@@ -2572,6 +2639,8 @@ class UsageWidget:
         self.root.bind_all('<Control-0>', self._scale_reset)
         self.root.bind_all('<Control-KP_0>', self._scale_reset)
         self.root.bind_all('<Button-3>', self.popup)
+        if not preview:
+            self.root.after(1500, self.cards[FETCHERS[0]].warm_turns)
         self.tick()
         self._activity_tick()
 
@@ -3147,6 +3216,8 @@ class UsageWidget:
                 self.cards[key].last_signature = None
                 self.render(key)
         self.apply_mode()
+        if not self.preview:
+            self.root.after(500, self.cards[FETCHERS[0]].warm_turns)
         self.set_footer('', MUTED, CODEX)
         self.place(self.root.winfo_x(), self.root.winfo_y())
         self.persist()
@@ -3172,7 +3243,7 @@ class UsageWidget:
 
     def toggle_card(self, key):
         card = self.cards[key]
-        card.set_collapsed(not card.collapsed)
+        card.set_collapsed(not card.collapsed, animate=True)
         self.collapsed[key] = card.collapsed
         self.tip.hide()
         self.relayout()
@@ -3258,13 +3329,20 @@ class UsageWidget:
         layout = (self.compact, tuple(visible), height, tuple(self.cards[k].height for k in visible), m.scale)
         if layout == self._layout:
             return
+        rebuild = self._layout is None or self._layout[:2] != layout[:2] or self._layout[4] != layout[4]
         self._layout = layout
-        for item in (self.header,self.body_view,self.body_scroll,self.footer,self.mini):
-            item.place_forget()
-        for key,card in self.cards.items():
-            card.pack_forget()
-            if key in visible:
-                card.pack(fill='x',pady=(0,0))
+        if rebuild:
+            for item in (self.header,self.body_view,self.body_scroll,self.footer,self.mini):
+                item.place_forget()
+            for key,card in self.cards.items():
+                card.pack_forget()
+                if key in visible:
+                    card.pack(fill='x',pady=(0,0))
+        elif body_h <= view_h:
+            # Only heights changed (a card folded, a row came or went), so
+            # everything is moved in place below. Taking it all down and up
+            # again made Tk repaint the whole window, which showed as a blink.
+            self.body_scroll.place_forget()
         shown = 0
         mini_h = max(1, m.compact_h - 2)
         title, origin, chip_w, gap = self.compact_row(visible)

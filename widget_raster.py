@@ -96,18 +96,27 @@ def shrink_rgba(width, height, rows, target_w, target_h):
     return target_w, target_h, result
 
 
-@lru_cache(maxsize=16)
+@lru_cache(maxsize=32)
 def chevron_png(size, down, color, stroke):
     """A two-stroke chevron with soft edges, like the header's line icons.
+
+    `down` is how far it has turned from pointing right (0) to pointing down
+    (1), so a card folding can turn it through the steps in between.
 
     Tk canvas lines have no anti-aliasing on Windows, so it is rasterised here
     with 4x4 samples per pixel.
     """
     s = float(size)
-    if down:
+    if down == 1:
         points = ((.22*s, .38*s), (.5*s, .66*s), (.78*s, .38*s))
-    else:
+    elif down == 0:
         points = ((.38*s, .22*s), (.66*s, .5*s), (.38*s, .78*s))
+    else:
+        # Pointing right is pointing down turned a quarter about the centre.
+        angle = -math.pi / 2 * (1 - float(down))
+        cos, sin = math.cos(angle), math.sin(angle)
+        points = tuple(((.5 + cos*(x-.5) - sin*(y-.5)) * s, (.5 + sin*(x-.5) + cos*(y-.5)) * s)
+                       for x, y in ((.22, .38), (.5, .66), (.78, .38)))
     half = stroke / 2.0
 
     def near(x, y):
