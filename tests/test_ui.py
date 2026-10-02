@@ -68,6 +68,27 @@ class UiTests(unittest.TestCase):
         self.assertFalse(w.locked)
         self.assertEqual(w.runner.start.call_count,2)
 
+    def test_a_locked_session_stops_the_scans_and_the_light(self):
+        w=self.prepare()
+        for key in u.FETCHERS:w.enabled[key].set(True)
+        for monitor in (w.codex_activity,w.cursor_activity,w.claude_activity):
+            monitor.visual_active=Mock(return_value=True)
+        lit=lambda:{key:w.cards[key]._desired_active for key in u.FETCHERS}
+        # The real scan reads this PC's session files; the bars only need its result.
+        scan=lambda now:w._sync_activity_ui(now)
+        with patch.object(w,'_poll_activity',side_effect=scan) as poll:
+            w._activity_tick()
+            self.assertEqual(lit(),dict.fromkeys(u.FETCHERS,True))
+            w.locked=True
+            poll.reset_mock()
+            w._activity_tick()
+            poll.assert_not_called()
+            self.assertEqual(lit(),dict.fromkeys(u.FETCHERS,False))
+            w.locked=False
+            w._activity_tick()
+            poll.assert_called_once()
+            self.assertEqual(lit(),dict.fromkeys(u.FETCHERS,True))
+
     def test_provider_disable_prevents_poll(self):
         w=self.prepare()
         self.choose_services({'cursor': False})

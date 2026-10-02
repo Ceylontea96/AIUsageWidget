@@ -3806,10 +3806,12 @@ class UsageWidget:
         if not cards:
             return
         now = time.monotonic() if now is None else now
-        gpt_active = (not self.preview and self.enabled['chatgpt'].get()
+        # A locked session shows nothing; a bar sweeping there only costs CPU.
+        shown = not self.locked
+        gpt_active = (shown and not self.preview and self.enabled['chatgpt'].get()
                       and self.codex_activity.visual_active(now))
-        cursor_active = self.enabled['cursor'].get() and self.cursor_activity.visual_active(now)
-        claude_active = self.enabled['claude'].get() and self.claude_activity.visual_active(now)
+        cursor_active = shown and self.enabled['cursor'].get() and self.cursor_activity.visual_active(now)
+        claude_active = shown and self.enabled['claude'].get() and self.claude_activity.visual_active(now)
         states = {'chatgpt': gpt_active, 'cursor': cursor_active, 'claude': claude_active}
         ui_active = self._ui_active
         for key, active in states.items():
@@ -3900,7 +3902,13 @@ class UsageWidget:
             return
         try:
             if not self.preview:
-                self._poll_activity(time.monotonic())
+                now = time.monotonic()
+                if self.locked:
+                    # Nobody sees a locked session: no scans, and the light
+                    # stops sweeping. Unlocked, the next beat picks up again.
+                    self._sync_activity_ui(now)
+                else:
+                    self._poll_activity(now)
         finally:
             # One failed beat must not end activity tracking for the session.
             if not self.closing:
