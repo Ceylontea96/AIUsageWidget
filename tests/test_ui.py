@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch, call
 import usage_widget as u
+import widget_cards as cards
 import widget_raster as raster
 from providers import ProviderSnapshot,QuotaBar,QuotaItem,error_snapshot
 
@@ -910,7 +911,7 @@ class UiTests(unittest.TestCase):
                     main_limits=[limit('autoPercentUsed','Cursor Models',80,source='cursor'),
                                  limit('apiPercentUsed','Other Models',remaining,source='cursor')])
                 self.w.snapshots['cursor']=snap
-                with patch.object(u,'progress_photo',wraps=u.progress_photo) as photo:
+                with patch.object(cards,'progress_photo',wraps=cards.progress_photo) as photo:
                     self.w.render('cursor')
                 self.assertTrue(any(c.args[5] == expected for c in photo.call_args_list))
                 card=self.w.cards['cursor']

@@ -38,6 +38,14 @@ AI Usage 위젯(Windows, Python/Tk) 저장소에서 일하는 모든 AI 에이�
 - Cursor는 액세스 토큰만 읽기 전용으로 씁니다. 토큰을 갱신하거나 Cursor의 로그인 정보를 바꾸지 않습니다.
 - 설정, 캐시, 로그는 `%APPDATA%\AiUsageWidget`에 있고 저장소에는 없습니다.
 
+## 코드 구조
+
+- `usage_widget.py`: 창, 조회 일정, 활동 감시 연결, 머리줄·바닥줄과 버튼, 메뉴. 아래 세 모듈의 이름을 `from ... import *`로 다시 내보내므로 `usage_widget.Card`처럼 써도 됩니다.
+- `widget_cards.py`: 카드와 한 줄 모드 칩, 막대 위 빛·링 효과·화살표 회전 같은 애니메이션.
+- `widget_theme.py`: 디자인 토큰, 색, 글꼴과 크기(`Metrics`). Tk를 쓰지 않습니다.
+- `widget_text.py`: 사용량 데이터를 상태와 문구로 바꾸는 순수 함수. Tk를 쓰지 않습니다.
+- 테스트에서 함수나 전역 값을 `patch`할 때는 그 코드가 실제로 있는 모듈을 바꿉니다. 예를 들어 카드가 읽는 `progress_png`는 `widget_cards`에서 바꿔야 하며, `usage_widget`에서 바꾸면 아무 효과가 없습니다.
+
 ## 배포 파일
 
 - 위젯이 불러오는 모든 모듈은 `publish_update.ps1`의 `$copy` 목록에 있어야 합니다. `tests/test_publish.py`가 확인합니다.

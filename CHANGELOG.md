@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Changed
+- 4,215줄이던 `usage_widget.py`에서 카드·칩과 그 애니메이션을 `widget_cards.py`로, 색·글꼴·크기를 `widget_theme.py`로, 사용량을 문구로 바꾸는 함수를 `widget_text.py`로 옮겼습니다. 동작은 같습니다. 7가지 카드·칩 상태를 옮기기 전과 후에 그려 비교하니 픽셀 하나도 다르지 않았습니다. `usage_widget.py`는 창, 조회, 버튼만 남아 2,554줄이 되었습니다.
+
 ## [3.14.2] - 2026-10-02
 
 ### Changed

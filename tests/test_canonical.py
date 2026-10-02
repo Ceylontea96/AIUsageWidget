@@ -15,6 +15,7 @@ import additional_ui
 import providers as p
 import quota_policy as qp
 import usage_widget as u
+import widget_text
 from providers import BillingItem, LimitGroup, ProviderSnapshot, QuotaItem
 from runtime import AlertGate
 
@@ -253,7 +254,7 @@ class HeroSelectionTests(unittest.TestCase):
                 hero = qp.select_hero(snap)
                 self.assertEqual(u.representative_percent(snap), hero.remaining_percent)
                 self.assertEqual(u.representative_state(snap),
-                                 u._state_for(snap, hero.remaining_percent, snap.blocked))
+                                 widget_text._state_for(snap, hero.remaining_percent, snap.blocked))
 
     def test_hero_number_and_colour_come_from_the_same_quota(self):
         # 5h full, weekly nearly gone: the big number stays calm, the risk

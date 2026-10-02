@@ -7,6 +7,7 @@ from unittest.mock import patch
 import bar_raster
 import frame_clock as fc
 import usage_widget as u
+import widget_cards as cards
 import widget_raster as raster
 from providers import ProviderSnapshot, QuotaItem
 
@@ -323,7 +324,7 @@ class SteadySweepTests(unittest.TestCase):
         self.root.withdraw()
         self.addCleanup(destroy_root, self.root)
         self.cache = u.FrameCache()
-        cache = patch.object(u, 'SHIMMER_CACHE', self.cache)
+        cache = patch.object(cards, 'SHIMMER_CACHE', self.cache)
         cache.start()
         self.addCleanup(cache.stop)
 
@@ -369,7 +370,7 @@ class SteadySweepTests(unittest.TestCase):
     def test_the_next_sweep_draws_no_new_frame(self):
         card = self.steady_card()
         self.sweep(card, 20)
-        with patch.object(u, 'progress_png', side_effect=AssertionError('drawn again')):
+        with patch.object(cards, 'progress_png', side_effect=AssertionError('drawn again')):
             self.sweep(card, 20 + u.SHIMMER_SWEEP_S)
 
     def test_a_steady_chip_reuses_frames_with_or_without_its_warning_ring(self):
@@ -381,8 +382,8 @@ class SteadySweepTests(unittest.TestCase):
                 for step in range(100):
                     self.frame(chip, 10 + step * 0.02)
                 self.sweep(chip, 20)
-                with patch.object(u, 'progress_png', side_effect=AssertionError('drawn again')), \
-                        patch.object(u, 'ringed_progress_rgba', side_effect=AssertionError('drawn again')):
+                with patch.object(cards, 'progress_png', side_effect=AssertionError('drawn again')), \
+                        patch.object(cards, 'ringed_progress_rgba', side_effect=AssertionError('drawn again')):
                     self.sweep(chip, 20 + u.SHIMMER_SWEEP_S)
 
     def test_frames_while_the_bar_grows_are_not_cached(self):
