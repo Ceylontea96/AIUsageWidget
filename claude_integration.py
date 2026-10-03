@@ -175,8 +175,14 @@ def resolve_claude_executable() -> Path | None:
             package / "LocalCache" / "Roaming" / "Claude" / "claude-code"
             for package in (Path(local) / "Packages").glob("Claude_*")
         )
-    builds = [exe for root in roots for exe in root.glob("*/claude.exe") if exe.is_file()]
-    return max(builds, key=lambda exe: parse_claude_version(exe.parent.name) or (0, 0, 0), default=None)
+    # Desktop kept <version>/claude.exe up to 2.1.280; later builds sit one
+    # level deeper, in <version>/<content hash>/claude.exe.
+    builds = [
+        (parse_claude_version(version.name) or (0, 0, 0), exe)
+        for root in roots for version in root.glob("*")
+        for exe in (version / "claude.exe", *version.glob("*/claude.exe")) if exe.is_file()
+    ]
+    return max(builds, key=lambda build: build[0], default=(None, None))[1]
 
 
 def start_claude_login() -> None:

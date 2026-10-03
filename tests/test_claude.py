@@ -38,6 +38,18 @@ class ClaudeTests(unittest.TestCase):
         self.assertEqual(integration.resolve_claude_executable(), latest)
         self.assertEqual(providers._claude_cli_executable(), latest)
 
+    def test_store_desktop_hashed_builds(self):
+        # From 2.1.281 Desktop keeps each build in <version>/<content hash>/.
+        base = 'local/Packages/Claude_test/LocalCache/Roaming/Claude/claude-code'
+        self.executable(base + '/2.1.280/claude.exe')
+        self.executable(base + '/2.1.281/62f544612ca7/claude.exe')
+        latest = self.executable(base + '/2.1.286/635c1867224a/claude.exe')
+        self.assertEqual(integration.resolve_claude_executable(), latest)
+
+    def test_hashed_build_alone(self):
+        exe = self.executable('roaming/Claude/claude-code/2.1.286/635c1867224a/claude.exe')
+        self.assertEqual(integration.resolve_claude_executable(), exe)
+
     def test_native_install_without_path_takes_priority(self):
         native = self.executable('home/.local/bin/claude.exe')
         self.executable('roaming/Claude/claude-code/2.1.275/claude.exe')
