@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [3.15.2] - 2026-10-03
+
 ### Fixed
 - Claude 데스크톱 앱이 Claude Code를 업데이트한 뒤 Claude 카드가 이전 데이터로 멈춰 있던 문제를 고쳤습니다. 데스크톱 앱이 Claude Code를 버전 폴더 아래 해시 폴더(`claude-code\2.1.286\635c1867224a\claude.exe`)에 두기 시작했는데, 위젯은 `claude-code\<버전>\claude.exe`만 찾아 "Claude Code를 찾지 못했습니다"라고 표시하고 사용량을 조회하지 못했습니다. 이제 두 구조를 모두 찾고 가장 높은 버전을 씁니다. PATH에 `claude`가 없어 데스크톱 앱에 들어 있는 Claude Code를 쓰는 경우에 해당하며, Claude 사용 중 표시가 보조로 쓰는 `claude agents --json`도 같은 경로로 실행합니다.
 
