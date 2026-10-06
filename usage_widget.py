@@ -1208,7 +1208,7 @@ class UsageWidget:
         self.apply_metrics()
         for widget in (self.title,self.header,self.updated_label,self.mini_title,self.mini):
             self.bind_drag(widget)
-        style = dict(tearoff=False, bg=CARD, fg=TEXT, activebackground=HAIR, activeforeground=TEXT, disabledforeground=DIM, selectcolor='#FFFFFF')
+        style = dict(tearoff=False, bg=CARD, fg=TEXT, activebackground=HAIR, activeforeground=TEXT, disabledforeground=DIM)
         # Only what has no button or always-visible control lives here; refresh,
         # compact mode and the update arrow are already on the widget itself.
         self.menu = tk.Menu(self.root, **style)
@@ -1234,7 +1234,35 @@ class UsageWidget:
         self.menu.add_command(label='바탕화면 바로가기 만들기', command=self.make_desktop_shortcut)
         self.menu.add_separator()
         self.menu.add_command(label='종료', command=self.close)
+        self._menus = [self.menu, size, self.usage_pages]
+        self._style_menus()
         self.menu.bind('<Map>', lambda e: self._on_menu_map())
+
+    def _style_menus(self):
+        """The menus in the widget's font and size, with ticks the widget draws.
+
+        Windows' own menu font is 맑은 고딕 9 pt, beside the widget's Pretendard,
+        and the native tick was given too little room: it covered the first
+        letter of each check item. The tick is now an image in a column every
+        item has, so the labels line up whether checked or not.
+        """
+        menus = getattr(self, '_menus', None)
+        if not menus:
+            return
+        m = self.metrics
+        width, height = m.p(20), m.p(16)
+        # Kept on self: Tk shows an image only while Python holds it.
+        self._menu_marks = (tk.PhotoImage(width=width, height=height),
+                            tk.PhotoImage(data=raster.menu_tick_png(width, height, m.p(12), TEXT), format='png'))
+        blank, tick = self._menu_marks
+        for menu in menus:
+            menu.configure(font=m.font(FONT_ROW))
+        for index in range(self.menu.index('end') + 1):
+            kind = self.menu.type(index)
+            if kind == 'checkbutton':
+                self.menu.entryconfigure(index, indicatoron=False, image=blank, selectimage=tick, compound='left')
+            elif kind in ('command', 'cascade'):
+                self.menu.entryconfigure(index, image=blank, compound='left')
 
     def apply_topmost(self):
         if self.preview:
@@ -1741,6 +1769,7 @@ class UsageWidget:
         self.footer_hint.place(x=m.window_w - m.p(16), y=m.p(1), height=m.p(27), anchor='ne')
         for chip in self.mini_values.values():
             chip.set_metrics(m)
+        self._style_menus()
         for card in self.cards.values():
             card.set_metrics(m)
             if card.last_signature is None:

@@ -185,6 +185,39 @@ def checkbox_png(size, on, fill, border, mark, background):
     return png_rgba(size, size, rows, level=6)
 
 
+@lru_cache(maxsize=16)
+def menu_tick_png(width, height, box, color):
+    """A tick in the left box x box of a width x height image, the rest clear.
+
+    For the context menu's check items: the image sits left of the label, its
+    clear right part the gap before the text, and the row's highlight shows
+    through it.
+    """
+    s = float(box)
+    top = (height - box) / 2.0
+    tick = ((.18 * s, .52 * s + top), (.40 * s, .74 * s + top), (.84 * s, .28 * s + top))
+    half = max(0.75, s / 14)
+    r, g, b = hex_rgb(color)
+
+    def on_tick(x, y):
+        for (ax, ay), (bx, by) in zip(tick, tick[1:]):
+            dx, dy = bx - ax, by - ay
+            t = max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)))
+            if math.hypot(x - ax - t * dx, y - ay - t * dy) <= half:
+                return True
+        return False
+
+    rows = []
+    for py in range(height):
+        row = bytearray()
+        for px_ in range(width):
+            hits = 0 if px_ > box else sum(on_tick(px_ + (i + .5) / 4, py + (j + .5) / 4)
+                                            for i in range(4) for j in range(4))
+            row += bytes((r, g, b, round(255 * hits / 16)))
+        rows.append(row)
+    return png_rgba(width, height, rows, level=6)
+
+
 def hex_rgb(value):
     value = value.lstrip('#')
     return tuple(int(value[i:i+2], 16) for i in (0, 2, 4))

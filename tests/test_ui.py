@@ -709,8 +709,37 @@ class UiTests(unittest.TestCase):
                 self.assertGreater(min(distance(fill,o) for o in (*others,*u.CHIP_OK.values()) if o!=fill), 40)
                 self.assertGreaterEqual((luminance(u.CHIP_FG)+.05)/(luminance(fill)+.05), 4.5)
 
-    def test_menu_checkmark_is_white(self):
-        self.assertEqual(str(self.w.menu.cget('selectcolor')).upper(), '#FFFFFF')
+    def test_menu_ticks_are_drawn_beside_the_label_not_over_it(self):
+        menu=self.w.menu
+        blank,tick=self.w._menu_marks
+        kinds={menu.type(i) for i in range(menu.index('end')+1)}
+        self.assertIn('checkbutton',kinds)
+        for i in range(menu.index('end')+1):
+            kind=menu.type(i)
+            if kind=='separator':
+                continue
+            # Every item has the same column on the left, so labels line up.
+            self.assertEqual(menu.entrycget(i,'image'),str(blank))
+            self.assertEqual(menu.entrycget(i,'compound'),'left')
+            if kind=='checkbutton':
+                # Windows' own tick, which overlapped the label, is off.
+                self.assertEqual(str(menu.entrycget(i,'indicatoron')),'0')
+                self.assertEqual(menu.entrycget(i,'selectimage'),str(tick))
+        # The tick is light on the dark menu, and clear around it.
+        width,height,rows=raster.read_png_rgba(raster.menu_tick_png(blank.width(),blank.height(),self.w.metrics.p(12),u.TEXT))
+        alphas=[row[x*4+3] for row in rows for x in range(width)]
+        self.assertGreater(max(alphas),200)
+        self.assertEqual(alphas[0],0)
+
+    def test_menus_use_the_widgets_font_and_follow_its_size(self):
+        font=lambda menu: self.w.root.tk.splitlist(menu.cget('font'))
+        for menu in self.w._menus:
+            self.assertEqual(tuple(font(menu)),tuple(str(v) for v in self.w.metrics.font(u.FONT_ROW)))
+        width=self.w._menu_marks[0].width()
+        self.w.set_scale(1.5)
+        self.assertGreater(self.w._menu_marks[0].width(),width)
+        self.assertEqual(font(self.w.menu)[1],str(-u.px(12,1.5)))
+        self.w.set_scale(1.0)
 
     def test_icon_buttons_have_hints(self):
         w=self.w
