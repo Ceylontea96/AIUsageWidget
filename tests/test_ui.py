@@ -213,6 +213,45 @@ class UiTests(unittest.TestCase):
         self.assertEqual(int(w.shell.cget('width')), base)
         self.assertFalse(u.SETTINGS_PATH.exists())
 
+    def test_the_monitors_dpi_scales_the_widget_with_the_users_scale(self):
+        self.assertEqual(u.Metrics(1.0, 144).scale, 1.5)
+        self.assertEqual(u.Metrics(1.5, 144).scale, 2.25)
+        self.assertEqual(u.Metrics(1.3, 96).scale, 1.3)
+        self.assertEqual(u.Metrics(1.0, 144).user_scale, 1.0)
+        w=self.w
+        base=int(w.shell.cget('width'))
+        w.preview=False
+        with patch.object(u,'monitor_dpi',return_value=144),patch.object(w,'persist') as persist:
+            self.assertTrue(w._follow_dpi())
+            self.assertFalse(w._follow_dpi(), 'the same monitor again changes nothing')
+        persist.assert_not_called()   # the user's own scale is what is kept
+        self.assertEqual(w.scale, 1.0)
+        self.assertEqual(int(w.shell.cget('width')), u.px(u.WINDOW_W, 1.5))
+        # The user's scale goes on top of the monitor's.
+        w.preview=True
+        w.set_scale(1.3)
+        self.assertEqual(int(w.shell.cget('width')), u.px(u.WINDOW_W, 1.3*1.5))
+        w.preview=False
+        with patch.object(u,'monitor_dpi',return_value=96):
+            self.assertTrue(w._follow_dpi())
+        self.assertEqual(int(w.shell.cget('width')), u.px(u.WINDOW_W, 1.3))
+        w.preview=True
+        w.set_scale(1.0)
+        self.assertEqual(int(w.shell.cget('width')), base)
+
+    def test_header_icons_grow_with_the_widget(self):
+        sizes={scale:u.load_icon('refresh',scale).width() for scale in (0.75,1.0,1.3,1.5,2.25)}
+        self.assertEqual(sizes,{0.75:12,1.0:16,1.3:21,1.5:24,2.25:32})
+        w=self.w
+        w.set_scale(1.5)
+        buttons=[b for b in w.header_buttons+w.mini_buttons if isinstance(b,u.IconButton)]
+        self.assertTrue(buttons)
+        for button in buttons:
+            self.assertEqual(button.image.width(),24)
+        w.set_scale(1.0)
+        for button in buttons:
+            self.assertEqual(button.image.width(),16)
+
     def test_scale_reclamps_position(self):
         w=self.w
         with patch.object(w, 'place') as place:

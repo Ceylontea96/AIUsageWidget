@@ -40,6 +40,23 @@ def _monitor_rects(x, y):
     return fallback, fallback
 
 
+def monitor_dpi(x, y):
+    """DPI of the monitor at the point (96 at 100% scaling), or 96 if unknown."""
+    try:
+        user32, shcore = ctypes.windll.user32, ctypes.windll.shcore
+        user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+        user32.MonitorFromPoint.restype = wintypes.HANDLE
+        shcore.GetDpiForMonitor.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.POINTER(wintypes.UINT),
+                                            ctypes.POINTER(wintypes.UINT)]
+        monitor = user32.MonitorFromPoint(wintypes.POINT(int(x), int(y)), 2)
+        dpi_x, dpi_y = wintypes.UINT(), wintypes.UINT()
+        if shcore.GetDpiForMonitor(monitor, 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y)) == 0 and dpi_x.value:
+            return int(dpi_x.value)
+    except (AttributeError, OSError, ValueError, ctypes.ArgumentError):
+        pass
+    return 96
+
+
 def work_area(x, y):
     return _monitor_rects(x, y)[0]
 

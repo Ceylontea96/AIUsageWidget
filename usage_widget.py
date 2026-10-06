@@ -36,8 +36,9 @@ from codex_app_server import CodexAppServer
 from runtime import AlertGate, AuthWatcher, CodexJob, PollRunner, ToastSender, WorkerJob, limiting_quota, login_present, login_status, prepare_action, session_locked, start_tool_setup
 from updater import APP_VERSION, CHECK_EVERY, LAUNCHER_EXE, download_and_stage, fetch_latest, is_git_checkout, load_feed_url, start_apply, update_confirm_text
 from win32_windows import (
-    clamp_position, dwm_round_corners, keep_topmost_style, lift_menu_windows, lift_owned_popups, monitor_area, process_alive,
-    set_over_taskbar, show_window, terminate_pid, widget_windows, windows_for_pid, work_area,
+    clamp_position, dwm_round_corners, keep_topmost_style, lift_menu_windows, lift_owned_popups, monitor_area,
+    monitor_dpi, process_alive, set_over_taskbar, show_window, terminate_pid, widget_windows, windows_for_pid,
+    work_area,
 )
 from win32_curtain import Curtain
 from widget_theme import *  # noqa: F401,F403  colours, fonts and sizes
@@ -369,9 +370,23 @@ def sync_startup(root=None):
 
 
 def load_icon(name, scale):
-    # The whole design uses 1x pixel dimensions; the supplied icons are 16x16.
-    path = ICON_DIR / f'{name}.png'
-    return tk.PhotoImage(data=path.read_bytes(), format='png') if path.is_file() else None
+    """A line icon 16 px at scale 1: the 16 px master there, else the 32 px one shrunk.
+
+    The 16 px image alone stayed 16 px when the widget grew, smaller and smaller
+    beside its text.
+    """
+    size = max(8, int(round(16 * scale)))
+    base, large = ICON_DIR / f'{name}.png', ICON_DIR / f'{name}@2x.png'
+    try:
+        if size == 16 or not large.is_file():
+            return tk.PhotoImage(data=base.read_bytes(), format='png') if base.is_file() else None
+        data = large.read_bytes()
+        if size < 32:
+            # Above 32 px (twice the size and more) the 32 px image is shown as it is.
+            data = raster.png_rgba(*raster.shrink_rgba(*raster.read_png_rgba(data), size, size))
+        return tk.PhotoImage(data=data, format='png')
+    except (OSError, ValueError, tk.TclError):
+        return None
 
 
 PILL_PULSE_STEPS = 24
@@ -893,7 +908,10 @@ class UsageWidget:
         self.preview = preview
         self.settings = read_json(SETTINGS_PATH)
         self.scale = clamp_scale(self.settings.get('scale', DEFAULT_SCALE))
-        self.metrics = Metrics(self.scale)
+        # The monitor's DPI joins the user's scale (see Metrics). Preview and
+        # tests draw at 96 so their sizes do not depend on the screen.
+        self.dpi = 96 if preview else monitor_dpi(*self._saved_corner())
+        self.metrics = Metrics(self.scale, self.dpi)
         self.root = tk.Tk()
         if not preview:
             self.callback_errors = CallbackErrors()
@@ -1026,13 +1044,16 @@ class UsageWidget:
         self.tick()
         self._activity_tick()
 
-    def _load_icons(self):
+    def _saved_corner(self):
         try:
-            scale = float(self.root.winfo_fpixels('1i')) / 96.0
-        except tk.TclError:
-            scale = 1.0
+            return int(self.settings.get('x', 40)), int(self.settings.get('y', 80))
+        except (ValueError, TypeError):
+            return 40, 80
+
+    def _load_icons(self):
+        self._icons_scale = self.metrics.scale
         for name in ('refresh', 'minus', 'close', 'expand', 'plus'):
-            image = load_icon(name, scale)
+            image = load_icon(name, self.metrics.scale)
             if image is not None:
                 self.icons[name] = image
 
@@ -1049,7 +1070,9 @@ class UsageWidget:
                 button.bind('<Enter>', lambda e, b=button, t=hint: self.tip.schedule(b, t), add='+')
                 button.bind('<Leave>', lambda e: self.tip.hide(), add='+')
             return button
-        return IconButton(parent, image, command, hover_bg=hover_bg, size=self.metrics.icon, tip=self.tip, hint=hint)
+        button = IconButton(parent, image, command, hover_bg=hover_bg, size=self.metrics.icon, tip=self.tip, hint=hint)
+        button.icon_name = name
+        return button
 
     def build(self):
         m = self.metrics
@@ -1547,6 +1570,8 @@ class UsageWidget:
 
     def apply_metrics(self):
         m = self.metrics
+        if m.scale != self._icons_scale:
+            self._load_icons()
         self.title.configure(font=m.font(FONT_TITLE))
         self.update_pill.set_metrics(m)
         self.mini_title.configure(font=m.font(FONT_TITLE))
@@ -1565,6 +1590,7 @@ class UsageWidget:
         fallback_font = (FACE, max(8, int(round(11 * m.scale))))
         for index, btn in enumerate(self.header_buttons):
             if isinstance(btn, IconButton):
+                btn.image = self.icons.get(btn.icon_name, btn.image)
                 btn.set_size(m.icon)
             else:
                 btn.configure(font=fallback_font)
@@ -1572,6 +1598,7 @@ class UsageWidget:
         # The compact row places the title itself; apply_mode owns that slot.
         for index, btn in enumerate(self.mini_buttons):
             if isinstance(btn, IconButton):
+                btn.image = self.icons.get(btn.icon_name, btn.image)
                 btn.set_size(m.icon)
             else:
                 btn.configure(font=fallback_font)
@@ -1594,7 +1621,31 @@ class UsageWidget:
         if scale == self.scale:
             return
         self.scale = scale
-        self.metrics = Metrics(scale)
+        self._rescale()
+        self.persist()
+
+    def _follow_dpi(self):
+        """Redraw at the DPI of the monitor the widget is on now; True if it changed.
+
+        Asked at the top-left corner, the monitor relayout keeps the whole
+        window on, so growing on a larger monitor cannot carry it back.
+        """
+        if self.preview:
+            return False
+        try:
+            dpi = monitor_dpi(self.root.winfo_x() + 1, self.root.winfo_y() + 1)
+        except tk.TclError:
+            return False
+        if dpi == self.dpi:
+            return False
+        LOG.debug('[UI] monitor DPI %s -> %s', self.dpi, dpi)
+        self.dpi = dpi
+        self._rescale()
+        return True
+
+    def _rescale(self):
+        """Draw everything again at the user's scale on the current monitor."""
+        self.metrics = Metrics(self.scale, self.dpi)
         self.apply_metrics()
         self._layout = None
         self._region_h = None
@@ -1608,7 +1659,6 @@ class UsageWidget:
             self.root.after(500, self.cards[FETCHERS[0]].warm_turns)
         self.set_footer('', MUTED, CODEX)
         self.place(self.root.winfo_x(), self.root.winfo_y())
-        self.persist()
 
     def nudge_scale(self, steps):
         self.set_scale(step_scale(self.scale, steps))
@@ -1960,6 +2010,7 @@ class UsageWidget:
 
     def end_drag(self, e):
         self.dragging = False
+        self._follow_dpi()
         self.relayout(self.root.winfo_x(), self.root.winfo_y())
         self.persist()
 
@@ -2203,6 +2254,9 @@ class UsageWidget:
                         self.snapshots[key] = replace(snap, stale=True)
                         self.render(key)
             if not self.locked and not self.dragging:
+                # Moved to another monitor by Windows (a display unplugged, or
+                # its scaling changed in Settings): draw at its DPI.
+                self._follow_dpi()
                 x, y = self.root.winfo_x(), self.root.winfo_y()
                 w, h = self.root.winfo_width(), self.root.winfo_height()
                 area = monitor_area(x + w // 2, y + h // 2)

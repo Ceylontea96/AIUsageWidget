@@ -163,10 +163,16 @@ def step_scale(scale, steps=1):
 
 
 class Metrics:
-    """Variant A token sizes multiplied by the user scale."""
+    """Variant A token sizes multiplied by the user scale and the monitor's.
 
-    def __init__(self, scale=DEFAULT_SCALE):
-        self.scale = clamp_scale(scale)
+    dpi is the monitor's (96 at 100%). The widget is DPI aware, so Windows
+    does not enlarge it; without this it showed at two thirds of its size on a
+    150% monitor. `scale` is the product, the one every size is drawn at.
+    """
+
+    def __init__(self, scale=DEFAULT_SCALE, dpi=96):
+        self.user_scale = clamp_scale(scale)
+        self.scale = round(self.user_scale * max(96, int(dpi or 96)) / 96, 4)
 
     def p(self, value, minimum=0):
         return px(value, self.scale, minimum)
