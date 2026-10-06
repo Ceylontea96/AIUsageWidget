@@ -109,13 +109,12 @@ class UiTests(unittest.TestCase):
         def interact(dialog):
             controls = list(visit(dialog))
             for key, enabled in choices.items():
-                check = next(child for child in controls if isinstance(child, u.tk.Checkbutton)
-                             and child.cget('text') == u.TITLES[key])
-                current = bool(dialog.getvar(check.cget('variable')))
-                if current != enabled:
+                check = next(child for child in controls if isinstance(child, u.ThemedCheck)
+                             and child.text == u.TITLES[key])
+                if bool(check.variable.get()) != enabled:
                     check.invoke()
-            button = next(child for child in controls if isinstance(child, u.tk.Button)
-                          and child.cget('text') == ('확인' if confirm else '취소'))
+            button = next(child for child in controls if isinstance(child, u.ThemedButton)
+                          and child.text == ('확인' if confirm else '취소'))
             button.invoke()
             self.assertFalse(dialog.winfo_exists())
 

@@ -138,6 +138,53 @@ def chevron_png(size, down, color, stroke):
     return png_rgba(size, size, rows, level=6)
 
 
+@lru_cache(maxsize=16)
+def checkbox_png(size, on, fill, border, mark, background):
+    """A rounded checkbox: filled with a tick when on, an outline when off.
+
+    Anti-aliased with 4x4 samples a pixel, like the chevron: Tk's own
+    checkbutton is a square drawn by Windows that ignores the dark theme.
+    """
+    s = float(size)
+    radius, ring = s * .26, max(1.0, s / 12)
+    tick = ((.27 * s, .52 * s), (.43 * s, .68 * s), (.74 * s, .35 * s))
+    half = max(1.0, s / 11)
+
+    def inside(x, y, inset):
+        r = max(0.0, radius - inset)
+        cx = min(max(x, inset + r), s - inset - r)
+        cy = min(max(y, inset + r), s - inset - r)
+        return inset <= x <= s - inset and inset <= y <= s - inset and (x - cx) ** 2 + (y - cy) ** 2 <= r * r
+
+    def on_tick(x, y):
+        for (ax, ay), (bx, by) in zip(tick, tick[1:]):
+            dx, dy = bx - ax, by - ay
+            t = max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)))
+            if math.hypot(x - ax - t * dx, y - ay - t * dy) <= half:
+                return True
+        return False
+
+    colours = [hex_rgb(c) for c in (background, fill, border, mark)]
+    rows = []
+    for py in range(size):
+        row = bytearray()
+        for px_ in range(size):
+            total = [0, 0, 0]
+            for i in range(4):
+                for j in range(4):
+                    x, y = px_ + (i + .5) / 4, py + (j + .5) / 4
+                    if not inside(x, y, 0):
+                        colour = colours[0]
+                    elif on:
+                        colour = colours[3] if on_tick(x, y) else colours[1]
+                    else:
+                        colour = colours[0] if inside(x, y, ring) else colours[2]
+                    total = [t + c for t, c in zip(total, colour)]
+            row += bytes([round(t / 16) for t in total] + [255])
+        rows.append(row)
+    return png_rgba(size, size, rows, level=6)
+
+
 def hex_rgb(value):
     value = value.lstrip('#')
     return tuple(int(value[i:i+2], 16) for i in (0, 2, 4))

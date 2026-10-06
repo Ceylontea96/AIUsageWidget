@@ -41,6 +41,7 @@ from win32_windows import (
     work_area,
 )
 from win32_curtain import Curtain
+from widget_dialogs import PRIMARY, ThemedButton, ThemedCheck, dialog_label, dialog_rule, styled_window, swatch
 from widget_theme import *  # noqa: F401,F403  colours, fonts and sizes
 from widget_text import *  # noqa: F401,F403  what a snapshot reads as
 from widget_cards import *  # noqa: F401,F403  cards, chips and their animation
@@ -142,6 +143,76 @@ def create_desktop_shortcut(root=None, desktop=None):
         raise RuntimeError('바탕화면 바로가기를 만들지 못했습니다. 바탕화면 폴더의 위치와 쓰기 권한을 확인하세요.')
     save_install_root(root, shortcut_asked=True)
     return desktop / SHORTCUT_NAME
+
+
+LEGEND_RING_NOTE = ('한 줄 칩은 카드와 같은 색입니다. 칩 둘레가 노랑이나 빨강이면 크게 보이는 한도 말고 '
+                    '다른 한도(예: 주간)가 낮다는 뜻입니다.')
+
+
+def help_content():
+    """(legend, sections, footer) of the help window and help_text().
+
+    legend: (chip fill, ring colour or None, name, rule) for each colour.
+    sections: (title, [(key or '', text)]); a key sets the row out as a table.
+    footer: version first, then the notice lines.
+    """
+    legend = [
+        (CHIP_OK['chatgpt'], None, '여유', '남은 양 50% 이상 · 서비스 색'),
+        (CHIP_WARN, None, '주의', '50% 미만'),
+        (CHIP_DANGER, None, '임박', '20% 미만'),
+        (CHIP_DANGER, DANGER, '곧 한도', '5% 미만, 또는 사용이 제한됨'),
+        (CHIP_STALE, None, '이전 값', '최근 확인이 실패해 마지막 값을 보여 줌'),
+    ]
+    sections = [
+        ('서비스', [
+            ('', 'GPT · 실제 한도 기간으로 구분해, 5시간 한도가 있으면 그것을, 없으면 주간·기타 한도를 크게 '
+                 '보여 줍니다. ChatGPT 데스크톱 앱이 아니라 Codex CLI 로그인이 필요합니다.'),
+            ('', 'Cursor · Cursor Models를 대표 잔여로, Other Models를 보조 막대로 보여 줍니다. 막대 아래는 '
+                 '청구 주기 초기화입니다.'),
+            ('', 'Claude · Claude.ai 구독과 지원되는 Claude Code가 필요합니다. 대화형 세션의 5시간·주간 한도만 '
+                 '보여 주며 Additional/Billing은 없습니다. claude -p는 추적되지 않습니다.'),
+            ('', '우클릭 → 서비스·로그인 관리에서 서비스를 고르고 로그인합니다. 기본 포함량 소진과 전체 한도 '
+                 '소진은 다를 수 있습니다.'),
+        ]),
+        ('알림과 조회', [
+            ('', '남은 양이 10% 이하가 되거나 소진되면 한 번 알립니다. 12%를 넘게 회복하면 다시 알릴 수 있습니다. '
+                 '알림을 켜면 예시 알림이 한 번 뜹니다.'),
+            ('', '카드마다 마지막 확인 시각이 보입니다. 조회가 실패하면 이전 값과 원인이 남고, 다시 확인·로그인 '
+                 '안내 버튼이 나타납니다.'),
+            ('', '로그인 파일이 바뀌면 자동으로 다시 조회합니다(제한 시간 15초). 화면이 잠긴 동안은 조회를 '
+                 '멈추고, 잠금이 풀리면 바로 조회합니다.'),
+        ]),
+        ('조작', [
+            ('F5', '새로고침'),
+            ('Ctrl+M · 제목 더블클릭', '한 줄 / 상세 전환'),
+            ('Ctrl++ · Ctrl+- · Ctrl+0', '크게 · 작게 · 기본 크기'),
+            ('제목 드래그', '위젯 옮기기'),
+            ('서비스 이름 · Enter/Space', '카드 접기·펼치기'),
+            ('↗', '사용량 페이지 열기'),
+            ('휠 · PageUp/PageDown', '긴 본문 스크롤'),
+            ('우클릭', '설정 메뉴'),
+        ]),
+        ('설치와 업데이트', [
+            ('', '실행 파일은 zip을 푼 폴더의 AI Usage.exe입니다. 한 번 실행한 뒤에는 실행 파일만 옮겨도 됩니다. '
+                 '우클릭 → 바탕화면 바로가기 만들기로 바로가기를 만들 수 있습니다.'),
+            ('', '새 버전이 있으면 제목 옆에 초록 ↑ 업데이트 버튼이 나타납니다.'),
+        ]),
+    ]
+    footer = [
+        f'현재 버전 {APP_VERSION}',
+        '이 위젯은 OpenAI(ChatGPT)·Cursor·Anthropic과 제휴되지 않은 비공식 도구입니다.',
+        '사용량 조회는 언제든 실패하거나 바뀔 수 있습니다.',
+        '계정 로그인은 각 서비스에서 하세요. 위젯은 읽기만 합니다.',
+    ]
+    return legend, sections, footer
+
+
+# What each service needs, under its name in the services dialog.
+SERVICE_NEEDS = {
+    'chatgpt': 'Codex CLI 로그인이 필요합니다. ChatGPT 데스크톱 앱만으로는 읽을 수 없습니다.',
+    'cursor': 'Cursor 앱에 로그인되어 있어야 합니다.',
+    'claude': '대화형 Claude Code 연동이 필요합니다. ~/.claude/settings.json은 연동 버튼을 눌렀을 때만 바뀝니다.',
+}
 
 
 def login_guidance(key, snap=None):
@@ -1350,35 +1421,92 @@ class UsageWidget:
                 self.apply_topmost()
 
     def help_text(self):
-        return (
-            f'현재 버전 {APP_VERSION}\n\n'
-            '이 위젯은 OpenAI(ChatGPT)·Cursor·Anthropic과 제휴되지 않은 비공식 도구입니다.\n'
-            '사용량 조회는 언제든 실패하거나 바뀔 수 있습니다.\n\n'
-            'GPT: 실제 한도 기간으로 구분하며, 5시간이 있으면 우선 표시하고 없으면 주간·기타 한도를 표시합니다.\n'
-            'Cursor: Cursor Models를 대표 잔여로 표시하고 Other Models를 보조 바로 표시합니다. 막대 아래는 청구 주기 초기화입니다.\n'
-            'Claude: Claude.ai 구독과 지원되는 Claude Code가 필요합니다. 대화형 세션의 5시간·주간 한도만 표시하며 Additional/Billing은 없습니다. 연동은 우클릭 → 서비스·로그인 관리에서 켭니다. claude -p는 추적되지 않습니다.\n'
-            '기본 포함량 소진과 전체 한도 소진은 다를 수 있습니다.\n\n'
-            '한 줄 칩은 카드와 같은 색입니다. 50% 미만은 주의, 20% 미만은 임박, 5% 미만은 곧 한도입니다.\n'
-            '우클릭 → 서비스·로그인 관리에서 GPT / Cursor / Claude를 고르고 로그인합니다.\n'
-            '계정 로그인은 각 서비스에서 하세요. 위젯은 읽기만 합니다.\n'
-            'GPT 사용량은 ChatGPT 데스크톱 앱이 아니라 Codex CLI 로그인이 필요합니다.\n\n'
-            '실행은 zip 푼 폴더의 AI Usage.exe 입니다. 한 번 실행한 뒤에는 실행 파일만 옮겨도 됩니다.\n'
-            '우클릭 → 바탕화면 바로가기 만들기로 바로가기를 만들 수 있습니다.\n\n'
-            'F5 새로고침 · Ctrl+M 한 줄 모드\n'
-            '서비스 제목 클릭 또는 카드에서 Enter/Space: 개별 접기·펼치기\n'
-            '서비스 이름 옆 ↗: 사용량 페이지 열기\n'
-            '긴 본문: 마우스 휠 · 스크롤바 · PageUp/PageDown\n'
-            '카드마다 마지막 확인 시각이 표시됩니다. 조회가 실패하면 이전 값과 원인이 남고, 다시 확인·로그인 안내가 나타납니다.\n'
-            'Ctrl++ / Ctrl+- 크기 조절 · Ctrl+0 기본 크기\n'
-            '제목 드래그로 이동 · 제목 더블클릭으로 한 줄/상세 전환 · 우클릭으로 설정\n\n'
-            '10% 이하·소진 시 한 번 알림 (12% 초과 회복 시 재설정). 알림을 켜면 예시 알림이 한 번 뜹니다.\n'
-            '로그인 파일 변경 자동 감지 · 조회 제한 15초\n'
-            '잠금 중 조회 중지 · 해제 시 즉시 조회\n'
-            '새 버전이 있으면 제목 옆에 초록 ↑ 업데이트 버튼이 나타납니다.'
-        )
+        """The help as plain text: the same content the help window lays out."""
+        legend, sections, footer = help_content()
+        lines = [footer[0], '', *footer[1:], '', '표시 기준']
+        lines += [f'{name} · {rule}' for _, _, name, rule in legend]
+        for title, rows in sections:
+            lines += ['', title]
+            lines += [f'{key} · {text}' if key else text for key, text in rows]
+        return '\n'.join(lines)
 
     def help(self):
-        self.notify(messagebox.showinfo, 'AI Usage', self.help_text(), parent=self.root)
+        """The help window: colour legend, services, alerts, keys, install, in the widget's style.
+
+        It replaced a Windows message box of 25 lines of plain text, whose
+        colour rules had no colours and which kept one size at any scale.
+        """
+        m = self.metrics
+        self.push_overlay()
+        try:
+            window = styled_window(self.root, 'AI Usage 도움말')
+            pad, wrap = m.p(20), 520
+            legend, sections, footer = help_content()
+            view = tk.Canvas(window, bg=BG, bd=0, highlightthickness=0)
+            body = tk.Frame(view, bg=BG)
+            view.create_window(0, 0, window=body, anchor='nw')
+            dialog_label(body, 'AI Usage 도움말', m, FONT_SERVICE, anchor='w', padx=pad, pady=(m.p(18), m.p(2)))
+            dialog_label(body, footer[0], m, FONT_META, MUTED, anchor='w', padx=pad, pady=(0, m.p(6)))
+            dialog_label(body, ' '.join(footer[1:]), m, FONT_META, MUTED, wrap=wrap, anchor='w', padx=pad,
+                         pady=(0, m.p(14)))
+
+            def heading(text):
+                dialog_rule(body, m, padx=pad)
+                dialog_label(body, text, m, FONT_TITLE, anchor='w', padx=pad, pady=(m.p(12), m.p(6)))
+
+            heading('표시 기준')
+            grid = tk.Frame(body, bg=BG)
+            grid.pack(anchor='w', padx=pad)
+            for row, (fill, ring, name, rule) in enumerate(legend):
+                swatch(grid, fill, m, ring).grid(row=row, column=0, sticky='w', pady=m.p(3))
+                dialog_label(grid, name, m, FONT_VALUE).grid(row=row, column=1, sticky='w', padx=(m.p(10), m.p(12)))
+                dialog_label(grid, rule, m, FONT_SUB, STATUS_FG).grid(row=row, column=2, sticky='w')
+            dialog_label(body, LEGEND_RING_NOTE, m, FONT_META, MUTED, wrap=wrap, anchor='w', padx=pad,
+                         pady=(m.p(8), m.p(14)))
+            for title, rows in sections:
+                heading(title)
+                table = tk.Frame(body, bg=BG)
+                table.pack(anchor='w', padx=pad, pady=(0, m.p(12)))
+                for row, (key, text) in enumerate(rows):
+                    if key:
+                        dialog_label(table, key, m, FONT_VALUE).grid(row=row, column=0, sticky='nw',
+                                                                     padx=(0, m.p(14)), pady=m.p(3))
+                        dialog_label(table, text, m, FONT_SUB, STATUS_FG, wrap=330).grid(
+                            row=row, column=1, sticky='nw', pady=m.p(3))
+                    else:
+                        dialog_label(table, text, m, FONT_SUB, STATUS_FG, wrap=wrap).grid(
+                            row=row, column=0, columnspan=2, sticky='w', pady=m.p(3))
+            dialog_rule(body, m, padx=pad)
+            bar = tk.Frame(window, bg=BG)
+            close = ThemedButton(bar, '닫기', window.destroy, m, PRIMARY)
+            close.pack(side='right')
+            window.bind('<Escape>', lambda e: window.destroy())
+            body.update_idletasks()
+            try:
+                work = work_area(self.root.winfo_rootx(), self.root.winfo_rooty())
+                room = work[3] - work[1] - m.p(120)
+            except tk.TclError:
+                room = body.winfo_reqheight()
+            height = min(body.winfo_reqheight(), max(m.p(240), room))
+            view.configure(width=body.winfo_reqwidth(), height=height,
+                           scrollregion=(0, 0, body.winfo_reqwidth(), body.winfo_reqheight()))
+            view.pack(fill='both')
+            bar.pack(fill='x', padx=pad, pady=(m.p(10), m.p(18)))
+            if body.winfo_reqheight() > height:
+                # Taller than the screen allows: the wheel scrolls it.
+                window.bind('<MouseWheel>', lambda e: view.yview_scroll(-1 if e.delta > 0 else 1, 'units'))
+                view.configure(yscrollincrement=m.p(24))
+            try:
+                ref_x, ref_y = self.root.winfo_rootx(), self.root.winfo_rooty()
+            except tk.TclError:
+                ref_x, ref_y = 0, 0
+            place_on_screen_center(window, ref_x, ref_y)
+            window.deiconify()
+            close.focus_set()
+            window.grab_set()
+            window.wait_window()
+        finally:
+            self.pop_overlay()
 
     def _service_setup_action(self, action):
         if str(action).startswith('claude'):
@@ -1453,41 +1581,35 @@ class UsageWidget:
         self.notify(messagebox.showinfo, 'AI Usage', '바탕화면에 바로가기를 만들었습니다.\n' + str(path), parent=self.root)
 
     def pick_services(self):
+        m = self.metrics
         self.push_overlay()
-        dialog = tk.Toplevel(self.root)
-        dialog.title('서비스·로그인 관리')
-        dialog.configure(bg=BG)
-        dialog.resizable(False, False)
-        dialog.transient(self.root)
-        dialog.attributes('-topmost', True)
+        dialog = styled_window(self.root, '서비스·로그인 관리')
+        pad = m.p(20)
         chosen = {key: tk.BooleanVar(value=self.enabled[key].get()) for key in FETCHERS}
-        tk.Label(dialog, text='이 PC에서 볼 서비스를 고르세요.', bg=BG, fg=TEXT, font=FONT_TITLE).pack(anchor='w', padx=16, pady=(14, 6))
-        tk.Label(
-            dialog,
-            text='GPT는 Codex CLI, Cursor는 Cursor 앱 로그인이 필요합니다. Claude는 대화형 Claude Code 연동이 필요합니다.',
-            bg=BG, fg=MUTED, font=FONT_FOOT, wraplength=340, justify='left',
-        ).pack(anchor='w', padx=16)
-        notes = {}
-        actions = {}
+        dialog_label(dialog, '서비스·로그인 관리', m, FONT_SERVICE, anchor='w', padx=pad, pady=(m.p(18), m.p(4)))
+        dialog_label(dialog, '이 PC에서 볼 서비스를 고르세요. 위젯은 사용량을 읽기만 합니다.', m, FONT_SUB, MUTED,
+              wrap=360, anchor='w', padx=pad, pady=(0, m.p(14)))
+        notes, dots, actions = {}, {}, {}
         for key in FETCHERS:
+            dialog_rule(dialog, m, padx=pad)
             block = tk.Frame(dialog, bg=BG)
-            block.pack(fill='x', padx=16, pady=6)
+            block.pack(fill='x', padx=pad, pady=(m.p(12), m.p(12)))
             row = tk.Frame(block, bg=BG)
             row.pack(fill='x')
-            tk.Checkbutton(
-                row, text=TITLES[key], variable=chosen[key], bg=BG, fg=TEXT, selectcolor=CARD,
-                activebackground=BG, activeforeground=TEXT, font=FONT_SERVICE, highlightthickness=0, bd=0,
-            ).pack(side='left')
-            note = tk.Label(row, text=login_status(key), bg=BG, fg=DIM, font=FONT_META)
-            note.pack(side='left', padx=8)
-            notes[key] = note
-            label, action = prepare_action(key)
+            ThemedCheck(row, TITLES[key], chosen[key], m).pack(side='left')
+            state = tk.Frame(block, bg=BG)
+            state.pack(anchor='w', padx=(m.p(28), 0), pady=(m.p(2), 0))
+            dot = tk.Canvas(state, width=m.p(6), height=m.p(6), bg=BG, bd=0, highlightthickness=0)
+            dot.pack(side='left', padx=(0, m.p(6)))
+            note = dialog_label(state, '', m, FONT_META, MUTED, wrap=300)
+            note.pack(side='left')
+            notes[key], dots[key] = note, dot
+            dialog_label(block, SERVICE_NEEDS[key], m, FONT_META, DIM, wrap=312, anchor='w',
+                  padx=(m.p(28), 0), pady=(m.p(4), 0))
             controls = tk.Frame(block, bg=BG)
-            controls.pack(anchor='w', pady=(4, 0))
-            button = tk.Button(
-                controls, text=label, bg=CARD, fg=TEXT, bd=0, padx=10, pady=3, cursor='hand2',
-                command=lambda a=action: self._service_setup_action(a),
-            )
+            controls.pack(anchor='w', padx=(m.p(28), 0), pady=(m.p(8), 0))
+            text, action = prepare_action(key)
+            button = ThemedButton(controls, text, lambda a=action: self._service_setup_action(a), m)
             button.pack(side='left')
             actions[key] = button
             if key == 'claude':
@@ -1495,31 +1617,30 @@ class UsageWidget:
                     # The login turns Claude on; keep the dialog from turning it back off.
                     chosen['claude'].set(True)
                     self._claude_integration_action('claude-login')
-                tk.Button(
-                    controls, text='Claude 로그인', bg=CARD, fg=TEXT, bd=0, padx=10, pady=3, cursor='hand2',
-                    command=claude_login,
-                ).pack(side='left', padx=(6, 0))
-        tk.Label(
-            dialog,
-            text='Claude 연동은 ~/.claude/settings.json을 자동으로 바꾸지 않습니다. 연동 버튼을 눌렀을 때만 statusLine wrapper를 설치합니다.',
-            bg=BG, fg=DIM, font=FONT_META, wraplength=340, justify='left',
-        ).pack(anchor='w', padx=16, pady=(4, 4))
+                ThemedButton(controls, 'Claude 로그인', claude_login, m).pack(side='left', padx=(m.p(6), 0))
+        dialog_rule(dialog, m, padx=pad)
         buttons = tk.Frame(dialog, bg=BG)
-        buttons.pack(fill='x', padx=16, pady=(8, 14))
+        buttons.pack(fill='x', padx=pad, pady=(m.p(16), m.p(18)))
         first_run = should_setup(self.settings, self.preview)
         alive = {'on': True}
 
         def refresh_status():
+            # Every 2 s while open, so a login done from here shows up here.
             if not alive['on']:
                 return
             for key in FETCHERS:
-                notes[key].configure(text=login_status(key))
-                label, action = prepare_action(key)
-                actions[key].configure(text=label, command=lambda a=action: self._service_setup_action(a))
-        try:
-            dialog.after(2000, refresh_status)
-        except tk.TclError:
-            alive['on'] = False
+                status = login_status(key)
+                notes[key].configure(text=status)
+                ready = login_present(key) if key != 'claude' else status.startswith('연동 설정됨')
+                d = m.p(6)
+                dots[key].delete('all')
+                dots[key].create_oval(0, 0, d, d, fill='#22C55E' if ready else WARN, outline='')
+                text, action = prepare_action(key)
+                actions[key].set_label(text, lambda a=action: self._service_setup_action(a))
+            try:
+                dialog.after(2000, refresh_status)
+            except tk.TclError:
+                alive['on'] = False
 
         def finish_prepare():
             need_codex = chosen['chatgpt'].get() and not login_present('chatgpt')
@@ -1550,18 +1671,19 @@ class UsageWidget:
             alive['on'] = False
             dialog.destroy()
 
-        tk.Button(buttons, text='확인', command=commit, bg=CARD, fg=TEXT, bd=0, padx=12, pady=4, cursor='hand2').pack(side='right')
+        ThemedButton(buttons, '확인', commit, m, PRIMARY).pack(side='right')
         if not first_run:
-            tk.Button(buttons, text='취소', command=cancel, bg=BG, fg=MUTED, bd=0, padx=12, pady=4, cursor='hand2').pack(side='right', padx=(0, 8))
+            ThemedButton(buttons, '취소', cancel, m).pack(side='right', padx=(0, m.p(8)))
+            dialog.bind('<Escape>', lambda e: cancel())
         dialog.protocol('WM_DELETE_WINDOW', commit if first_run else cancel)
         dialog.bind('<Destroy>', lambda e: alive.update(on=False) if e.widget is dialog else None)
-        dialog.update_idletasks()
+        refresh_status()
         try:
             ref_x, ref_y = self.root.winfo_rootx(), self.root.winfo_rooty()
         except tk.TclError:
             ref_x, ref_y = 0, 0
         place_on_screen_center(dialog, ref_x, ref_y)
-        refresh_status()
+        dialog.deiconify()
         try:
             dialog.grab_set()
             dialog.wait_window()
