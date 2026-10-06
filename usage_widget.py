@@ -1071,6 +1071,8 @@ class UsageWidget:
         self._update_busy = False
         self._overlay = 0
         self._menu_held = False
+        # How many times the menu was posted; a release only counts for the latest.
+        self._menu_post = 0
         self.tip = Tip(self.root, lambda: self.metrics)
         self._load_icons()
         self.build()
@@ -1408,13 +1410,21 @@ class UsageWidget:
                 time.sleep(0.05)
         threading.Thread(target=lift, daemon=True, name='menu-z').start()
 
-    def _release_menu(self):
+    def _release_menu(self, post=None):
         """Clear the held state however the menu was dismissed.
 
         tk_popup only returns once the popup has gone, so reaching here means
         the menu is closed: by a command, a click outside, Escape, another
         window taking focus, or shutdown. The state must never survive it.
+
+        post: which posting this release is for. A right-click while the menu
+        is open closes it and posts it again at once, and the first posting's
+        release, queued with after(0), then ran inside the second one: the
+        widget took the hold for over and rose above the open menu, again
+        every 2 s. A release for an older posting is ignored.
         """
+        if post is not None and post != self._menu_post:
+            return
         if self._menu_held:
             self._menu_held = False
             if not self._overlay and not self.closing:
@@ -2101,6 +2111,8 @@ class UsageWidget:
     def popup(self, event):
         self.tip.hide()
         self._fill_usage_pages()
+        self._menu_post += 1
+        post = self._menu_post
         if not self._menu_held:
             self._menu_held = True
             self._arm_menu_raise()
@@ -2112,9 +2124,9 @@ class UsageWidget:
             except tk.TclError:
                 pass
             try:
-                self.root.after(0, self._release_menu)
+                self.root.after(0, self._release_menu, post)
             except tk.TclError:
-                self._release_menu()
+                self._release_menu(post)
 
     def bind_drag(self, widget):
         widget.bind('<ButtonPress-1>', self.start_drag)

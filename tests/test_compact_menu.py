@@ -335,6 +335,26 @@ class ContextMenuZOrderTests(unittest.TestCase):
         self.w.root.update()
         self.assertFalse(self.w._menu_held)
 
+    def test_a_right_click_while_the_menu_is_open_keeps_the_new_menu_held(self):
+        # Windows closes the open menu and posts the new one at once. The first
+        # posting's release, queued with after(0), runs inside the second
+        # menu's loop; it used to drop the hold, and the widget rose over the
+        # menu that was still open.
+        held = []
+
+        def second_menu(*a):
+            self.w.root.update()        # queued callbacks run while a menu is up
+            held.append(self.w._menu_held)
+
+        with patch.object(self.w, '_arm_menu_raise'):
+            with patch.object(self.w.menu, 'tk_popup'):
+                self.w.popup(SimpleNamespace(x_root=10, y_root=10))
+            with patch.object(self.w.menu, 'tk_popup', side_effect=second_menu):
+                self.w.popup(SimpleNamespace(x_root=40, y_root=10))
+        self.assertEqual(held, [True])
+        self.w.root.update()
+        self.assertFalse(self.w._menu_held, 'the last menu closing still releases the hold')
+
     def test_the_guard_applies_to_both_modes(self):
         for compact in (True, False):
             with self.subTest(mode='compact' if compact else 'detail'):
