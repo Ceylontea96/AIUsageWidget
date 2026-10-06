@@ -65,6 +65,18 @@ class LayoutTests(unittest.TestCase):
                     self.assertGreater(w.body_view.yview()[0], 0)
                     self.assertAlmostEqual(w.body_view.yview()[1], 1, places=2)
 
+    def test_only_a_card_that_changed_lays_the_window_out_again(self):
+        w = self.w
+        same = replace(w.snapshots['claude'], fetched_at=w.snapshots['claude'].fetched_at + 2)
+        with patch.object(w, 'relayout', wraps=w.relayout) as layout:
+            # A newer check of the same values: only the check age moves.
+            w.snapshots['claude'] = same
+            w.render('claude')
+            layout.assert_not_called()
+            w.snapshots['claude'] = replace(same, stale=True)
+            w.render('claude')
+            layout.assert_called_once_with()
+
     def test_cache_restores_valid_cards_with_one_layout_and_skips_bad_entries(self):
         w = self.w
         w.snapshots.clear()

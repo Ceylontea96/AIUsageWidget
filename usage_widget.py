@@ -2312,8 +2312,9 @@ class UsageWidget:
                 self.apply_mode()
             return
         snap = self.snapshots[key]
-        self.cards[key].render(snap)
-        if relayout:
+        # Claude's cache is read every 2 s, mostly with nothing new. Laying the
+        # window out again then cost 1-4 ms each time and changed nothing.
+        if self.cards[key].render(snap) and relayout:
             self.relayout()
         hero = representative_percent(snap)
         value = '—' if hero is None else f'{hero:.0f}%'

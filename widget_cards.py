@@ -733,6 +733,7 @@ class Card(BarShimmer, tk.Frame):
         self.configure(width=self.metrics.card_w, height=self.height)
 
     def render(self,snap):
+        """Show snap; True when the card was repainted, so its size may have changed."""
         # Mid-entrance the ring shows a fraction of its value, which is no reading
         # to mark a change from: new data there is not a reset.
         entering = self._enter_t0 is not None
@@ -765,7 +766,7 @@ class Card(BarShimmer, tk.Frame):
         signature = json.dumps(visual,sort_keys=True)
         self._snap = snap
         if signature == self.last_signature:
-            return
+            return False
         self.last_signature = signature
         # New data ends the entrance; the usual tween goes on from where it got to.
         self._enter_t0 = None
@@ -784,6 +785,7 @@ class Card(BarShimmer, tk.Frame):
             self._shown_pcts = targets
             self._hero_shown = self._hero_target
         self._paint(snap, self._shown_pcts)
+        return True
 
     def _arm_anim(self):
         self._sync_frames()
