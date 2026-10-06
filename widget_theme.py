@@ -71,7 +71,8 @@ TOKENS = {'width': 380,
            'track': '#202327',
            'fg': '#E7E8EC',
            'fg_muted': '#8B8F99',
-           'fg_dim': '#5B6069',
+           # 4.6:1 on the cards; #5B6069 (3.0:1) was hard to read at 10-11 px.
+           'fg_dim': '#7A7F8A',
            'codex': '#10A37F',
            'cursor': '#A78BFA',
            'claude': '#C96442',
@@ -84,7 +85,8 @@ TOKENS = {'width': 380,
            'chip_codex_fill': '#1F6B5A',
            'chip_cursor_fill': '#5B4A9E',
            'chip_claude_fill': '#6B3A2A',
-           'chip_warn_fill': '#C48A22',
+           # The chip's light label reads 4.5:1 on it; on #C48A22 it was 2.9:1.
+           'chip_warn_fill': '#996C1B',
            'chip_danger_fill': '#B44545',
            'chip_stale_fill': '#3A4252'}}
 BG, CARD, HAIR, TRACK = (TOKENS['color'][k] for k in ('bg_window','bg_card','hairline','track'))
