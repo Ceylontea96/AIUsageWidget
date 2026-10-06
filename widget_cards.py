@@ -602,9 +602,14 @@ class Card(BarShimmer, tk.Frame):
         self._snap = None
         self._additional_expanded = False
         self._additional_max_body = 0
-        self.rows = tk.Canvas(self,width=m.card_w,height=self.height,bg=BG,bd=0,highlightthickness=0,cursor='hand2')
+        self.rows = tk.Canvas(self,width=m.card_w,height=self.height,bg=BG,bd=0,highlightthickness=0)
         self.rows.pack()
         self.rows.bind('<Button-1>', self._clicked)
+        self.rows.bind('<Motion>', self._hovered)
+        self.rows.bind('<Leave>', lambda e: self._hover_link(False))
+        # (x1, y1, x2, y2) of the ↗ beside the title that opens the usage page.
+        self._page_link = None
+        self._link_lit = False
         self.rows.configure(takefocus=True)
         self.rows.bind('<Return>', self._toggle_card)
         self.rows.bind('<space>', self._toggle_card)
@@ -625,8 +630,29 @@ class Card(BarShimmer, tk.Frame):
                 return kind
         return ''
 
+    def _on_page_link(self, x, y):
+        box = self._page_link
+        return box is not None and x is not None and box[0] <= x <= box[2] and box[1] <= y <= box[3]
+
+    def _hovered(self, event):
+        """A hand only over what a click acts on: the title row, the ↗ and the buttons."""
+        link = self._on_page_link(event.x, event.y)
+        self._hover_link(link)
+        acts = link or event.y < self.metrics.p(54) or bool(self._action_at(event.x, event.y))
+        cursor = 'hand2' if acts else ''
+        if self.rows.cget('cursor') != cursor:
+            self.rows.configure(cursor=cursor)
+
+    def _hover_link(self, on):
+        if on != self._link_lit:
+            self._link_lit = on
+            self.rows.itemconfigure('page_link', fill=TEXT if on else MUTED)
+
     def _clicked(self, event):
         x = getattr(event, 'x', None)
+        if self._on_page_link(x, event.y):
+            webbrowser.open(URLS.get(self.key, ''))
+            return
         action = '' if x is None else self._action_at(x, event.y)
         if action == 'retry' and self.on_retry:
             self.on_retry()
@@ -636,8 +662,8 @@ class Card(BarShimmer, tk.Frame):
             return
         if event.y < self.metrics.p(54) and self.on_toggle:
             self._toggle_card()
-        else:
-            webbrowser.open(URLS.get(self.key, ''))
+        # The rest of the card is for reading. A click there used to open the
+        # usage page, which a stray click on the ring or a bar did unasked.
 
     def _toggle_card(self, event=None):
         if self.on_toggle:
@@ -1136,7 +1162,13 @@ class Card(BarShimmer, tk.Frame):
         c.configure(bg=CARD)
         if self._service_icon is not None:
             c.create_image(m.p(27),m.p(27),image=self._service_icon,tags='service_icon')
-        text(46,18,TITLES[self.key],FONT_SERVICE)
+        title = text(46,18,TITLES[self.key],FONT_SERVICE)
+        # The usage page opens from here only, with room round the arrow to hit it.
+        left = (c.bbox(title) or (0, 0, m.p(80), 0))[2] + m.p(5)
+        link = c.create_text(left, m.p(27), text='↗', anchor='w', font=m.font(FONT_ROW),
+                             fill=TEXT if self._link_lit else MUTED, tags='page_link')
+        box = c.bbox(link)
+        self._page_link = (box[0] - m.p(4), m.p(14), box[2] + m.p(4), m.p(40)) if box else None
         if self.on_toggle:
             # Same colour as the header's line icons, centred on the service icon row.
             c.create_image(m.p(8), m.p(27), tags='collapse_toggle')

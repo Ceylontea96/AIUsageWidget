@@ -214,6 +214,29 @@ class LayoutTests(unittest.TestCase):
             card._toggle_card()
             self.assertFalse(card.collapsed)
 
+    def test_only_the_arrow_beside_the_title_opens_the_usage_page(self):
+        card = self.w.cards['chatgpt']
+        self.w.root.update_idletasks()
+        x1, y1, x2, y2 = card._page_link
+        link = SimpleNamespace(x=(x1 + x2) / 2, y=(y1 + y2) / 2)
+        ring = SimpleNamespace(x=card.metrics.p(58), y=card.metrics.p(96))
+        with patch.object(u.webbrowser, 'open') as browser:
+            card._clicked(ring)
+            browser.assert_not_called()
+            self.assertFalse(card.collapsed)
+            card._clicked(link)
+            browser.assert_called_once_with(u.URLS['chatgpt'])
+            self.assertFalse(card.collapsed, 'the arrow opens the page, it does not fold the card')
+        # A hand only where a click does something.
+        card._hovered(ring)
+        self.assertEqual(card.rows.cget('cursor'), '')
+        card._hovered(link)
+        self.assertEqual(card.rows.cget('cursor'), 'hand2')
+        self.assertEqual(card.rows.itemcget('page_link', 'fill'), u.TEXT)
+        card._hovered(SimpleNamespace(x=card.metrics.p(200), y=card.metrics.p(20)))
+        self.assertEqual(card.rows.cget('cursor'), 'hand2')
+        self.assertEqual(card.rows.itemcget('page_link', 'fill'), u.MUTED)
+
     def test_wheel_is_scoped_and_does_not_double_scroll_additional(self):
         w = self.w
         with patch.object(w.body_view, 'yview_scroll') as scroll:
