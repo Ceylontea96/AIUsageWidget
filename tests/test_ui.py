@@ -396,6 +396,36 @@ class UiTests(unittest.TestCase):
         w.mini_pill.hide()
         self.assertIsNone(w.mini_pill._pulse_after)
 
+    def test_update_pill_pulses_three_times_then_rests(self):
+        w=self.w
+        u.UpdatePill.animate=True
+        pill=w.update_pill
+        w.update_info={'version':'9.9.9','zip':'https://example.com/a.zip','notes':''}
+        w.set_update_chrome()
+        beats=[]
+        for tick in range(200):
+            if pill._pulse_after is None:
+                break
+            pill._stop_pulse()
+            pill._pulse_tick()
+            beats.append(pill._pulse_amount())
+        self.assertTrue(pill._resting)
+        self.assertIsNone(pill._pulse_after)
+        # Three whole beats, ending where the resting shade is.
+        self.assertEqual(len(beats), 3*pill._PULSE_PERIOD//pill._PULSE_MS)
+        self.assertEqual(beats[-1], 0.5)
+        self.assertEqual(max(beats), 1.0)
+        # Laying the window out again shows it, but does not start it again.
+        w.set_update_chrome()
+        self.assertIsNone(pill._pulse_after)
+        pill._set_hover(True)
+        pill._set_hover(False)
+        self.assertIsNone(pill._pulse_after)
+        # Appearing again does.
+        pill.hide()
+        w.set_update_chrome()
+        self.assertIsNotNone(pill._pulse_after)
+
     def test_update_pill_has_tip_when_pending(self):
         w=self.w
         self.assertEqual(w.update_pill.tip_text, '')

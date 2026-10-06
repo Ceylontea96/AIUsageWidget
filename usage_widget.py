@@ -733,6 +733,10 @@ class UpdatePill(tk.Canvas):
     animate = True
     _PULSE_MS = 50
     _PULSE_PERIOD = 1200
+    # It pulses this many times when it appears, then rests at the pulse's
+    # middle shade. Pulsing until the update was installed redrew it 16 times
+    # a second for as long as that took, sometimes days.
+    _PULSE_BEATS = 3
 
     def __init__(self, parent, command, metrics=None, tip=None):
         self.metrics = metrics or Metrics()
@@ -742,6 +746,8 @@ class UpdatePill(tk.Canvas):
         self.text, self.ready, self.hover, self.width_px = '', False, False, 0
         self._pulse_after = None
         self._pulse_phase = 0.0
+        self._pulse_left = None   # steps of the pulse still to show
+        self._resting = False
         self.bind('<Button-1>', self._click)
         self.bind('<Enter>', lambda e: self._set_hover(True))
         self.bind('<Leave>', lambda e: self._set_hover(False))
@@ -763,6 +769,9 @@ class UpdatePill(tk.Canvas):
                 break
         else:
             width = min(font.measure(text) + pad * 2, max_width)
+        if ready and not (self.ready and self.text):
+            # Appearing, or ready again after installing failed: pulse anew.
+            self._resting, self._pulse_left = False, None
         self.text, self.ready, self.width_px, self.tip_text = text, ready, max(1, int(width)), hint
         self.configure(width=self.width_px, height=self.metrics.pill_h, cursor='hand2' if ready else 'arrow')
         self._sync_pulse(0.0)
@@ -773,6 +782,7 @@ class UpdatePill(tk.Canvas):
 
     def hide(self):
         self._stop_pulse()
+        self._resting, self._pulse_left = False, None
         if self.tip and (self.hover or getattr(self.tip, '_widget', None) is self):
             self.tip.hide()
         self.text, self.ready, self.hover, self.tip_text = '', False, False, ''
@@ -804,12 +814,18 @@ class UpdatePill(tk.Canvas):
             self.tip.hide()
 
     def _sync_pulse(self, phase=0.0):
-        if self.ready and self.animate and not self.hover and self.text:
+        if self.ready and self.animate and not self.hover and self.text and not self._resting:
             if self._pulse_after is None:
                 self._pulse_phase = phase
+                if self._pulse_left is None:
+                    self._pulse_left = self._PULSE_BEATS * self._PULSE_PERIOD // self._PULSE_MS
                 self._schedule_pulse()
         else:
             self._stop_pulse()
+
+    def _pulse_amount(self):
+        # Stepped, so the pulse reuses a handful of cached images.
+        return round(0.5 * (1.0 + math.sin(self._pulse_phase)) * PILL_PULSE_STEPS) / PILL_PULSE_STEPS
 
     def _schedule_pulse(self):
         try:
@@ -836,11 +852,17 @@ class UpdatePill(tk.Canvas):
         except tk.TclError:
             return
         self._pulse_phase += 2 * math.pi * (self._PULSE_MS / self._PULSE_PERIOD)
+        self._pulse_left -= 1
+        # Once its beats are shown it stops where it passes the resting shade,
+        # so the last frame and the rest look the same.
+        if self._pulse_left <= 0 and self._pulse_amount() == 0.5:
+            self._resting = True
         try:
             self._redraw()
         except tk.TclError:
             return
-        self._schedule_pulse()
+        if not self._resting:
+            self._schedule_pulse()
 
     def _redraw(self):
         self.delete('all')
@@ -851,8 +873,7 @@ class UpdatePill(tk.Canvas):
             if self.hover:
                 amount = 1.0
             elif self.animate:
-                # Stepped, so the pulse reuses a handful of cached images.
-                amount = round(0.5 * (1.0 + math.sin(self._pulse_phase)) * PILL_PULSE_STEPS) / PILL_PULSE_STEPS
+                amount = 0.5 if self._resting else self._pulse_amount()
             else:
                 amount = 0.28
             fill = raster.blend(CODEX, raster.lighten(CODEX), amount)
