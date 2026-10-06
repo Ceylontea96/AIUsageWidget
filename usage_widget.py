@@ -36,7 +36,7 @@ from codex_app_server import CodexAppServer
 from runtime import AlertGate, AuthWatcher, CodexJob, PollRunner, ToastSender, WorkerJob, limiting_quota, login_present, login_status, prepare_action, session_locked, start_tool_setup
 from updater import APP_VERSION, CHECK_EVERY, LAUNCHER_EXE, download_and_stage, fetch_latest, is_git_checkout, load_feed_url, start_apply, update_confirm_text
 from win32_windows import (
-    clamp_position, keep_topmost_style, lift_menu_windows, lift_owned_popups, monitor_area, process_alive,
+    clamp_position, dwm_round_corners, keep_topmost_style, lift_menu_windows, lift_owned_popups, monitor_area, process_alive,
     set_over_taskbar, show_window, terminate_pid, widget_windows, windows_for_pid, work_area,
 )
 from win32_curtain import Curtain
@@ -968,6 +968,8 @@ class UsageWidget:
         self.icons = {}
         self._layout = None
         self._region_h = None
+        # Whether Windows rounds the window itself (Windows 11); None until asked.
+        self._dwm_corners = None
         # The still copy held over the widget while a card folds (see _held_still):
         # the row its new space opens at while it is up, else None.
         self._curtain = Curtain(BG)
@@ -1701,7 +1703,7 @@ class UsageWidget:
                 if self.root.winfo_viewable():
                     self._held_split = card.winfo_rooty() + card.winfo_height() - self.root.winfo_rooty()
                     scrolled = bool(self.body_scroll.winfo_ismapped())
-                    held = self._curtain.cover(self._widget_hwnd(), self.metrics.p(28))
+                    held = self._curtain.cover(self._widget_hwnd())
             except tk.TclError:
                 pass
         if not held:
@@ -1877,13 +1879,17 @@ class UsageWidget:
             # where the window ends up (relayout keeps it on screen, which can
             # move it up), and move the window there in the step it grows.
             top = clamp_position(place[0], place[1], m.window_w, height, *place[2:]) if place else None
-            if self._curtain.extend(height, self._held_split, m.p(28), top) and top:
+            if self._curtain.extend(height, self._held_split, top) and top:
                 size += geometry_at(*top)
         self.root.geometry(size)
         # Refresh before the newly visible detail widgets are painted.
         self._refresh_visible_clocks()
         self.root.update_idletasks()
-        if not self.preview and height != self._region_h:
+        if not self.preview and self._dwm_corners is None:
+            self._dwm_corners = dwm_round_corners(self._widget_hwnd(), HAIR)
+        if not self.preview and not self._dwm_corners and height != self._region_h:
+            # Without Windows 11's own rounding, a region cuts the corners:
+            # stepped, with the border line missing along the curve.
             # Region coordinates include the whole frameless window.
             try:
                 gdi = ctypes.windll.gdi32
@@ -2680,11 +2686,6 @@ def main():
         app.root.update_idletasks()
         hwnd = int(app.root.winfo_id())
         instance.identify(hwnd)
-        try:
-            pref = ctypes.c_int(2)
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), 33, ctypes.byref(pref), ctypes.sizeof(pref))
-        except (AttributeError, OSError):
-            pass
         app.root.mainloop()
     finally:
         instance.close()

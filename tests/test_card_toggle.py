@@ -149,11 +149,11 @@ class FakeCurtain:
     def __init__(self, events, works=True):
         self.events, self.works = events, works
 
-    def cover(self, owner, corner):
+    def cover(self, owner):
         self.events.append(('cover',))
         return self.works
 
-    def extend(self, height, split, corner, top=None):
+    def extend(self, height, split, top=None):
         self.events.append(('extend', height, split, top))
         return True
 
@@ -168,6 +168,8 @@ class HeldStillTests(unittest.TestCase):
         w = self.w = open_widget(self)
         w.root.update()                    # mapped, so the parts can be painted
         w.preview = False
+        # Windows 10's way: a region rounds the window. Windows 11's is tested below.
+        w._dwm_corners = False
         self.events = []
         w._curtain = FakeCurtain(self.events)
         paint = w._paint_now
@@ -230,6 +232,13 @@ class HeldStillTests(unittest.TestCase):
         # The window took its new size and place in one step, not grown and then lifted.
         self.assertIn(f'{w.metrics.window_w}x{height}+{top[0]}+{top[1]}',
                       [call.args[0] for call in geometry.call_args_list if call.args])
+
+    def test_where_windows_rounds_the_window_no_region_is_set(self):
+        self.w._dwm_corners = True
+        self.w.toggle_card('chatgpt')
+        self.w.toggle_card('chatgpt')
+        self.assertNotIn('region', self.names())
+        self.assertEqual(self.names()[:3], ['cover', 'paint', 'uncover'])
 
     def test_without_a_copy_the_card_folds_as_before(self):
         self.w._curtain.works = False

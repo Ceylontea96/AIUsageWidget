@@ -6,6 +6,10 @@ as it landed: when a card folded, for 40-100 ms the widget showed cards drawn
 over each other, one card twice, or the desktop through a gap. A copy of the
 old picture, held over the widget until the new one is fully painted, turns
 that into one change.
+
+The copy is taken from the screen rather than from the window, so it holds the
+window as it is seen: the corners, border and whatever shows past the corners,
+as Windows 11 draws them round the window, match pixel for pixel.
 """
 from __future__ import annotations
 
@@ -39,7 +43,6 @@ def _api():
     user32.GetDC.argtypes = [hwnd]
     user32.ReleaseDC.argtypes = [hwnd, hdc]
     user32.FillRect.argtypes = [hdc, ctypes.POINTER(wintypes.RECT), handle]
-    user32.SetWindowRgn.argtypes = [hwnd, handle, wintypes.BOOL]
     user32.SetWindowPos.argtypes = [hwnd, hwnd, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
                                     wintypes.UINT]
     user32.UpdateLayeredWindow.argtypes = [hwnd, hdc, ctypes.POINTER(wintypes.POINT), ctypes.POINTER(wintypes.SIZE),
@@ -58,8 +61,6 @@ def _api():
                              ctypes.c_int, wintypes.DWORD]
     gdi32.CreateSolidBrush.restype = handle
     gdi32.CreateSolidBrush.argtypes = [wintypes.COLORREF]
-    gdi32.CreateRoundRectRgn.restype = handle
-    gdi32.CreateRoundRectRgn.argtypes = [ctypes.c_int] * 6
     gdi32.GdiFlush.argtypes = []
     dwmapi.DwmSetWindowAttribute.argtypes = [hwnd, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
     return user32, gdi32, dwmapi
@@ -95,8 +96,8 @@ class Curtain:
     def shown(self):
         return self.hwnd is not None
 
-    def cover(self, owner, corner):
-        """Show the owner's picture as it is now, over it, with corners rounded like the owner's.
+    def cover(self, owner):
+        """Show what the screen shows of the owner now, over it.
 
         False if any step failed; nothing is left on screen then.
         """
@@ -110,10 +111,15 @@ class Curtain:
             width, height = rect.right - rect.left, rect.bottom - rect.top
             if width <= 0 or height <= 0 or not self._new_picture(width, height):
                 return False
-            source = _user32.GetDC(owner)
-            copied = bool(source) and _gdi32.BitBlt(self._dc, 0, 0, width, height, source, 0, 0, _SRCCOPY)
+            # The screen, not the window's own picture: that has square corners
+            # and no border where Windows 11 rounds the window. With the screen
+            # composed by Windows this needs no CAPTUREBLT, which can make the
+            # mouse pointer flicker.
+            source = _user32.GetDC(None)
+            copied = bool(source) and _gdi32.BitBlt(self._dc, 0, 0, width, height, source,
+                                                    rect.left, rect.top, _SRCCOPY)
             if source:
-                _user32.ReleaseDC(owner, source)
+                _user32.ReleaseDC(None, source)
             # A new window each time: a hidden one kept between folds would still
             # hold an old picture for anything that showed it.
             self.hwnd = _user32.CreateWindowExW(_EX_STYLE, 'Static', None, _WS_POPUP, 0, 0, 0, 0, owner,
@@ -124,7 +130,7 @@ class Curtain:
             off = wintypes.BOOL(True)
             _dwmapi.DwmSetWindowAttribute(self.hwnd, _DWMWA_TRANSITIONS_FORCEDISABLED, ctypes.byref(off),
                                           ctypes.sizeof(off))
-            if not self._show(corner, wintypes.POINT(rect.left, rect.top)):
+            if not self._show(wintypes.POINT(rect.left, rect.top)):
                 self.uncover()
                 return False
             _user32.SetWindowPos(self.hwnd, wintypes.HWND(-1), 0, 0, 0, 0, _SHOW)
@@ -133,7 +139,7 @@ class Curtain:
             self.uncover()
             return False
 
-    def extend(self, height, split, corner, top=None):
+    def extend(self, height, split, top=None):
         """Grow the copy to height by opening space at row split; what was below it moves down.
 
         top: the screen point to move it to in the same step, as the window will be.
@@ -153,7 +159,7 @@ class Curtain:
             _gdi32.DeleteObject(brush)
             _gdi32.BitBlt(self._dc, 0, 0, width, split, dc, 0, 0, _SRCCOPY)
             _gdi32.BitBlt(self._dc, 0, split + height - old, width, old - split, dc, 0, split, _SRCCOPY)
-            return self._show(corner, wintypes.POINT(*top) if top else None)
+            return self._show(wintypes.POINT(*top) if top else None)
         except (ctypes.ArgumentError, OSError, TypeError, ValueError):
             return False
         finally:
@@ -186,12 +192,8 @@ class Curtain:
         self._dc, self._bitmap, self.size = dc, bitmap, (width, height)
         return True
 
-    def _show(self, corner, where=None):
+    def _show(self, where=None):
         width, height = self.size
-        # The region first: growing, the window must not show its new rows unrounded, or cut off.
-        region = _gdi32.CreateRoundRectRgn(0, 0, width + 1, height + 1, corner, corner)
-        if region and not _user32.SetWindowRgn(self.hwnd, region, False):
-            _gdi32.DeleteObject(region)
         blend = _Blend(0, 0, 255, 0)
         return bool(_user32.UpdateLayeredWindow(
             self.hwnd, None, ctypes.byref(where) if where else None, ctypes.byref(wintypes.SIZE(width, height)),

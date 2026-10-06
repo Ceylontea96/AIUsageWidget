@@ -62,6 +62,34 @@ def clamp_position(x, y, w, h, work, monitor):
     return x, y
 
 
+DWMWA_WINDOW_CORNER_PREFERENCE = 33
+DWMWA_BORDER_COLOR = 34
+DWMWCP_ROUND = 2
+
+
+def dwm_round_corners(hwnd, border):
+    """Have Windows 11 round the window: smooth corners, a soft shadow and a
+    border of colour `border` ('#RRGGBB') drawn along them.
+
+    False where Windows cannot (Windows 10 rejects the attribute); the caller
+    then rounds the window with a region instead, whose corners are stepped.
+    """
+    try:
+        api = ctypes.windll.dwmapi
+        api.DwmSetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+        api.DwmSetWindowAttribute.restype = ctypes.c_long
+        corner = ctypes.c_int(DWMWCP_ROUND)
+        if api.DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ctypes.byref(corner),
+                                     ctypes.sizeof(corner)) != 0:
+            return False
+        value = int(border.lstrip('#'), 16)
+        colour = wintypes.DWORD((value & 0xFF) << 16 | (value & 0xFF00) | (value >> 16 & 0xFF))  # 0x00BBGGRR
+        api.DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ctypes.byref(colour), ctypes.sizeof(colour))
+        return True
+    except (AttributeError, OSError, ValueError, ctypes.ArgumentError):
+        return False
+
+
 def set_over_taskbar(root, on=True):
     try:
         hwnd = ctypes.c_void_p(int(root.wm_frame(), 16))

@@ -3,6 +3,7 @@ import ctypes
 import tkinter as tk
 import unittest
 from ctypes import wintypes
+from unittest.mock import patch
 
 import win32_curtain
 from tests.tk_support import destroy_root
@@ -52,7 +53,7 @@ class CurtainTests(unittest.TestCase):
             gdi32.DeleteObject(brush)
 
     def test_covers_the_window_with_a_window_that_lets_clicks_through(self):
-        self.assertTrue(self.curtain.cover(self.owner, 8))
+        self.assertTrue(self.curtain.cover(self.owner))
         hwnd = self.curtain.hwnd
         self.assertTrue(user32.IsWindowVisible(hwnd))
         self.assertEqual(rect_of(hwnd), rect_of(self.owner))
@@ -64,10 +65,27 @@ class CurtainTests(unittest.TestCase):
         self.assertIsNone(self.curtain.hwnd)
         self.assertFalse(user32.IsWindow(hwnd))   # nothing hidden is kept holding an old picture
 
+    def test_the_copy_is_taken_from_the_screen_where_the_window_is(self):
+        # Not from the window's own picture, which lacks the corners and the
+        # border Windows 11 draws round it.
+        blits = []
+        blit = win32_curtain._gdi32.BitBlt
+
+        def record(dest, x, y, width, height, source, sx, sy, op):
+            blits.append((x, y, width, height, sx, sy))
+            return blit(dest, x, y, width, height, source, sx, sy, op)
+
+        with patch.object(win32_curtain._user32, 'GetDC', wraps=win32_curtain._user32.GetDC) as get_dc, \
+                patch.object(win32_curtain._gdi32, 'BitBlt', side_effect=record):
+            self.assertTrue(self.curtain.cover(self.owner))
+        get_dc.assert_called_once_with(None)
+        left, top, right, bottom = rect_of(self.owner)
+        self.assertEqual(blits, [(0, 0, right - left, bottom - top, left, top)])
+
     def test_growing_opens_space_at_the_split_and_moves_the_rest_down(self):
-        self.curtain.cover(self.owner, 8)
+        self.curtain.cover(self.owner)
         self.paint(RED, BLUE, 30)
-        self.curtain.extend(120, 30, 8)
+        self.curtain.extend(120, 30)
         self.assertEqual(self.curtain.size, (120, 120))
         left, top, right, bottom = rect_of(self.curtain.hwnd)
         self.assertEqual((right - left, bottom - top), (120, 120))
@@ -77,21 +95,21 @@ class CurtainTests(unittest.TestCase):
         self.assertEqual([pixel(y) for y in (70, 119)], [BLUE, BLUE])
 
     def test_never_shrinks(self):
-        self.curtain.cover(self.owner, 8)
-        self.curtain.extend(60, 10, 8)
+        self.curtain.cover(self.owner)
+        self.curtain.extend(60, 10)
         self.assertEqual(self.curtain.size, (120, 80))
 
     def test_without_a_window_to_cover_nothing_is_shown(self):
-        self.assertFalse(self.curtain.cover(0, 8))
+        self.assertFalse(self.curtain.cover(0))
         self.assertIsNone(self.curtain.hwnd)
-        self.curtain.extend(200, 10, 8)
+        self.curtain.extend(200, 10)
         self.curtain.uncover()
 
     def test_without_win32_it_declines(self):
         saved = win32_curtain._user32
         win32_curtain._user32 = None
         try:
-            self.assertFalse(self.curtain.cover(self.owner, 8))
+            self.assertFalse(self.curtain.cover(self.owner))
         finally:
             win32_curtain._user32 = saved
 
